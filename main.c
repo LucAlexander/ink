@@ -104,8 +104,8 @@ lex_string(parser* const parse){
 	while (parse->text_index < parse->text.len){
 		char c = parse->text.str[parse->text_index];
 		t->index = parse->token_count;
-		t->name.str = &parse->text.str[parse->text_index];
-		t->name.len = 0;
+		t->data.name.str = &parse->text.str[parse->text_index];
+		t->data.name.len = 0;
 		parse->text_index += 1;
 		switch (c){
 		case ' ':
@@ -136,21 +136,23 @@ lex_string(parser* const parse){
 		case AMPERSAND_TOKEN:
 		case HOLE_TOKEN:
 			t->tag = c;
+			t->content_tag = STRING_TOKEN_TYPE;
 			pool_request(parse->token_mem, sizeof(token));
 			parse->token_count += 1;
 			t = &parse->tokens[parse->token_count];
 			continue;
 		case '"':
 			t->tag = STRING_TOKEN;
-			t->name.len += 1;
+			t->content_tag = STRING_TOKEN_TYPE;
+			t->data.name.len += 1;
 			while (parse->text_index < parse->text.len){
 				c = parse->text.str[parse->text_index];
 				parse->text_index += 1;
 				if (c == '"'){
-					t->name.len += 1;
+					t->data.name.len += 1;
 					break;
 				}
-				t->name.len += 1;
+				t->data.name.len += 1;
 			}
 			pool_request(parse->token_mem, sizeof(token));
 			parse->token_count += 1;
@@ -158,11 +160,12 @@ lex_string(parser* const parse){
 			continue;
 		case '\'':
 			t->tag = CHAR_TOKEN;
-			t->name.len += 2;
+			t->content_tag = INT_TOKEN_TYPE;
+			t->data.name.len += 2;
 			c = parse->text.str[parse->text_index];
 			parse->text_index += 1;
 			if (c == '\\'){
-				t->name.len += 1;
+				t->data.name.len += 1;
 				c = parse->text.str[parse->text_index];
 				parse->text_index += 1;
 				switch (c){
@@ -180,10 +183,10 @@ lex_string(parser* const parse){
 				case 'n': c = '\n'; break;
 				}
 			}
-			t->pos = c;
+			t->data.pos = c;
 			c = parse->text.str[parse->text_index];
 			parse->text_index += 1;
-			t->name.len += 1;
+			t->data.name.len += 1;
 			if (c != '\''){
 				string_set(parse->mem, &parse->err, "Expected '\'' to close character literal\n");
 				return;
@@ -224,17 +227,18 @@ lex_string(parser* const parse){
 			}
 		}
 		if (isalpha(c)){
-			t->name.len += 1;
+			t->data.name.len += 1;
 			t->tag = IDENTIFIER_TOKEN;
+			t->content_tag = STRING_TOKEN_TYPE;
 			c = parse->text.str[parse->text_index];
 			parse->text_index += 1;
 			while ((parse->text_index < parse->text.len) && (isalpha(c) || c == '_' || isdigit(c))){
-				t->name.len += 1;
+				t->data.name.len += 1;
 				c = parse->text.str[parse->text_index];
 				parse->text_index += 1;
 			}
 			parse->text_index -= 1;
-			TOKEN* tok = TOKEN_map_access(parse->keymap, t->name);
+			TOKEN* tok = TOKEN_map_access(parse->keymap, t->data.name);
 			if (tok != NULL){
 				t->tag = *tok;
 			}
@@ -244,17 +248,18 @@ lex_string(parser* const parse){
 			continue;
 		}
 		else if (issymbol(c)){
-			t->name.len += 1;
+			t->data.name.len += 1;
 			t->tag = SYMBOL_TOKEN;
+			t->content_tag = STRING_TOKEN_TYPE;
 			c = parse->text.str[parse->text_index];
 			parse->text_index += 1;
 			while ((parse->text_index < parse->text.len) && issymbol(c)){
-				t->name.len += 1;
+				t->data.name.len += 1;
 				c = parse->text.str[parse->text_index];
 				parse->text_index += 1;
 			}
 			parse->text_index -= 1;
-			TOKEN* tok = TOKEN_map_access(parse->keymap, t->name);
+			TOKEN* tok = TOKEN_map_access(parse->keymap, t->data.name);
 			if (tok != NULL){
 				t->tag = *tok;
 			}
@@ -265,9 +270,11 @@ lex_string(parser* const parse){
 		}
 		else if (isdigit(c) || c == '-'){ // TODO floats
 			t->tag = INTEGER_TOKEN;
-			t->pos = 0;
+			t->content_tag = UINT_TOKEN_TYPE;
+			t->data.pos = 0;
 			uint8_t neg = 0;
 			if (c == '-'){
+				t->content_tag = INT_TOKEN_TYPE;
 				neg = 1;
 				c = parse->text.str[parse->text_index];
 				parse->text_index += 1;
@@ -277,19 +284,19 @@ lex_string(parser* const parse){
 				parse->text_index += 1;
 				if (c == 'x'){
 					while (parse->text_index < parse->text.len){
-						uint64_t last = t->pos;
-						t->pos <<= 4;
+						uint64_t last = t->data.pos;
+						t->data.pos <<= 4;
 						if (c >= '0' && c <= '9'){
-							t->pos += (c - 48);
+							t->data.pos += (c - 48);
 						}
 						else if (c >= 'A' && c <= 'F'){
-							t->pos += (c - 55);
+							t->data.pos += (c - 55);
 						}
 						else if (c >= 'a' && c <= 'f'){
-							t->pos += (c - 87);
+							t->data.pos += (c - 87);
 						}
 						else{
-							t->pos = last;
+							t->data.pos = last;
 							parse->text_index -= 1;
 							break;
 						}
@@ -297,7 +304,8 @@ lex_string(parser* const parse){
 						parse->text_index += 1;
 					}
 					if (neg == 1){
-						t->neg = -t->pos;
+						uint64_t pos = t->data.pos;
+						t->data.neg = -pos;
 					}
 					pool_request(parse->token_mem, sizeof(token));
 					parse->token_count += 1;
@@ -310,13 +318,14 @@ lex_string(parser* const parse){
 							parse->text_index -= 1;
 							break;
 						}
-						t->pos <<= 1;
-						t->pos += (c-48);
+						t->data.pos <<= 1;
+						t->data.pos += (c-48);
 						c = parse->text.str[parse->text_index];
 						parse->text_index += 1;
 					}
 					if (neg == 1){
-						t->neg = -t->pos;
+						uint64_t pos = t->data.pos;
+						t->data.neg = pos;
 					}
 					pool_request(parse->token_mem, sizeof(token));
 					parse->token_count += 1;
@@ -329,13 +338,14 @@ lex_string(parser* const parse){
 							parse->text_index -= 1;
 							break;
 						}
-						t->pos <<= 3;
-						t->pos += (c-48);
+						t->data.pos <<= 3;
+						t->data.pos += (c-48);
 						c = parse->text.str[parse->text_index];
 						parse->text_index += 1;
 					}
 					if (neg == 1){
-						t->neg = -t->pos;
+						uint64_t pos = t->data.pos;
+						t->data.neg = -pos;
 					}
 					pool_request(parse->token_mem, sizeof(token));
 					parse->token_count += 1;
@@ -348,13 +358,14 @@ lex_string(parser* const parse){
 					parse->text_index -= 1;
 					break;
 				}
-				t->pos *= 10;
-				t->pos += (c-48);
+				t->data.pos *= 10;
+				t->data.pos += (c-48);
 				c = parse->text.str[parse->text_index];
 				parse->text_index += 1;
 			}
 			if (neg == 1){
-				t->neg = -t->pos;
+				uint64_t pos = t->data.pos;
+				t->data.neg = -pos;
 			}
 			pool_request(parse->token_mem, sizeof(token));
 			parse->token_count += 1;
@@ -430,25 +441,25 @@ show_tokens(token* tokens, uint64_t token_count){
 			break;
 		case IDENTIFIER_TOKEN:
 			printf("IDENTIFIER ");
-			string_print(&t.name);
+			string_print(&t.data.name);
 			printf(" ");
 			break;
 		case SYMBOL_TOKEN:
 			printf("SYMBOL ");
-			string_print(&t.name);
+			string_print(&t.data.name);
 			printf(" ");
 			break;
 		case STRING_TOKEN:
 			printf("STRING ");
-			string_print(&t.name);
+			string_print(&t.data.name);
 			printf(" ");
 			break;
 		case CHAR_TOKEN:
-			char c = t.pos;
+			char c = t.data.neg;
 			printf("CHAR %c ", c);
 			break;
 		case INTEGER_TOKEN:
-			printf("INTEGER %lu (%ld) ", t.pos, t.neg);
+			printf("INTEGER %lu (%ld) ", t.data.pos, t.data.neg);
 			break;
 		case ARROW_TOKEN:
 			printf("ARROW -> ");

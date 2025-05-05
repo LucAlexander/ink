@@ -58,9 +58,16 @@ typedef enum TOKEN {
 MAP_DECL(TOKEN);
 
 typedef struct token {
-	string name; // TODO unionize
-	uint64_t pos;
-	int64_t neg;
+	enum {
+		STRING_TOKEN_TYPE,
+		UINT_TOKEN_TYPE,
+		INT_TOKEN_TYPE
+	} content_tag;
+	union{
+		string name;
+		uint64_t pos;
+		int64_t neg;
+	} data;
 	uint64_t index;
 	TOKEN tag;
 } token;
@@ -88,5 +95,201 @@ compiler compile_str(string input);
 uint8_t issymbol(char c);
 void lex_string(parser* const parse);
 void parse_string(parser* const parse);
+
+typedef struct type_ast type_ast;
+typedef struct alias_ast alias_ast;
+typedef struct typedef_ast typedef_ast;
+typedef struct typeclass_ast typeclass_ast;
+typedef struct implementation_ast implementation_ast;
+typedef struct structure_ast structure_ast;
+typedef struct literal_ast literal_ast;
+typedef struct pattern_ast pattern_ast;
+typedef struct expr_ast expr_ast;
+typedef struct term_ast term_ast;
+
+typedef struct alias_ast {
+	string name;
+	type_ast* type;
+} alias_ast;
+
+typedef struct typedef_ast {
+	string name;
+	string* params;
+	uint64_t param_count;
+	type_ast* type;
+} typedef_ast;
+
+typedef struct typeclass_ast {
+	string name;
+	string param;
+	term_ast* members;
+	uint64_t member_count;
+} typeclass_ast;
+
+typedef struct implementation_ast {
+	string type;
+	string typeclass;
+	term_ast* members;
+	uint64_t member_count;
+} implementation_ast;
+
+typedef struct structure_ast {
+	string name;
+	string* params;
+	uint64_t param_count;
+	union {
+		struct {
+			type_ast* members;
+			uint64_t count;
+		} structure, union_structure;
+		struct {
+			string* names;
+			uint64_t* values;
+			uint64_t count;
+		} enumeration;
+	} data;
+	enum {
+		STRUCT_STRUCT,
+		UNION_STRUCT,
+		ENUM_STRUCT
+	} tag;
+} structure_ast;
+
+typedef struct literal_ast {
+	union {
+		uint64_t u;
+		int64_t i;
+	} data;
+	enum {
+		INT_LITERAL,
+		UINT_LITERAL
+	} tag;
+} literal_ast;
+
+typedef struct pattern_ast {
+	union {
+		struct {
+			pattern_ast* members;
+			uint64_t count;
+			string name;
+			uint8_t named;
+		} structure;
+		struct {
+			pattern_ast* ptr;
+			pattern_ast* len;
+		} fat_ptr;
+		string binding;
+		struct {
+			pattern_ast* nest;
+			string member;
+		} union_selector;
+		literal_ast literal;
+	} data;
+	enum {
+		STRUCT_PATTERN,
+		FAT_PTR_PATTERN,
+		HOLE_PATTERN,
+		BINDING_PATTERN,
+		LITERAL_PATTERN,
+		UNION_SELECTOR_PATTERN
+	} tag;
+} pattern_ast;
+
+typedef struct type_ast {
+	union {
+		struct {
+			string* typeclass_dependancies;
+			string* dependancy_typenames;
+			uint64_t dependancy_count;
+			type_ast* type;
+		} dependancy;
+		struct {
+			type_ast* left;
+			type_ast* right;
+		} function;
+		enum {
+			INT_LIT_TYPE,
+			UINT_LIT_TYPE
+		} lit;
+		type_ast* ptr;
+		struct {
+			type_ast* ptr;
+			uint64_t len;
+		} fat_ptr;
+		structure_ast structure;
+		struct {
+			string name;
+			type_ast* args;
+			uint64_t arg_count;
+		} named;
+	} data;
+	enum {
+		DEPENDANCY_TYPE,
+		FUNCTION_TYPE,
+		LIT_TYPE,
+		PTR_TYPE,
+		FAT_PTR_TYPE,
+		STRUCT_TYPE,
+		NAMED_TYPE
+	} tag;
+} type_ast;
+
+typedef struct expr_ast {
+	type_ast* type;
+	union {
+		struct {
+			expr_ast* left;
+			expr_ast* right;
+		} appl;
+		struct {
+			expr_ast* args;
+			expr_ast* expression;
+			expr_ast* alt;
+			uint64_t arg_count;
+		} lambda;
+		struct {
+			expr_ast* lines;
+			uint64_t line_count;
+		} block, list;
+		literal_ast literal;
+		string str, binding;
+		term_ast* term;
+		struct {
+			expr_ast* members;
+			string* names;
+			uint64_t member_count;
+		} constructor;
+		struct {
+			expr_ast* left;
+			expr_ast* right;
+		} mutation;
+		expr_ast* ret;
+		expr_ast* ref;
+		expr_ast* deref;
+		pattern_ast pattern;
+	} data;
+	enum {
+		APPL_EXPR,
+		LAMBDA_EXPR,
+		BLOCK_EXPR,
+		LIT_EXPR,
+		TERM_EXPR,
+		STRING_EXPR,
+		LIST_EXPR,
+		STRUCT_EXPR,
+		BINDING_EXPR,
+		MUTATION_EXPR,
+		RETURN_EXPR,
+		PATTERN_EXPR,
+		REF_EXPR,
+		DEREF_EXPR,
+	} tag;
+} expr_ast;
+
+typedef struct term_ast {
+	type_ast* type;
+	string name;
+	expr_ast* expression;
+} term_ast;
 
 #endif

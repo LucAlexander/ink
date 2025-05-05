@@ -66,45 +66,24 @@ compile_file(const char* input, const char* output){
 
 void
 keymap_fill(TOKEN_map* const map){
-	uint64_t keyword_count = TOKEN_COUNT-INTEGER_TOKEN;
-	TOKEN* tokens = pool_request(map->mem, sizeof(TOKEN)*keyword_count);
-	for (uint8_t i = 0;i<keyword_count;++i){
-		tokens[i] = i+INTEGER_TOKEN;
-	}
-	TOKEN_map_insert(map, string_init(map->mem, "->"), *tokens);
-	tokens += 1;
-	TOKEN_map_insert(map, string_init(map->mem, "if"), *tokens);
-	tokens += 1;
-	TOKEN_map_insert(map, string_init(map->mem, "else"), *tokens);
-	tokens += 1;
-	TOKEN_map_insert(map, string_init(map->mem, "match"), *tokens);
-	tokens += 1;
-	TOKEN_map_insert(map, string_init(map->mem, "while"), *tokens);
-	tokens += 1;
-	TOKEN_map_insert(map, string_init(map->mem, "for"), *tokens);
-	tokens += 1;
-	TOKEN_map_insert(map, string_init(map->mem, "var"), *tokens);
-	tokens += 1;
-	TOKEN_map_insert(map, string_init(map->mem, "alias"), *tokens);
-	tokens += 1;
-	TOKEN_map_insert(map, string_init(map->mem, "type"), *tokens);
-	tokens += 1;
-	TOKEN_map_insert(map, string_init(map->mem, "struct"), *tokens);
-	tokens += 1;
-	TOKEN_map_insert(map, string_init(map->mem, "enum"), *tokens);
-	tokens += 1;
-	TOKEN_map_insert(map, string_init(map->mem, "union"), *tokens);
-	tokens += 1;
-	TOKEN_map_insert(map, string_init(map->mem, "=>"), *tokens);
-	tokens += 1;
-	TOKEN_map_insert(map, string_init(map->mem, "typeclass"), *tokens);
-	tokens += 1;
-	TOKEN_map_insert(map, string_init(map->mem, "implements"), *tokens);
-	tokens += 1;
-	TOKEN_map_insert(map, string_init(map->mem, "return"), *tokens);
-	tokens += 1;
-	TOKEN_map_insert(map, string_init(map->mem, "sizeof"), *tokens);
-	tokens += 1;
+	TOKEN_map_insert(map, string_init(map->mem, "->"), ARROW_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "if"), IF_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "else"), ELSE_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "match"), MATCH_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "while"), WHILE_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "for"), FOR_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "var"), VAR_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "alias"), ALIAS_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "type"), TYPE_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "struct"), STRUCT_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "enum"), ENUM_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "union"), UNION_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "=>"), DOUBLE_ARROW_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "typeclass"), TYPECLASS_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "implements"), IMPLEMENTS_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "return"), RETURN_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "import"), IMPORT_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "sizeof"), SIZEOF_TOKEN);
 }
 
 uint8_t
@@ -216,6 +195,34 @@ lex_string(parser* const parse){
 		default:
 			break;
 		}
+		if (c == '/'){
+			char k = parse->text.str[parse->text_index];
+			if (k == '/'){
+				while (parse->text_index < parse->text.len){
+					c = parse->text.str[parse->text_index];
+					parse->text_index += 1;
+					if (c == '\n'){
+						break;
+					}
+				}
+				continue;
+			}
+			else if (k == '*'){
+				parse->text_index += 1;
+				while (parse->text_index < parse->text.len){
+					c = parse->text.str[parse->text_index];
+					parse->text_index += 1;
+					if (c == '*'){
+						k = parse->text.str[parse->text_index];
+						if (k == '/'){
+							parse->text_index += 1;
+							break;
+						}
+					}
+				}
+				continue;
+			}
+		}
 		if (isalpha(c)){
 			t->name.len += 1;
 			t->tag = IDENTIFIER_TOKEN;
@@ -283,6 +290,7 @@ lex_string(parser* const parse){
 						}
 						else{
 							t->pos = last;
+							parse->text_index -= 1;
 							break;
 						}
 						c = parse->text.str[parse->text_index];
@@ -299,6 +307,7 @@ lex_string(parser* const parse){
 				else if (c == 'b'){
 					while (parse->text_index < parse->text.len){
 						if (c!='0'||c!='1'){
+							parse->text_index -= 1;
 							break;
 						}
 						t->pos <<= 1;
@@ -317,6 +326,7 @@ lex_string(parser* const parse){
 				else if (c == 'o'){
 					while (parse->text_index < parse->text.len){
 						if (c < '0' && c > '7'){
+							parse->text_index -= 1;
 							break;
 						}
 						t->pos <<= 3;
@@ -335,6 +345,7 @@ lex_string(parser* const parse){
 			}
 			while (parse->text_index < parse->text.len){
 				if (isdigit(c) == 0){
+					parse->text_index -= 1;
 					break;
 				}
 				t->pos *= 10;
@@ -486,6 +497,9 @@ show_tokens(token* tokens, uint64_t token_count){
 			break;
 		case RETURN_TOKEN:
 			printf("RETURN ");
+			break;
+		case IMPORT_TOKEN:
+			printf("IMPORT ");
 			break;
 		case SIZEOF_TOKEN:
 			printf("SIZEOF ");

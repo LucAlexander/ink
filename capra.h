@@ -9,7 +9,7 @@
 
 #define DEBUG
 
-typedef enum TOKEN { // TODO comments, imports
+typedef enum TOKEN {
 	PAREN_OPEN_TOKEN='(',
 	PAREN_CLOSE_TOKEN=')',
 	BRACK_OPEN_TOKEN='[',
@@ -50,6 +50,7 @@ typedef enum TOKEN { // TODO comments, imports
 	TYPECLASS_TOKEN,
 	IMPLEMENTS_TOKEN,
 	RETURN_TOKEN,
+	IMPORT_TOKEN,
 	SIZEOF_TOKEN,
 	TOKEN_COUNT
 } TOKEN;

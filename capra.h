@@ -103,8 +103,12 @@ void parse_program(parser* const parse);
 type_ast* parse_type(parser* const parse, uint8_t named, TOKEN end);
 type_ast* parse_type_worker(parser* const parse, uint8_t named, TOKEN end);
 structure_ast* parse_struct_type(parser* const parse);
-void show_type(type_ast* type);
+void show_type(type_ast* const type);
 void show_structure(structure_ast* const s);
+alias_ast* parse_alias(parser* const parse);
+typedef_ast* parse_typedef(parser* const parse);
+void show_alias(alias_ast* const alias);
+void show_typedef(typedef_ast* const type);
 
 typedef struct alias_ast {
 	string name;

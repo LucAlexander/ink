@@ -961,7 +961,7 @@ parse_struct_type(parser* const parse){
 }
 
 void
-show_type(type_ast* type){
+show_type(type_ast* const type){
 	switch (type->tag){
 	case DEPENDENCY_TYPE:
 		printf("(");
@@ -1088,6 +1088,88 @@ parse_program(parser* const parse){
 	show_type(g);
 	printf("\n");
 	parse->token_index += 1;
+	alias_ast* alias = parse_alias(parse);
+	show_alias(alias);
+	printf("\n");
+	parse->token_index += 1;
+	typedef_ast* type = parse_typedef(parse);
+	show_typedef(type);
+	printf("\n");
+	parse->token_index += 1;
+}
+
+alias_ast*
+parse_alias(parser* const parse){
+	token* t = &parse->tokens[parse->token_index];
+	parse->token_index += 1;
+	assert(t->tag == ALIAS_TOKEN);
+	t = &parse->tokens[parse->token_index];
+	parse->token_index += 1;
+	assert(t->tag == IDENTIFIER_TOKEN);
+	alias_ast* alias = pool_request(parse->mem, sizeof(alias_ast));
+	alias->name = t->data.name;
+	t = &parse->tokens[parse->token_index];
+	parse->token_index += 1;
+	assert(t->tag == EQUAL_TOKEN);
+	alias->type = parse_type(parse, 0, SEMI_TOKEN);
+	return alias;
+}
+
+typedef_ast*
+parse_typedef(parser* const parse){
+	token* t = &parse->tokens[parse->token_index];
+	parse->token_index += 1;
+	assert(t->tag == TYPE_TOKEN);
+	t = &parse->tokens[parse->token_index];
+	parse->token_index += 1;
+	assert(t->tag == IDENTIFIER_TOKEN);
+	typedef_ast* type = pool_request(parse->mem, sizeof(typedef_ast));
+	type->name = t->data.name;
+	type->param_count = 0;
+	uint64_t save = parse->token_index;
+	while (parse->token_index < parse->token_count){
+		t = &parse->tokens[parse->token_index];
+		parse->token_index += 1;
+		if (t->tag == EQUAL_TOKEN){
+			break;
+		}
+		type->param_count += 1;
+	}
+	parse->token_index = save;
+	type->params = pool_request(parse->mem, sizeof(string)*type->param_count);
+	for (uint64_t i = 0;i<type->param_count;++i){
+		t = &parse->tokens[parse->token_index];
+		parse->token_index += 1;
+		assert(t->tag == IDENTIFIER_TOKEN);
+		type->params[i] = t->data.name;
+	}
+	t = &parse->tokens[parse->token_index];
+	parse->token_index += 1;
+	assert(t->tag == EQUAL_TOKEN);
+	type->type = parse_type(parse, 0, SEMI_TOKEN);
+	return type;
+}
+
+void
+show_alias(alias_ast* const alias){
+	printf("alias ");
+	string_print(&alias->name);
+	printf(" = ");
+	show_type(alias->type);
+}
+
+void
+show_typedef(typedef_ast* const type){
+	printf("type ");
+	string_print(&type->name);
+	for (uint64_t i = 0;i<type->param_count;++i){
+		if (i != 0){
+			printf(" ");
+		}
+		string_print(&type->params[i]);
+	}
+	printf(" = ");
+	show_type(type->type);
 }
 
 int

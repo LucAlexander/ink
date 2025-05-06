@@ -40,6 +40,14 @@ typedef enum TOKEN {
 	MATCH_TOKEN,
 	WHILE_TOKEN,
 	FOR_TOKEN,
+	U8_TOKEN,
+	U16_TOKEN,
+	U32_TOKEN,
+	U64_TOKEN,
+	I8_TOKEN,
+	I16_TOKEN,
+	I32_TOKEN,
+	I64_TOKEN,
 	VAR_TOKEN,
 	ALIAS_TOKEN,
 	TYPE_TOKEN,
@@ -74,28 +82,6 @@ typedef struct token {
 
 void show_tokens(token* tokens, uint64_t token_count);
 
-typedef struct parser {
-	pool* mem;
-	pool* token_mem;
-	TOKEN_map* keymap;
-	token* tokens;
-	string text;
-	uint64_t text_index;
-	uint64_t token_count;
-	string err;
-} parser;
-
-typedef struct compiler {
-	pool* mem;
-} compiler;
-
-void keymap_fill(TOKEN_map* const map);
-void compile_file(const char* input, const char* output);
-compiler compile_str(string input);
-uint8_t issymbol(char c);
-void lex_string(parser* const parse);
-void parse_string(parser* const parse);
-
 typedef struct type_ast type_ast;
 typedef struct alias_ast alias_ast;
 typedef struct typedef_ast typedef_ast;
@@ -106,6 +92,19 @@ typedef struct literal_ast literal_ast;
 typedef struct pattern_ast pattern_ast;
 typedef struct expr_ast expr_ast;
 typedef struct term_ast term_ast;
+typedef struct parser parser;
+
+void keymap_fill(TOKEN_map* const map);
+void compile_file(const char* input, const char* output);
+void compile_str(string input);
+uint8_t issymbol(char c);
+void lex_string(parser* const parse);
+void parse_program(parser* const parse);
+type_ast* parse_type(parser* const parse, uint8_t named, TOKEN end);
+type_ast* parse_type_worker(parser* const parse, uint8_t named, TOKEN end);
+structure_ast* parse_struct_type(parser* const parse);
+void show_type(type_ast* type);
+void show_structure(structure_ast* const s);
 
 typedef struct alias_ast {
 	string name;
@@ -139,6 +138,7 @@ typedef struct structure_ast {
 	uint64_t param_count;
 	union {
 		struct {
+			string* names;
 			type_ast* members;
 			uint64_t count;
 		} structure, union_structure;
@@ -198,33 +198,40 @@ typedef struct pattern_ast {
 typedef struct type_ast {
 	union {
 		struct {
-			string* typeclass_dependancies;
-			string* dependancy_typenames;
-			uint64_t dependancy_count;
+			string* typeclass_dependencies;
+			string* dependency_typenames;
+			uint64_t dependency_count;
 			type_ast* type;
-		} dependancy;
+		} dependency;
 		struct {
 			type_ast* left;
 			type_ast* right;
 		} function;
 		enum {
-			INT_LIT_TYPE,
-			UINT_LIT_TYPE
+			U8_TYPE,
+			U16_TYPE,
+			U32_TYPE,
+			U64_TYPE,
+			I8_TYPE,
+			I16_TYPE,
+			I32_TYPE,
+			I64_TYPE
 		} lit;
 		type_ast* ptr;
 		struct {
 			type_ast* ptr;
 			uint64_t len;
 		} fat_ptr;
-		structure_ast structure;
+		structure_ast* structure;
 		struct {
 			string name;
 			type_ast* args;
 			uint64_t arg_count;
 		} named;
 	} data;
+	uint8_t variable;
 	enum {
-		DEPENDANCY_TYPE,
+		DEPENDENCY_TYPE,
 		FUNCTION_TYPE,
 		LIT_TYPE,
 		PTR_TYPE,
@@ -291,5 +298,28 @@ typedef struct term_ast {
 	string name;
 	expr_ast* expression;
 } term_ast;
+
+MAP_DECL(typedef_ast);
+MAP_DECL(alias_ast);
+MAP_DECL(typeclass_ast);
+MAP_DECL(implementation_ast);
+MAP_DECL(term_ast);
+
+typedef struct parser {
+	pool* mem;
+	pool* token_mem;
+	TOKEN_map* keymap;
+	token* tokens;
+	string text;
+	uint64_t text_index;
+	uint64_t token_count;
+	uint64_t token_index;
+	string err;
+	typedef_ast_map* types;
+	alias_ast_map* aliases;
+	typeclass_ast_map* typeclasses;
+	implementation_ast_map* implementations;
+	term_ast_map* terms;
+} parser;
 
 #endif

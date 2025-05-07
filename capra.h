@@ -109,6 +109,10 @@ alias_ast* parse_alias(parser* const parse);
 typedef_ast* parse_typedef(parser* const parse);
 void show_alias(alias_ast* const alias);
 void show_typedef(typedef_ast* const type);
+typeclass_ast* parse_typeclass(parser* const parse);
+implementation_ast* parse_implementation(parser* const parse);
+void show_typeclass(typeclass_ast* const class);
+void show_implementation(implementation_ast* const impl);
 
 typedef struct alias_ast {
 	string name;

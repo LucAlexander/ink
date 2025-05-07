@@ -591,7 +591,12 @@ parse_type(parser* const parse, uint8_t named, TOKEN end){
 				found = 1;
 				break;
 			}
+			if (t->tag == ARROW_TOKEN){
+				found = 0;
+				break;
+			}
 		}
+		parse->token_index = save;
 		if (found == 1){
 			outer = pool_request(parse->mem, sizeof(type_ast));
 			outer->tag = DEPENDENCY_TYPE;
@@ -599,7 +604,6 @@ parse_type(parser* const parse, uint8_t named, TOKEN end){
 			outer->data.dependency.typeclass_dependencies = pool_request(parse->mem, sizeof(string)*capacity);
 			outer->data.dependency.dependency_typenames = pool_request(parse->mem, sizeof(string)*capacity);
 			outer->data.dependency.dependency_count = 0;
-			parse->token_index = save;
 			while (parse->token_index < parse->token_count){
 				t = &parse->tokens[parse->token_index];
 				parse->token_index += 1;
@@ -640,8 +644,11 @@ parse_type(parser* const parse, uint8_t named, TOKEN end){
 				}
 			}
 		}
+		else {
+			parse->token_index -= 1;
+		}
 	}
-	else {
+	else{
 		parse->token_index -= 1;
 	}
 	type_ast* inner = parse_type_worker(parse, named, end);
@@ -1096,6 +1103,9 @@ parse_program(parser* const parse){
 	show_typedef(type);
 	printf("\n");
 	parse->token_index += 1;
+	typeclass_ast* class = parse_typeclass(parse);
+	show_typeclass(class);
+	printf("\n");
 }
 
 alias_ast*
@@ -1163,13 +1173,85 @@ show_typedef(typedef_ast* const type){
 	printf("type ");
 	string_print(&type->name);
 	for (uint64_t i = 0;i<type->param_count;++i){
-		if (i != 0){
-			printf(" ");
-		}
+		printf(" ");
 		string_print(&type->params[i]);
 	}
 	printf(" = ");
 	show_type(type->type);
+}
+
+typeclass_ast*
+parse_typeclass(parser* const parse){
+	token* t = &parse->tokens[parse->token_index];
+	parse->token_index += 1;
+	assert(t->tag == TYPECLASS_TOKEN);
+	t = &parse->tokens[parse->token_index];
+	parse->token_index += 1;
+	assert(t->tag == IDENTIFIER_TOKEN);
+	typeclass_ast* class = pool_request(parse->mem, sizeof(typeclass_ast));
+	class->name = t->data.name;
+	t = &parse->tokens[parse->token_index];
+	parse->token_index += 1;
+	assert(t->tag == IDENTIFIER_TOKEN);
+	class->param = t->data.name;
+	t = &parse->tokens[parse->token_index];
+	parse->token_index += 1;
+	assert(t->tag == BRACE_OPEN_TOKEN);
+	uint64_t capacity = 2;
+	class->member_count = 0;
+	class->members = pool_request(parse->mem, sizeof(term_ast)*capacity);
+	while (parse->token_index < parse->token_count){
+		type_ast* type = parse_type(parse, 1, SEMI_TOKEN);
+		t = &parse->tokens[parse->token_index];
+		parse->token_index += 2;
+		term_ast term = {
+			.type = type,
+			.name = t->data.name,
+			.expression = NULL
+		};
+		if (class->member_count == capacity){
+			capacity *= 2;
+			term_ast* members = pool_request(parse->mem, sizeof(term_ast)*capacity);
+			for (uint64_t i = 0;i<class->member_count;++i){
+				members[i] = class->members[i];
+			}
+			class->members = members;
+		}
+		class->members[class->member_count] = term;
+		class->member_count += 1;
+		t = &parse->tokens[parse->token_index];
+		if (t->tag == BRACE_CLOSE_TOKEN){
+			break;
+		}
+	}
+	return class;
+}
+
+implementation_ast*
+parse_implementation(parser* const parse){
+	//TODO
+	return NULL;
+}
+
+void
+show_typeclass(typeclass_ast* const class){
+	printf("typeclass ");
+	string_print(&class->name);
+	printf(" ");
+	string_print(&class->param);
+	printf(" {");
+	for (uint64_t i = 0;i<class->member_count;++i){
+		show_type(class->members[i].type);
+		printf(" ");
+		string_print(&class->members[i].name);
+		printf("; ");
+	}
+	printf("}");
+}
+
+void
+show_implementation(implementation_ast* const impl){
+	
 }
 
 int

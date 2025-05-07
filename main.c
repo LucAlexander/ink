@@ -139,7 +139,6 @@ lex_string(parser* const parse){
 		case '\t':
 		case '\n':
 			continue;
-		case AT_TOKEN:
 		case COLON_TOKEN:
 		case PIPE_TOKEN:
 		case ASTERISK_TOKEN:
@@ -147,6 +146,7 @@ lex_string(parser* const parse){
 			if (issymbol(parse->text.str[parse->text_index])){
 				break;
 			}
+		case AT_TOKEN:
 		case PAREN_OPEN_TOKEN:
 		case PAREN_CLOSE_TOKEN:
 		case BRACK_OPEN_TOKEN:
@@ -1106,6 +1106,10 @@ parse_program(parser* const parse){
 	typeclass_ast* class = parse_typeclass(parse);
 	show_typeclass(class);
 	printf("\n");
+	parse->token_index += 1;
+	pattern_ast* pat = parse_pattern(parse);
+	show_pattern(pat);
+	printf("\n");
 }
 
 alias_ast*
@@ -1279,7 +1283,7 @@ parse_pattern(parser* const parse){
 		return named;
 	}
 	if (t->tag == EQUAL_TOKEN){ // left=x
-		assert(t->tag == IDENTIFIER_TOKEN);
+		assert(outer->tag == IDENTIFIER_TOKEN);
 		pattern_ast* union_select = pool_request(parse->mem, sizeof(pattern_ast));
 		union_select->tag = UNION_SELECTOR_PATTERN;
 		union_select->data.union_selector.member = outer->data.name;
@@ -1309,6 +1313,7 @@ parse_pattern(parser* const parse){
 				pat->data.structure.members = members;
 			}
 			pat->data.structure.members[pat->data.structure.count] = *item;
+			pat->data.structure.count += 1;
 			t = &parse->tokens[parse->token_index];
 			if (t->tag == PAREN_CLOSE_TOKEN){
 				parse->token_index += 1;
@@ -1349,6 +1354,63 @@ parse_pattern(parser* const parse){
 		assert(0);
 	}
 	return pat;
+}
+
+void
+show_pattern(pattern_ast* pat){
+	switch (pat->tag){
+	case NAMED_PATTERN:
+		string_print(&pat->data.named.name);
+		printf("@");
+		show_pattern(pat->data.named.inner);
+		break;
+	case STRUCT_PATTERN:
+		printf("(");
+		for (uint64_t i = 0;i<pat->data.structure.count;++i){
+			if (i != 0){
+				printf(" ");
+			}
+			show_pattern(&pat->data.structure.members[i]);
+		}
+		printf(")");
+		break;
+	case FAT_PTR_PATTERN:
+		printf("[");
+		show_pattern(pat->data.fat_ptr.ptr);
+		printf(" ");
+		show_pattern(pat->data.fat_ptr.len);
+		printf("]");
+		break;
+	case HOLE_PATTERN:
+		printf("_");
+		break;
+	case BINDING_PATTERN:
+		string_print(&pat->data.binding);
+		break;
+	case LITERAL_PATTERN:
+		show_literal(&pat->data.literal);
+		break;
+	case STRING_PATTERN:
+		string_print(&pat->data.str);
+		break;
+	case UNION_SELECTOR_PATTERN:
+		string_print(&pat->data.union_selector.member);
+		printf("=");
+		show_pattern(pat->data.union_selector.nest);
+		break;
+	}
+}
+
+void
+show_literal(literal_ast* const lit){
+	switch(lit->tag){
+	case INT_LITERAL:
+		printf("%ld\n", lit->data.i);
+		break;
+	case UINT_LITERAL:
+		printf("%lu\n", lit->data.u);
+		break;
+	}
 }
 
 int

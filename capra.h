@@ -114,6 +114,8 @@ implementation_ast* parse_implementation(parser* const parse);
 void show_typeclass(typeclass_ast* const class);
 void show_implementation(implementation_ast* const impl);
 pattern_ast* parse_pattern(parser* const parse);
+void show_pattern(pattern_ast* pat);
+void show_literal(literal_ast* const lit);
 
 typedef struct alias_ast {
 	string name;

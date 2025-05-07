@@ -192,7 +192,7 @@ lex_string(parser* const parse){
 			parse->text_index += 1;
 			if (c == '\\'){
 				t->data.name.len += 1;
-				c = parse->text.str[parse->text_index];
+			c = parse->text.str[parse->text_index];
 				parse->text_index += 1;
 				switch (c){
 				case 'a': c = '\a'; break;
@@ -1229,8 +1229,17 @@ parse_typeclass(parser* const parse){
 
 implementation_ast*
 parse_implementation(parser* const parse){
-	//TODO
-	return NULL;
+	token* t = &parse->tokens[parse->token_index];
+	parse->token_index += 1;
+	assert(t->tag == IDENTIFIER_TOKEN);
+	implementation_ast* impl = pool_request(parse->mem, sizeof(implementation_ast));
+	impl->type = t->data.name;
+	t = &parse->tokens[parse->token_index];
+	parse->token_index += 1;
+	assert(t->tag == IDENTIFIER_TOKEN);
+	impl->typeclass = t->data.name;
+	//TODO parse member terms
+	return impl;
 }
 
 void
@@ -1251,7 +1260,95 @@ show_typeclass(typeclass_ast* const class){
 
 void
 show_implementation(implementation_ast* const impl){
-	
+	//TODO
+}
+
+pattern_ast*
+parse_pattern(parser* const parse){
+	token* t = &parse->tokens[parse->token_index];
+	parse->token_index += 1;
+	token* outer = t;
+	t = &parse->tokens[parse->token_index];
+	if (t->tag == AT_TOKEN){
+		assert(outer->tag == IDENTIFIER_TOKEN);
+		pattern_ast* named = pool_request(parse->mem, sizeof(pattern_ast));
+		named->tag = NAMED_PATTERN;
+		named->data.named.name = outer->data.name;
+		parse->token_index += 1;
+		named->data.named.inner = parse_pattern(parse);
+		return named;
+	}
+	if (t->tag == EQUAL_TOKEN){ // left=x
+		assert(t->tag == IDENTIFIER_TOKEN);
+		pattern_ast* union_select = pool_request(parse->mem, sizeof(pattern_ast));
+		union_select->tag = UNION_SELECTOR_PATTERN;
+		union_select->data.union_selector.member = outer->data.name;
+		parse->token_index += 1;
+		union_select->data.union_selector.nest = parse_pattern(parse);
+		return union_select;
+	}
+	pattern_ast* pat = pool_request(parse->mem, sizeof(pattern_ast));
+	switch (outer->tag){
+	case STRING_TOKEN:
+		pat->tag = STRING_PATTERN;
+		pat->data.str = outer->data.name;
+		break;
+	case PAREN_OPEN_TOKEN:
+		pat->tag = STRUCT_PATTERN;
+		uint64_t capacity = 2;
+		pat->data.structure.members = pool_request(parse->mem, sizeof(pattern_ast)*capacity);
+		pat->data.structure.count = 0;
+		while (parse->token_index < parse->token_count){
+			pattern_ast* item = parse_pattern(parse);
+			if (pat->data.structure.count == capacity){
+				capacity *= 2;
+				pattern_ast* members = pool_request(parse->mem, sizeof(pattern_ast)*capacity);
+				for (uint64_t i = 0;i<pat->data.structure.count;++i){
+					members[i] = pat->data.structure.members[i];
+				}
+				pat->data.structure.members = members;
+			}
+			pat->data.structure.members[pat->data.structure.count] = *item;
+			t = &parse->tokens[parse->token_index];
+			if (t->tag == PAREN_CLOSE_TOKEN){
+				parse->token_index += 1;
+				break;
+			}
+		}
+		break;
+	case BRACK_OPEN_TOKEN:
+		pat->tag = FAT_PTR_PATTERN;
+		pat->data.fat_ptr.ptr = parse_pattern(parse);
+		pat->data.fat_ptr.len = parse_pattern(parse);
+		t = &parse->tokens[parse->token_index];
+		parse->token_index += 1;
+		assert(t->tag == BRACK_CLOSE_TOKEN);
+		break;
+	case HOLE_TOKEN:
+		pat->tag = HOLE_PATTERN;
+		break;
+	case INTEGER_TOKEN:
+		pat->tag = LITERAL_PATTERN;
+		if (outer->content_tag == UINT_TOKEN_TYPE){
+			pat->data.literal.tag = UINT_LITERAL;
+			pat->data.literal.data.u = outer->data.pos;
+		}
+		else if (outer->content_tag == INT_TOKEN_TYPE){
+			pat->data.literal.tag = INT_LITERAL;
+			pat->data.literal.data.i = outer->data.neg;
+		}
+		else {
+			assert(0);
+		}
+		break;
+	case IDENTIFIER_TOKEN:
+		pat->tag = BINDING_PATTERN;
+		pat->data.binding = outer->data.name;
+		break;
+	default:
+		assert(0);
+	}
+	return pat;
 }
 
 int

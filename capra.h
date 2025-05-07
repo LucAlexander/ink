@@ -113,6 +113,7 @@ typeclass_ast* parse_typeclass(parser* const parse);
 implementation_ast* parse_implementation(parser* const parse);
 void show_typeclass(typeclass_ast* const class);
 void show_implementation(implementation_ast* const impl);
+pattern_ast* parse_pattern(parser* const parse);
 
 typedef struct alias_ast {
 	string name;
@@ -177,16 +178,19 @@ typedef struct literal_ast {
 typedef struct pattern_ast {
 	union {
 		struct {
+			string name;
+			pattern_ast* inner;
+		} named;
+		struct {
 			pattern_ast* members;
 			uint64_t count;
-			string name;
-			uint8_t named;
 		} structure;
 		struct {
 			pattern_ast* ptr;
 			pattern_ast* len;
 		} fat_ptr;
 		string binding;
+		string str;
 		struct {
 			pattern_ast* nest;
 			string member;
@@ -194,11 +198,13 @@ typedef struct pattern_ast {
 		literal_ast literal;
 	} data;
 	enum {
+		NAMED_PATTERN,
 		STRUCT_PATTERN,
 		FAT_PTR_PATTERN,
 		HOLE_PATTERN,
 		BINDING_PATTERN,
 		LITERAL_PATTERN,
+		STRING_PATTERN,
 		UNION_SELECTOR_PATTERN
 	} tag;
 } pattern_ast;
@@ -257,7 +263,7 @@ typedef struct expr_ast {
 			expr_ast* right;
 		} appl;
 		struct {
-			expr_ast* args;
+			pattern_ast* args;
 			expr_ast* expression;
 			expr_ast* alt;
 			uint64_t arg_count;

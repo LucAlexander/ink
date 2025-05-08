@@ -332,7 +332,8 @@ typedef struct expr_ast {
 		IF_EXPR,
 		FOR_EXPR,
 		WHILE_EXPR,
-		MATCH_EXPR
+		MATCH_EXPR,
+		NOP_EXPR
 	} tag;
 } expr_ast;
 

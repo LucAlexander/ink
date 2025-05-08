@@ -1449,6 +1449,8 @@ show_expression(expr_ast* expr){
 			show_expression(&expr->data.match.cases[i]);
 		}
 		break;
+	case NOP_EXPR:
+		printf("nop");
 	}
 }
 
@@ -1489,6 +1491,7 @@ parse_pattern(parser* const parse){
 		pat->data.structure.count = 0;
 		while (parse->token_index < parse->token_count){
 			pattern_ast* item = parse_pattern(parse);
+			assert_prop(NULL);
 			if (pat->data.structure.count == capacity){
 				capacity *= 2;
 				pattern_ast* members = pool_request(parse->mem, sizeof(pattern_ast)*capacity);
@@ -1509,7 +1512,9 @@ parse_pattern(parser* const parse){
 	case BRACK_OPEN_TOKEN:
 		pat->tag = FAT_PTR_PATTERN;
 		pat->data.fat_ptr.ptr = parse_pattern(parse);
+		assert_prop(NULL);
 		pat->data.fat_ptr.len = parse_pattern(parse);
+		assert_prop(NULL);
 		t = &parse->tokens[parse->token_index];
 		parse->token_index += 1;
 		assert_local(t->tag == BRACK_CLOSE_TOKEN, "expected ] to close fat pointer pattern\n", NULL);
@@ -1604,6 +1609,10 @@ parse_expr(parser* const parse, TOKEN end){
 	parse->token_index += 1;
 	expr_ast* expr = pool_request(parse->mem, sizeof(expr_ast));
 	expr_ast* outer = expr;
+	if (t->tag == end){
+		outer->tag = NOP_EXPR;
+		return outer;
+	}
 	while (parse->token_index < parse->token_count){
 		switch (t->tag){
 		case LAMBDA_TOKEN:
@@ -1618,6 +1627,7 @@ parse_expr(parser* const parse, TOKEN end){
 					break;
 				}
 				pattern_ast* arg = parse_pattern(parse);
+				assert_prop(NULL);
 				if (expr->data.lambda.arg_count == capacity){
 					pattern_ast* args = pool_request(parse->mem, sizeof(pattern_ast)*capacity);
 					for (uint64_t i = 0;i<expr->data.lambda.arg_count;++i){
@@ -1809,6 +1819,7 @@ parse_expr(parser* const parse, TOKEN end){
 			expr->data.match.cases = pool_request(parse->mem, sizeof(expr_ast)*match_capacity);
 			while (parse->token_index < parse->token_count){
 				pattern_ast* case_pattern = parse_pattern(parse);
+				assert_prop(NULL);
 				t = &parse->tokens[parse->token_index];
 				assert_local(t->tag == BRACE_OPEN_TOKEN, "expected { for pattern case in match\n", NULL);
 				expr_ast* case_expr = parse_expr(parse, BRACE_CLOSE_TOKEN);
@@ -1897,7 +1908,9 @@ parse_block_expression(parser* const parse, TOKEN end, expr_ast* const expr){
 		expr->data.block.line_count += 1;
 		t = &parse->tokens[parse->token_index];
 		if (t->tag == end){
-			break;
+			if (end != SEMI_TOKEN){
+				break;
+			}
 		}
 		if (t->tag == BRACE_CLOSE_TOKEN){
 			parse->token_index += 1;

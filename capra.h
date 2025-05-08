@@ -123,45 +123,46 @@ term_ast* parse_term(parser* const parse);
 void show_term(term_ast* term);
 void show_expression(expr_ast* expr);
 type_ast* parse_type_dependency(parser* const parse);
+void parse_import(parser* const parse);
 
 typedef struct alias_ast {
-	string name;
+	token name;
 	type_ast* type;
 } alias_ast;
 
 typedef struct typedef_ast {
-	string name;
-	string* params;
+	token name;
+	token* params;
 	uint64_t param_count;
 	type_ast* type;
 } typedef_ast;
 
 typedef struct typeclass_ast {
-	string name;
-	string param;
+	token name;
+	token param;
 	term_ast* members;
 	uint64_t member_count;
 } typeclass_ast;
 
 typedef struct implementation_ast {
-	string type;
-	string typeclass;
+	token type;
+	token typeclass;
 	term_ast* members;
 	uint64_t member_count;
 } implementation_ast;
 
 typedef struct structure_ast {
-	string name;
-	string* params;
+	token name;
+	token* params;
 	uint64_t param_count;
 	union {
 		struct {
-			string* names;
+			token* names;
 			type_ast* members;
 			uint64_t count;
 		} structure, union_structure;
 		struct {
-			string* names;
+			token* names;
 			uint64_t* values;
 			uint64_t count;
 		} enumeration;
@@ -187,7 +188,7 @@ typedef struct literal_ast {
 typedef struct pattern_ast {
 	union {
 		struct {
-			string name;
+			token name;
 			pattern_ast* inner;
 		} named;
 		struct {
@@ -198,11 +199,11 @@ typedef struct pattern_ast {
 			pattern_ast* ptr;
 			pattern_ast* len;
 		} fat_ptr;
-		string binding;
-		string str;
+		token binding;
+		token str;
 		struct {
 			pattern_ast* nest;
-			string member;
+			token member;
 		} union_selector;
 		literal_ast literal;
 	} data;
@@ -221,8 +222,8 @@ typedef struct pattern_ast {
 typedef struct type_ast {
 	union {
 		struct {
-			string* typeclass_dependencies;
-			string* dependency_typenames;
+			token * typeclass_dependencies;
+			token * dependency_typenames;
 			uint64_t dependency_count;
 			type_ast* type;
 		} dependency;
@@ -247,7 +248,7 @@ typedef struct type_ast {
 		} fat_ptr;
 		structure_ast* structure;
 		struct {
-			string name;
+			token name;
 			type_ast* args;
 			uint64_t arg_count;
 		} named;
@@ -282,12 +283,12 @@ typedef struct expr_ast {
 			uint64_t line_count;
 		} block, list;
 		literal_ast literal;
-		string str;
-		string binding;
+		token str;
+		token binding;
 		term_ast* term;
 		struct {
 			expr_ast* members;
-			string* names;
+			token * names;
 			uint64_t member_count;
 		} constructor;
 		struct {
@@ -296,7 +297,7 @@ typedef struct expr_ast {
 			expr_ast* alt;
 		} if_statement;
 		struct {
-			string binding;
+			token binding;
 			expr_ast* initial;
 			expr_ast* limit;
 			expr_ast* cons;
@@ -337,7 +338,7 @@ typedef struct expr_ast {
 
 typedef struct term_ast {
 	type_ast* type;
-	string name;
+	token name;
 	expr_ast* expression;
 } term_ast;
 
@@ -347,6 +348,7 @@ MAP_DECL(typeclass_ast);
 MAP_DECL(implementation_ast);
 MAP_DECL(implementation_ast_map);
 MAP_DECL(term_ast);
+MAP_DECL(uint8_t);
 
 typedef struct parser {
 	pool* mem;
@@ -364,6 +366,7 @@ typedef struct parser {
 	typeclass_ast_map* typeclasses;
 	implementation_ast_map_map* implementations;
 	term_ast_map* terms;
+	uint8_t_map* imported;
 } parser;
 
 #endif

@@ -13,7 +13,7 @@ MAP_IMPL(typeclass_ast);
 MAP_IMPL(implementation_ast);
 MAP_IMPL(implementation_ast_map);
 MAP_IMPL(term_ast);
-MAP_IMPL(uint8_t);
+MAP_IMPL(uint64_t);
 
 #define assert_local(c, r, s, ...)\
 	if (!(c)){\
@@ -30,7 +30,7 @@ MAP_IMPL(uint8_t);
 	}
 
 void
-compile_file(const char* input, const char* output){
+compile_file(char* input, const char* output){
 	FILE* fd = fopen(input, "r");
 	if (fd == NULL){
 		fprintf(stderr, "File '%s' could not be opened\n", input);
@@ -66,7 +66,7 @@ compile_file(const char* input, const char* output){
 	typeclass_ast_map typeclasses = typeclass_ast_map_init(&mem);
 	implementation_ast_map_map implementations = implementation_ast_map_map_init(&mem);
 	term_ast_map terms = term_ast_map_init(&mem);
-	uint8_t_map imported = uint8_t_map_init(&mem);
+	uint64_t_map imported = uint64_t_map_init(&mem);
 	parser parse = {
 		.mem = &mem,
 		.token_mem = &token_mem,
@@ -78,12 +78,18 @@ compile_file(const char* input, const char* output){
 		.token_index = 0,
 		.err.str = pool_request(&mem, ERROR_STRING_MAX),
 		.err.len = 0,
+		.err_token = 0,
 		.types = &types,
 		.aliases = &aliases,
 		.typeclasses = &typeclasses,
 		.implementations = &implementations,
 		.terms = &terms,
-		.imported = &imported
+		.imported = &imported,
+		.file_offsets=pool_request(&mem, 2*sizeof(string)),
+		.file_offset_capacity=2,
+		.file_offset_count=0,
+		.mainfile.str = input,
+		.mainfile.len = strnlen(input, ERROR_STRING_MAX)
 	};
 	parse.tokens = pool_request(parse.token_mem, sizeof(token));
 	lex_string(&parse);
@@ -99,8 +105,7 @@ compile_file(const char* input, const char* output){
 	parse_program(&parse);
 	if (parse.err.len != 0){
 		printf("Failed to parse, ");
-		string_print(&parse.err);
-		printf("\n");
+		show_error(&parse);
 	}
 }
 
@@ -1987,13 +1992,27 @@ parse_import(parser* const parse){
 	t = &parse->tokens[parse->token_index];
 	assert_local(t->tag == STRING_TOKEN, , "expected string path for import source");
 	parse->token_index += 1;
-	uint8_t* imported = uint8_t_map_access(parse->imported, t->data.name);
+	uint64_t* imported = uint64_t_map_access(parse->imported, t->data.name);
 	if (imported != NULL){
 		return;
 	}
-	uint8_t_map_insert(parse->imported, t->data.name, 1);
 	char* cstr_file = pool_request(parse->mem, t->data.name.len);
 	strncpy(cstr_file, t->data.name.str+1, t->data.name.len-2);
+	string offset_entry = {
+		.str = cstr_file,
+		.len = t->data.name.len-2
+	};
+	uint64_t_map_insert(parse->imported, offset_entry, parse->token_count);
+	if (parse->file_offset_count == parse->file_offset_capacity){
+		parse->file_offset_capacity *= 2;
+		string* new = pool_request(parse->mem, parse->file_offset_capacity*sizeof(string));
+		for (uint64_t i = 0;i<parse->file_offset_count;++i){
+			new[i] = parse->file_offsets[i];
+		}
+		parse->file_offsets = new;
+	}
+	parse->file_offsets[parse->file_offset_count] = offset_entry;
+	parse->file_offset_count += 1;
 	FILE* infile = fopen(cstr_file, "r");
 	assert_local(infile != NULL, , "Could not open file for import");
 	uint64_t read_bytes = fread(parse->mem->ptr, sizeof(uint8_t), parse->mem->left, infile);
@@ -2014,6 +2033,54 @@ parse_import(parser* const parse){
 	show_tokens(new_tokens, parse->token_count-original_count);
 	printf("\n");
 #endif
+}
+
+void
+show_error(parser* const parse){
+	printf("[!]");
+	string_print(&parse->err);
+	printf("\n");
+	if (parse->file_offset_count > 0){
+		uint64_t i = 0;
+		string last = parse->file_offsets[i];
+		i += 1;
+		uint64_t last_offset = 0;
+		uint64_t* offset = uint64_t_map_access(parse->imported, last);
+		assert(offset != NULL);
+		if (parse->err_token >= *offset){
+			while (parse->err_token >= *offset){
+				if (i >= parse->file_offset_count){
+					break;
+				}
+				string last = parse->file_offsets[i];
+				i += 1;
+				last_offset = *offset;
+				offset = uint64_t_map_access(parse->imported, last);
+				assert(offset != NULL);
+			}
+			last = parse->file_offsets[i-1];
+			uint64_t final_index = parse->err_token - last_offset;
+			lex_err(parse, final_index, last);
+			return;
+		}
+	}
+	lex_err(parse, parse->err_token, parse->mainfile);
+}
+
+void
+lex_err(parser* const parse, uint64_t index, string filename){
+	printf("in file %s:\n", filename.str);
+	FILE* fd = fopen(filename.str, "r");
+	assert(fd != NULL);
+	uint64_t read_bytes = fread(parse->mem->ptr, sizeof(uint8_t), parse->mem->left, fd);
+	fclose(fd);
+	assert(read_bytes != parse->mem->left);
+	string str = {
+		.str = pool_request(parse->mem, read_bytes),
+		.len = read_bytes
+	};
+	assert(str.str != NULL);
+	//TODO
 }
 
 int

@@ -96,7 +96,7 @@ typedef struct term_ast term_ast;
 typedef struct parser parser;
 
 void keymap_fill(TOKEN_map* const map);
-void compile_file(const char* input, const char* output);
+void compile_file(char* input, const char* output);
 void compile_str(string input);
 uint8_t issymbol(char c);
 void lex_string(parser* const parse);
@@ -124,6 +124,8 @@ void show_term(term_ast* term);
 void show_expression(expr_ast* expr);
 type_ast* parse_type_dependency(parser* const parse);
 void parse_import(parser* const parse);
+void show_error(parser* const parse);
+void lex_err(parser* const parse, uint64_t index, string filename);
 
 typedef struct alias_ast {
 	token name;
@@ -348,7 +350,7 @@ MAP_DECL(typeclass_ast);
 MAP_DECL(implementation_ast);
 MAP_DECL(implementation_ast_map);
 MAP_DECL(term_ast);
-MAP_DECL(uint8_t);
+MAP_DECL(uint64_t);
 
 typedef struct parser {
 	pool* mem;
@@ -366,7 +368,11 @@ typedef struct parser {
 	typeclass_ast_map* typeclasses;
 	implementation_ast_map_map* implementations;
 	term_ast_map* terms;
-	uint8_t_map* imported;
+	uint64_t_map* imported;
+	string* file_offsets;
+	uint64_t file_offset_count;
+	uint64_t file_offset_capacity;
+	string mainfile;
 } parser;
 
 #endif

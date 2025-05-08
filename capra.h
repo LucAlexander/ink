@@ -6,6 +6,7 @@
 
 #define ARENA_SIZE 0x100000000
 #define TOKEN_ARENA_SIZE 0x10000
+#define ERROR_STRING_MAX 0x100
 
 #define DEBUG
 
@@ -357,6 +358,7 @@ typedef struct parser {
 	uint64_t token_count;
 	uint64_t token_index;
 	string err;
+	uint64_t err_token;
 	typedef_ast_map* types;
 	alias_ast_map* aliases;
 	typeclass_ast_map* typeclasses;

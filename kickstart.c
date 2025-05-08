@@ -151,10 +151,10 @@ void string_set(pool* const mem, string* const str, char* src){
 		if (*c == 0){
 			return;
 		}
-		c += 1;
 		pool_request(mem, 1);
 		str->str[str->len] = *c;
 		str->len += 1;
+		c += 1;
 	}
 }
 

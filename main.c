@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <assert.h>
+#include <stdlib.h>
+#include <stddef.h>
+#include <string.h>
 #include "capra.h"
 
 MAP_IMPL(TOKEN);
@@ -10,6 +13,20 @@ MAP_IMPL(typeclass_ast);
 MAP_IMPL(implementation_ast);
 MAP_IMPL(implementation_ast_map);
 MAP_IMPL(term_ast);
+
+#define assert_local(c, r, s, ...)\
+	if (!(c)){\
+		memset(parse->err.str, 0, ERROR_STRING_MAX);\
+		snprintf(parse->err.str, ERROR_STRING_MAX, s __VA_ARGS__);\
+		parse->err.len = ERROR_STRING_MAX;\
+		parse->err_token = parse->token_index;\
+		return r;\
+	}
+
+#define assert_prop(r)\
+	if (parse->err.len != 0){\
+		return r;\
+	}
 
 void
 compile_file(const char* input, const char* output){
@@ -57,7 +74,7 @@ compile_file(const char* input, const char* output){
 		.text_index = 0,
 		.token_count = 0,
 		.token_index = 0,
-		.err.str = NULL,
+		.err.str = pool_request(&mem, ERROR_STRING_MAX),
 		.err.len = 0,
 		.types = &types,
 		.aliases = &aliases,
@@ -400,21 +417,10 @@ case 'v': c = '\v'; break;
 			t = &parse->tokens[parse->token_count];
 			continue;
 		}
-		string_set(parse->mem, &parse->err, "Unknown symbol\n");
+		assert_local(0, , "Unknown symbol");
 		return;
 	}
 }
-
-#define assert_local(c, s, r)\
-	if (!(c)){\
-		string_set(parse->mem, &parse->err, s);\
-		return r;\
-	}
-
-#define assert_prop(r)\
-	if (parse->err.len != 0){\
-		return r;\
-	}
 
 void
 show_tokens(token* tokens, uint64_t token_count){
@@ -598,8 +604,8 @@ parse_type_dependency(parser* const parse){
 		parse->token_index += 1;
 		if (t->tag == PAREN_CLOSE_TOKEN){
 			t = &parse->tokens[parse->token_index];
+			assert_local(t->tag == DOUBLE_ARROW_TOKEN, NULL, "expected =>");
 			parse->token_index += 1;
-			assert_local(t->tag == DOUBLE_ARROW_TOKEN, "expected ->", NULL);
 			break;
 		}
 		if (outer->data.dependency.dependency_count == capacity){
@@ -613,11 +619,11 @@ parse_type_dependency(parser* const parse){
 			outer->data.dependency.typeclass_dependencies = tc_depend;
 			outer->data.dependency.dependency_typenames = depend_names;
 		}
-		assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier", NULL);
+		assert_local(t->tag == IDENTIFIER_TOKEN, NULL, "expected identifier");
 		outer->data.dependency.typeclass_dependencies[outer->data.dependency.dependency_count] = t->data.name;
 		t = &parse->tokens[parse->token_index];
+		assert_local(t->tag == IDENTIFIER_TOKEN, NULL, "expeted identifier");
 		parse->token_index += 1;
-		assert_local(t->tag == IDENTIFIER_TOKEN, "expeted identifier", NULL);
 		outer->data.dependency.dependency_typenames[outer->data.dependency.dependency_count] = t->data.name;
 		outer->data.dependency.dependency_count += 1;
 		t = &parse->tokens[parse->token_index];
@@ -627,8 +633,8 @@ parse_type_dependency(parser* const parse){
 		}
 		else if (t->tag == PAREN_CLOSE_TOKEN){
 			t = &parse->tokens[parse->token_index];
+			assert_local(t->tag == DOUBLE_ARROW_TOKEN, NULL, "expected =>");
 			parse->token_index += 1;
-			assert_local(t->tag == DOUBLE_ARROW_TOKEN, "expected =>", NULL);
 			break;
 		}
 	}
@@ -706,7 +712,7 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 		parse->token_index += 1;
 		break;
 	default:
-		assert_local(0, "unexpected token", NULL);
+		assert_local(0, NULL, "unexpected token");
 	}
 	if (parametric == 1){
 		uint8_t exit = 0;
@@ -777,8 +783,8 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 		if (t->tag == end){
 			if (named == 1){
 				parse->token_index -= 1;
-				assert_local(base->tag == NAMED_TYPE, "expected base to be named\n", NULL);
-				assert_local(base->data.named.arg_count > 0, "expected arguments in base type\n", NULL);
+				assert_local(base->tag == NAMED_TYPE, NULL, "expected base to be named");
+				assert_local(base->data.named.arg_count > 0, NULL, "expected arguments in base type");
 				base->data.named.arg_count -= 1;
 				return base;
 			}
@@ -818,11 +824,11 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 	}
 	if (named == 1){
 		if (t->tag == IDENTIFIER_TOKEN || t->tag == SYMBOL_TOKEN){
-			assert_local(parse->tokens[parse->token_index+1].tag == end, "expected end of type\n", NULL);
+			assert_local(parse->tokens[parse->token_index+1].tag == end, NULL, "expected end of type");
 			return base;
 		}
 	}
-	assert_local(t->tag == end, "expected end of expression", NULL);
+	assert_local(t->tag == end, NULL, "expected end of expression");
 	return base;
 }
 
@@ -837,7 +843,7 @@ parse_struct_type(parser* const parse){
 		structure->tag = STRUCT_STRUCT;
 		t = &parse->tokens[parse->token_index];
 		parse->token_index += 1;
-		assert_local(t->tag == BRACE_OPEN_TOKEN, "expected { to open structure\n", NULL);
+		assert_local(t->tag == BRACE_OPEN_TOKEN, NULL, "expected { to open structure");
 		capacity = 2;
 		structure->data.structure.names = pool_request(parse->mem, sizeof(string)*capacity);
 		structure->data.structure.members = pool_request(parse->mem, sizeof(structure_ast)*capacity);
@@ -847,11 +853,11 @@ parse_struct_type(parser* const parse){
 			assert_prop(NULL);
 			t = &parse->tokens[parse->token_index];
 			parse->token_index += 1;
-			assert_local(t->tag == IDENTIFIER_TOKEN || t->tag == SYMBOL_TOKEN, "Expected identifier or symbol for structure member name\n", NULL);
+			assert_local(t->tag == IDENTIFIER_TOKEN || t->tag == SYMBOL_TOKEN, NULL, "Expected identifier or symbol for structure member name");
 			string name = t->data.name;
 			t = &parse->tokens[parse->token_index];
 			parse->token_index += 1;
-			assert_local(t->tag == SEMI_TOKEN, "expected ; between members of structure type\n", NULL);
+			assert_local(t->tag == SEMI_TOKEN, NULL, "expected ; between members of structure type");
 			if (structure->data.structure.count == capacity){
 				capacity *= 2;
 				string* names = pool_request(parse->mem, sizeof(string)*capacity);
@@ -878,7 +884,7 @@ parse_struct_type(parser* const parse){
 		structure->tag = UNION_STRUCT;
 		t = &parse->tokens[parse->token_index];
 		parse->token_index += 1;
-		assert_local(t->tag == BRACE_OPEN_TOKEN, "expected { to open union type\n", NULL);
+		assert_local(t->tag == BRACE_OPEN_TOKEN, NULL, "expected { to open union type");
 		capacity = 2;
 		structure->data.union_structure.names = pool_request(parse->mem, sizeof(string)*capacity);
 		structure->data.union_structure.members = pool_request(parse->mem, sizeof(structure_ast)*capacity);
@@ -888,11 +894,11 @@ parse_struct_type(parser* const parse){
 			assert_prop(NULL);
 			t = &parse->tokens[parse->token_index];
 			parse->token_index += 1;
-			assert_local(t->tag == IDENTIFIER_TOKEN || t->tag == SYMBOL_TOKEN, "expected identifier or symbol for union member name\n", NULL);
+			assert_local(t->tag == IDENTIFIER_TOKEN || t->tag == SYMBOL_TOKEN, NULL, "expected identifier or symbol for union member name");
 			string name = t->data.name;
 			t = &parse->tokens[parse->token_index];
 			parse->token_index += 1;
-			assert_local(t->tag == SEMI_TOKEN, "expected ; between union members\n", NULL);
+			assert_local(t->tag == SEMI_TOKEN, NULL, "expected ; between union members");
 			if (structure->data.union_structure.count == capacity){
 				capacity *= 2;
 				string* names = pool_request(parse->mem, sizeof(string)*capacity);
@@ -919,7 +925,7 @@ parse_struct_type(parser* const parse){
 		structure->tag = ENUM_STRUCT;
 		t = &parse->tokens[parse->token_index];
 		parse->token_index += 1;
-		assert_local(t->tag == BRACE_OPEN_TOKEN, "expected { to open enumeration type\n", NULL);
+		assert_local(t->tag == BRACE_OPEN_TOKEN, NULL, "expected { to open enumeration type");
 		capacity = 2;
 		structure->data.enumeration.names = pool_request(parse->mem, sizeof(string)*capacity);
 		structure->data.enumeration.values = pool_request(parse->mem, sizeof(uint64_t)*capacity);
@@ -928,7 +934,7 @@ parse_struct_type(parser* const parse){
 		while (parse->token_index < parse->token_count){
 			t = &parse->tokens[parse->token_index];
 			parse->token_index += 1;
-			assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier as enumerator member\n", NULL);
+			assert_local(t->tag == IDENTIFIER_TOKEN, NULL, "expected identifier as enumerator member");
 			if (structure->data.enumeration.count == capacity){
 				capacity *= 2;
 				string* names = pool_request(parse->mem, sizeof(string)*capacity);
@@ -946,7 +952,7 @@ parse_struct_type(parser* const parse){
 			if (t->tag == EQUAL_TOKEN){
 				t = &parse->tokens[parse->token_index];
 				parse->token_index += 1;
-				assert_local(t->tag == INTEGER_TOKEN, "expected integer for enumeration value\n", NULL);
+				assert_local(t->tag == INTEGER_TOKEN, NULL, "expected integer for enumeration value");
 				if (t->content_tag == UINT_TOKEN_TYPE){
 					structure->data.enumeration.values[structure->data.enumeration.count] = t->data.pos;
 					current_value = t->data.pos;
@@ -966,11 +972,11 @@ parse_struct_type(parser* const parse){
 			if (t->tag == BRACE_CLOSE_TOKEN){
 				break;
 			}
-			assert_local(t->tag == COMMA_TOKEN, "expected , between enumeration members\n", NULL);
+			assert_local(t->tag == COMMA_TOKEN, NULL, "expected , between enumeration members");
 		}
 		break;
 	default:
-		assert_local(0, "unexpected token for structure type heade\n", NULL);
+		assert_local(0, NULL, "unexpected token for structure type heade");
 	}
 	return structure;
 }
@@ -1082,7 +1088,7 @@ parse_program(parser* const parse){
 		alias_ast* alias = parse_alias(parse);
 		if (parse->err.len == 0){
 			uint8_t dup = alias_ast_map_insert(parse->aliases, alias->name, *alias);
-			assert_local(dup==0, "Duplicate alias definition\n",);
+			assert_local(dup==0, , "Duplicate alias definition");
 			parse->token_index += 1;
 #ifdef DEBUG
 			show_alias(alias);
@@ -1095,7 +1101,7 @@ parse_program(parser* const parse){
 		typedef_ast* type = parse_typedef(parse);
 		if (parse->err.len == 0){
 			uint8_t dup = typedef_ast_map_insert(parse->types, type->name, *type);
-			assert_local(dup==0, "Duplicate type definition\n",);
+			assert_local(dup==0, , "Duplicate type definition");
 			parse->token_index += 1;
 #ifdef DEBUG
 			show_typedef(type);
@@ -1108,7 +1114,7 @@ parse_program(parser* const parse){
 		typeclass_ast* class = parse_typeclass(parse);
 		if (parse->err.len == 0){
 			uint8_t dup = typeclass_ast_map_insert(parse->typeclasses, class->name, *class);
-			assert_local(dup==0, "Duplicate typeclass definition\n",);
+			assert_local(dup==0, , "Duplicate typeclass definition");
 			parse->token_index += 1;
 #ifdef DEBUG
 			show_typeclass(class);
@@ -1121,7 +1127,7 @@ parse_program(parser* const parse){
 		term_ast* term = parse_term(parse);
 		if (parse->err.len == 0){
 			uint8_t dup = term_ast_map_insert(parse->terms, term->name, *term);
-			assert_local(dup==0, "Duplicate term definition\n",);
+			assert_local(dup==0, , "Duplicate term definition");
 #ifdef DEBUG
 			show_term(term);
 			printf("\n");
@@ -1144,7 +1150,7 @@ parse_program(parser* const parse){
 				continue;
 			}
 			uint8_t dup = implementation_ast_map_insert(map, impl->typeclass, *impl);
-			assert_local(dup==0, "Duplicate implementation definition\n",);
+			assert_local(dup==0, , "Duplicate implementation definition");
 #ifdef DEBUG
 			show_implementation(impl);
 			printf("\n");
@@ -1153,76 +1159,21 @@ parse_program(parser* const parse){
 		}
 		assert_prop();
 	}
-	/*
-	type_ast* a = parse_type(parse, 1, SEMI_TOKEN);
-	show_type(a);
-	printf("\n");
-	parse->token_index += 2;
-	type_ast* b = parse_type(parse, 1, SEMI_TOKEN);
-	show_type(b);
-	printf("\n");
-	parse->token_index += 2;
-	type_ast* c = parse_type(parse, 1, EQUAL_TOKEN);
-	show_type(c);
-	printf("\n");
-	parse->token_index += 2;
-	type_ast* d = parse_type(parse, 1, EQUAL_TOKEN);
-	show_type(d);
-	printf("\n");
-	parse->token_index += 2;
-	type_ast* e = parse_type(parse, 0, SEMI_TOKEN);
-	show_type(e);
-	printf("\n");
-	parse->token_index += 1;
-	type_ast* f = parse_type(parse, 1, SEMI_TOKEN);
-	show_type(f);
-	printf("\n");
-	parse->token_index += 2;
-	type_ast* g = parse_type(parse, 0, SEMI_TOKEN);
-	show_type(g);
-	printf("\n");
-	parse->token_index += 1;
-	alias_ast* alias = parse_alias(parse);
-	show_alias(alias);
-	printf("\n");
-	parse->token_index += 1;
-	typedef_ast* type = parse_typedef(parse);
-	show_typedef(type);
-	printf("\n");
-	parse->token_index += 1;
-	typeclass_ast* class = parse_typeclass(parse);
-	show_typeclass(class);
-	printf("\n");
-	parse->token_index += 1;
-	pattern_ast* pat = parse_pattern(parse);
-	show_pattern(pat);
-	printf("\n");
-	implementation_ast* impl = parse_implementation(parse);
-	if (impl != NULL){
-		show_implementation(impl);
-		printf("\n");
-	}
-	term_ast* term = parse_term(parse);
-	if (term != NULL){
-		show_term(term);
-		printf("\n");
-	}
-	*/
 }
 
 alias_ast*
 parse_alias(parser* const parse){
 	token* t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert_local(t->tag == ALIAS_TOKEN, "expected alias token to start alias definition\n", NULL);
+	assert_local(t->tag == ALIAS_TOKEN, NULL, "expected alias token to start alias definition");
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier for alias defintion name\n", NULL);
+	assert_local(t->tag == IDENTIFIER_TOKEN, NULL, "expected identifier for alias defintion name");
 	alias_ast* alias = pool_request(parse->mem, sizeof(alias_ast));
 	alias->name = t->data.name;
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert_local(t->tag == EQUAL_TOKEN, "expected = to assign alias definition\n", NULL);
+	assert_local(t->tag == EQUAL_TOKEN, NULL, "expected = to assign alias definition");
 	alias->type = parse_type(parse, 0, SEMI_TOKEN);
 	return alias;
 }
@@ -1231,10 +1182,10 @@ typedef_ast*
 parse_typedef(parser* const parse){
 	token* t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert_local(t->tag == TYPE_TOKEN, "expected type token to start type definition\n", NULL);
+	assert_local(t->tag == TYPE_TOKEN, NULL, "expected type token to start type definition");
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier for type definition name\n", NULL);
+	assert_local(t->tag == IDENTIFIER_TOKEN, NULL, "expected identifier for type definition name");
 	typedef_ast* type = pool_request(parse->mem, sizeof(typedef_ast));
 	type->name = t->data.name;
 	type->param_count = 0;
@@ -1252,12 +1203,12 @@ parse_typedef(parser* const parse){
 	for (uint64_t i = 0;i<type->param_count;++i){
 		t = &parse->tokens[parse->token_index];
 		parse->token_index += 1;
-		assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier for parameter name\n", NULL);
+		assert_local(t->tag == IDENTIFIER_TOKEN, NULL, "expected identifier for parameter name");
 		type->params[i] = t->data.name;
 	}
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert_local(t->tag == EQUAL_TOKEN, "expected = to assign type definition\n", NULL);
+	assert_local(t->tag == EQUAL_TOKEN, NULL, "expected = to assign type definition");
 	type->type = parse_type(parse, 0, SEMI_TOKEN);
 	return type;
 }
@@ -1286,19 +1237,19 @@ typeclass_ast*
 parse_typeclass(parser* const parse){
 	token* t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert_local(t->tag == TYPECLASS_TOKEN, "expected typeclass token to begin typeclass definition\n", NULL);
+	assert_local(t->tag == TYPECLASS_TOKEN, NULL, "expected typeclass token to begin typeclass definition");
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier for typeclass name\n", NULL);
+	assert_local(t->tag == IDENTIFIER_TOKEN, NULL, "expected identifier for typeclass name");
 	typeclass_ast* class = pool_request(parse->mem, sizeof(typeclass_ast));
 	class->name = t->data.name;
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier for typeclass parameter name\n", NULL);
+	assert_local(t->tag == IDENTIFIER_TOKEN, NULL, "expected identifier for typeclass parameter name");
 	class->param = t->data.name;
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert_local(t->tag == BRACE_OPEN_TOKEN, "expected { to begin typeclass definition\n", NULL);
+	assert_local(t->tag == BRACE_OPEN_TOKEN, NULL, "expected { to begin typeclass definition");
 	uint64_t capacity = 2;
 	class->member_count = 0;
 	class->members = pool_request(parse->mem, sizeof(term_ast)*capacity);
@@ -1334,19 +1285,19 @@ implementation_ast*
 parse_implementation(parser* const parse){
 	token* t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier for implementation type name\n", NULL);
+	assert_local(t->tag == IDENTIFIER_TOKEN, NULL, "expected identifier for implementation type name");
 	implementation_ast* impl = pool_request(parse->mem, sizeof(implementation_ast));
 	impl->type = t->data.name;
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert_local(t->tag == IMPLEMENTS_TOKEN, "expected implements token after type name\n", NULL)
+	assert_local(t->tag == IMPLEMENTS_TOKEN, NULL, "expected implements token after type name")
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier for typelcass implementation typeclass name\n", NULL);
+	assert_local(t->tag == IDENTIFIER_TOKEN, NULL, "expected identifier for typelcass implementation typeclass name");
 	impl->typeclass = t->data.name;
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert_local(t->tag == BRACE_OPEN_TOKEN, "expected { to begin typeclass implementation\n", NULL);
+	assert_local(t->tag == BRACE_OPEN_TOKEN, NULL, "expected { to begin typeclass implementation");
 	uint64_t capacity = 2;
 	impl->member_count = 0;
 	impl->members = pool_request(parse->mem, sizeof(term_ast)*capacity);
@@ -1529,7 +1480,7 @@ parse_pattern(parser* const parse){
 	token* outer = t;
 	t = &parse->tokens[parse->token_index];
 	if (t->tag == AT_TOKEN){
-		assert_local(outer->tag == IDENTIFIER_TOKEN, "expected identifier for named structure tag\n", NULL);
+		assert_local(outer->tag == IDENTIFIER_TOKEN, NULL, "expected identifier for named structure tag");
 		pattern_ast* named = pool_request(parse->mem, sizeof(pattern_ast));
 		named->tag = NAMED_PATTERN;
 		named->data.named.name = outer->data.name;
@@ -1538,7 +1489,7 @@ parse_pattern(parser* const parse){
 		return named;
 	}
 	if (t->tag == EQUAL_TOKEN){ // left=x
-		assert_local(outer->tag == IDENTIFIER_TOKEN, "expected identifier for union selector name\n", NULL);
+		assert_local(outer->tag == IDENTIFIER_TOKEN, NULL, "expected identifier for union selector name");
 		pattern_ast* union_select = pool_request(parse->mem, sizeof(pattern_ast));
 		union_select->tag = UNION_SELECTOR_PATTERN;
 		union_select->data.union_selector.member = outer->data.name;
@@ -1585,7 +1536,7 @@ parse_pattern(parser* const parse){
 		assert_prop(NULL);
 		t = &parse->tokens[parse->token_index];
 		parse->token_index += 1;
-		assert_local(t->tag == BRACK_CLOSE_TOKEN, "expected ] to close fat pointer pattern\n", NULL);
+		assert_local(t->tag == BRACK_CLOSE_TOKEN, NULL, "expected ] to close fat pointer pattern");
 		break;
 	case HOLE_TOKEN:
 		pat->tag = HOLE_PATTERN;
@@ -1601,7 +1552,7 @@ parse_pattern(parser* const parse){
 			pat->data.literal.data.i = outer->data.neg;
 		}
 		else {
-			assert_local(0, "Unexpected literal integer type\n", NULL);
+			assert_local(0, NULL, "Unexpected literal integer type");
 		}
 		break;
 	case IDENTIFIER_TOKEN:
@@ -1609,7 +1560,7 @@ parse_pattern(parser* const parse){
 		pat->data.binding = outer->data.name;
 		break;
 	default:
-		assert_local(0, "Unexpected token for pattern\n", NULL);
+		assert_local(0, NULL, "Unexpected token for pattern");
 	}
 	return pat;
 }
@@ -1712,7 +1663,7 @@ parse_expr(parser* const parse, TOKEN end){
 			if (end == SEMI_TOKEN){
 				if (t->tag == PIPE_TOKEN){
 					parse->token_index += 1;
-					assert_local(parse->tokens[parse->token_index].tag == LAMBDA_TOKEN, "expected \\ to begin alternate pattern case for function value\n", NULL);
+					assert_local(parse->tokens[parse->token_index].tag == LAMBDA_TOKEN, NULL, "expected \\ to begin alternate pattern case for function value");
 					expr->data.lambda.alt = parse_expr(parse, end);
 				}
 				return outer;
@@ -1733,14 +1684,14 @@ parse_expr(parser* const parse, TOKEN end){
 			expr->data.binding = t->data.name;
 			break;
 		case EQUAL_TOKEN:
-			assert_local(outer->tag == APPL_EXPR, "Mutation expected left value\n", NULL);
+			assert_local(outer->tag == APPL_EXPR, NULL, "Mutation expected left value");
 			outer->tag = MUTATION_EXPR;
 			expr_ast* rvalue = parse_expr(parse, end);
 			assert_prop(NULL);
 			*expr = *rvalue;
 			break;
 		case SHIFT_TOKEN:
-			assert_local(outer->tag == APPL_EXPR, "Shift expected left value\n", NULL);
+			assert_local(outer->tag == APPL_EXPR, NULL, "Shift expected left value");
 			expr_ast* rside = parse_expr(parse, end);
 			assert_prop(NULL);
 			*expr = *rside;
@@ -1864,7 +1815,7 @@ parse_expr(parser* const parse, TOKEN end){
 			if (t->tag == ELSE_TOKEN){
 				parse->token_index += 1;
 				t = &parse->tokens[parse->token_index];
-				assert_local(t->tag == BRACE_OPEN_TOKEN, "expected { to begin if statement consequent\n", NULL);
+				assert_local(t->tag == BRACE_OPEN_TOKEN, NULL, "expected { to begin if statement consequent");
 				expr->data.if_statement.alt = parse_expr(parse, BRACE_CLOSE_TOKEN);
 				assert_prop(NULL);
 			}
@@ -1876,11 +1827,11 @@ parse_expr(parser* const parse, TOKEN end){
 			expr->tag = FOR_EXPR;
 			t = &parse->tokens[parse->token_index];
 			parse->token_index += 1;
-			assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier to bind as for loop variable\n", NULL);
+			assert_local(t->tag == IDENTIFIER_TOKEN, NULL, "expected identifier to bind as for loop variable");
 			expr->data.for_statement.binding = t->data.name;
 			expr->data.for_statement.initial = parse_expr(parse, BRACE_OPEN_TOKEN);
 			assert_prop(NULL);
-			assert_local(expr->data.for_statement.initial->tag == APPL_EXPR, "expected 2 expressions for for loop bounds\n", NULL);
+			assert_local(expr->data.for_statement.initial->tag == APPL_EXPR, NULL, "expected 2 expressions for for loop bounds");
 			expr->data.for_statement.limit = expr->data.for_statement.initial->data.appl.right;
 			expr_ast* left = expr->data.for_statement.initial->data.appl.left;
 			expr->data.for_statement.initial = left;
@@ -1908,7 +1859,7 @@ parse_expr(parser* const parse, TOKEN end){
 				pattern_ast* case_pattern = parse_pattern(parse);
 				assert_prop(NULL);
 				t = &parse->tokens[parse->token_index];
-				assert_local(t->tag == BRACE_OPEN_TOKEN, "expected { for pattern case in match\n", NULL);
+				assert_local(t->tag == BRACE_OPEN_TOKEN, NULL, "expected { for pattern case in match");
 				expr_ast* case_expr = parse_expr(parse, BRACE_CLOSE_TOKEN);
 				assert_prop(NULL);
 				if (expr->data.match.count == match_capacity){
@@ -1942,7 +1893,7 @@ parse_expr(parser* const parse, TOKEN end){
 			}
 			break;
 		default:
-			assert_local(0, "Unexpected token in expression\n", NULL);
+			assert_local(0, NULL, "Unexpected token in expression");
 		}
 		t = &parse->tokens[parse->token_index];
 		if (t->tag == end ){

@@ -65,7 +65,7 @@ compile_file(const char* input, const char* output){
 		.terms = &terms
 	};
 	lex_string(&parse);
-	if (parse.err.str != NULL){
+	if (parse.err.len != 0){
 		printf("Failed to lex, ");
 		string_print(&parse.err);
 		printf("\n");
@@ -75,7 +75,7 @@ compile_file(const char* input, const char* output){
 	printf("\n");
 #endif
 	parse_program(&parse);
-	if (parse.err.str != NULL){
+	if (parse.err.len != 0){
 		printf("Failed to parse, ");
 		string_print(&parse.err);
 		printf("\n");
@@ -141,7 +141,7 @@ lex_string(parser* const parse){
 			continue;
 		case COLON_TOKEN:
 		case PIPE_TOKEN:
-		case ASTERISK_TOKEN:
+		case CARROT_TOKEN:
 		case EQUAL_TOKEN:
 			if (issymbol(parse->text.str[parse->text_index])){
 				break;
@@ -291,7 +291,7 @@ case 'v': c = '\v'; break;
 			}
 			pool_request(parse->token_mem, sizeof(token));
 			parse->token_count += 1;
-			t = &parse->tokens[parse->token_count];
+	t = &parse->tokens[parse->token_count];
 			continue;
 		}
 		else if (isdigit(c) || c == '-'){ // TODO floats
@@ -403,6 +403,17 @@ case 'v': c = '\v'; break;
 	}
 }
 
+#define assert_local(c, s, r)\
+	if (!(c)){\
+		string_set(parse->mem, &parse->err, s);\
+		return r;\
+	}
+
+#define assert_prop(r)\
+	if (parse->err.len != 0){\
+		return r;\
+	}
+
 void
 show_tokens(token* tokens, uint64_t token_count){
 	for (uint64_t i = 0;i<token_count;++i){
@@ -456,8 +467,8 @@ show_tokens(token* tokens, uint64_t token_count){
 		case SHIFT_TOKEN:
 			printf("SHIFT $ ");
 			break;
-		case ASTERISK_TOKEN:
-			printf("ASTERISK * ");
+		case CARROT_TOKEN:
+			printf("CARROT ^ ");
 			break;
 		case AMPERSAND_TOKEN:
 			printf("AMPERSAND & ");
@@ -591,7 +602,7 @@ parse_type(parser* const parse, uint8_t named, TOKEN end){
 				found = 1;
 				break;
 			}
-			if (t->tag == ARROW_TOKEN){
+			if (t->tag == ARROW_TOKEN){ // TODO this is not a good way to do this, try to parse it and fallback on failure
 				found = 0;
 				break;
 			}
@@ -610,7 +621,7 @@ parse_type(parser* const parse, uint8_t named, TOKEN end){
 				if (t->tag == PAREN_CLOSE_TOKEN){
 					t = &parse->tokens[parse->token_index];
 					parse->token_index += 1;
-					assert(t->tag == DOUBLE_ARROW_TOKEN);
+					assert_local(t->tag == DOUBLE_ARROW_TOKEN, "expected ->", NULL);
 					break;
 				}
 				if (outer->data.dependency.dependency_count == capacity){
@@ -624,11 +635,11 @@ parse_type(parser* const parse, uint8_t named, TOKEN end){
 					outer->data.dependency.typeclass_dependencies = tc_depend;
 					outer->data.dependency.dependency_typenames = depend_names;
 				}
-				assert(t->tag == IDENTIFIER_TOKEN);
+				assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier", NULL);
 				outer->data.dependency.typeclass_dependencies[outer->data.dependency.dependency_count] = t->data.name;
 				t = &parse->tokens[parse->token_index];
 				parse->token_index += 1;
-				assert(t->tag == IDENTIFIER_TOKEN);
+				assert_local(t->tag == IDENTIFIER_TOKEN, "expeted identifier", NULL);
 				outer->data.dependency.dependency_typenames[outer->data.dependency.dependency_count] = t->data.name;
 				outer->data.dependency.dependency_count += 1;
 				t = &parse->tokens[parse->token_index];
@@ -639,7 +650,7 @@ parse_type(parser* const parse, uint8_t named, TOKEN end){
 				else if (t->tag == PAREN_CLOSE_TOKEN){
 					t = &parse->tokens[parse->token_index];
 					parse->token_index += 1;
-					assert(t->tag == DOUBLE_ARROW_TOKEN);
+					assert_local(t->tag == DOUBLE_ARROW_TOKEN, "expected =>", NULL);
 					break;
 				}
 			}
@@ -703,7 +714,7 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 		parse->token_index += 1;
 		break;
 	default:
-		assert(0);
+		assert_local(0, "unexpected token", NULL);
 	}
 	if (parametric == 1){
 		uint8_t exit = 0;
@@ -772,8 +783,8 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 		if (t->tag == end){
 			if (named == 1){
 				parse->token_index -= 1;
-				assert (base->tag == NAMED_TYPE);
-				assert(base->data.named.arg_count > 0);
+				assert_local(base->tag == NAMED_TYPE, "expected base to be named\n", NULL);
+				assert_local(base->data.named.arg_count > 0, "expected arguments in base type\n", NULL);
 				base->data.named.arg_count -= 1;
 				return base;
 			}
@@ -788,7 +799,7 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 		case VAR_TOKEN:
 			base->variable = 1;
 			break;
-		case ASTERISK_TOKEN:
+		case CARROT_TOKEN:
 			outer = pool_request(parse->mem, sizeof(type_ast));
 			outer->tag = PTR_TYPE;
 			outer->data.ptr = base;
@@ -812,11 +823,11 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 	}
 	if (named == 1){
 		if (t->tag == IDENTIFIER_TOKEN || t->tag == SYMBOL_TOKEN){
-			assert(parse->tokens[parse->token_index+1].tag == end);
+			assert_local(parse->tokens[parse->token_index+1].tag == end, "expected end of type\n", NULL);
 			return base;
 		}
 	}
-	assert(t->tag == end);
+	assert_local(t->tag == end, "expected end of expression", NULL);
 	return base;
 }
 
@@ -831,7 +842,7 @@ parse_struct_type(parser* const parse){
 		structure->tag = STRUCT_STRUCT;
 		t = &parse->tokens[parse->token_index];
 		parse->token_index += 1;
-		assert(t->tag == BRACE_OPEN_TOKEN);
+		assert_local(t->tag == BRACE_OPEN_TOKEN, "expected { to open structure\n", NULL);
 		capacity = 2;
 		structure->data.structure.names = pool_request(parse->mem, sizeof(string)*capacity);
 		structure->data.structure.members = pool_request(parse->mem, sizeof(structure_ast)*capacity);
@@ -840,11 +851,11 @@ parse_struct_type(parser* const parse){
 			type_ast* type = parse_type(parse, 1, SEMI_TOKEN);
 			t = &parse->tokens[parse->token_index];
 			parse->token_index += 1;
-			assert(t->tag == IDENTIFIER_TOKEN || t->tag == SYMBOL_TOKEN);
+			assert_local(t->tag == IDENTIFIER_TOKEN || t->tag == SYMBOL_TOKEN, "Expected identifier or symbol for structure member name\n", NULL);
 			string name = t->data.name;
 			t = &parse->tokens[parse->token_index];
 			parse->token_index += 1;
-			assert(t->tag == SEMI_TOKEN);
+			assert_local(t->tag == SEMI_TOKEN, "expected ; between members of structure type\n", NULL);
 			if (structure->data.structure.count == capacity){
 				capacity *= 2;
 				string* names = pool_request(parse->mem, sizeof(string)*capacity);
@@ -871,7 +882,7 @@ parse_struct_type(parser* const parse){
 		structure->tag = UNION_STRUCT;
 		t = &parse->tokens[parse->token_index];
 		parse->token_index += 1;
-		assert(t->tag == BRACE_OPEN_TOKEN);
+		assert_local(t->tag == BRACE_OPEN_TOKEN, "expected { to open union type\n", NULL);
 		capacity = 2;
 		structure->data.union_structure.names = pool_request(parse->mem, sizeof(string)*capacity);
 		structure->data.union_structure.members = pool_request(parse->mem, sizeof(structure_ast)*capacity);
@@ -880,11 +891,11 @@ parse_struct_type(parser* const parse){
 			type_ast* type = parse_type(parse, 1, SEMI_TOKEN);
 			t = &parse->tokens[parse->token_index];
 			parse->token_index += 1;
-			assert(t->tag == IDENTIFIER_TOKEN || t->tag == SYMBOL_TOKEN);
+			assert_local(t->tag == IDENTIFIER_TOKEN || t->tag == SYMBOL_TOKEN, "expected identifier or symbol for union member name\n", NULL);
 			string name = t->data.name;
 			t = &parse->tokens[parse->token_index];
 			parse->token_index += 1;
-			assert(t->tag == SEMI_TOKEN);
+			assert_local(t->tag == SEMI_TOKEN, "expected ; between union members\n", NULL);
 			if (structure->data.union_structure.count == capacity){
 				capacity *= 2;
 				string* names = pool_request(parse->mem, sizeof(string)*capacity);
@@ -911,7 +922,7 @@ parse_struct_type(parser* const parse){
 		structure->tag = ENUM_STRUCT;
 		t = &parse->tokens[parse->token_index];
 		parse->token_index += 1;
-		assert(t->tag == BRACE_OPEN_TOKEN);
+		assert_local(t->tag == BRACE_OPEN_TOKEN, "expected { to open enumeration type\n", NULL);
 		capacity = 2;
 		structure->data.enumeration.names = pool_request(parse->mem, sizeof(string)*capacity);
 		structure->data.enumeration.values = pool_request(parse->mem, sizeof(uint64_t)*capacity);
@@ -920,7 +931,7 @@ parse_struct_type(parser* const parse){
 		while (parse->token_index < parse->token_count){
 			t = &parse->tokens[parse->token_index];
 			parse->token_index += 1;
-			assert(t->tag == IDENTIFIER_TOKEN);
+			assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier as enumerator member\n", NULL);
 			if (structure->data.enumeration.count == capacity){
 				capacity *= 2;
 				string* names = pool_request(parse->mem, sizeof(string)*capacity);
@@ -938,7 +949,7 @@ parse_struct_type(parser* const parse){
 			if (t->tag == EQUAL_TOKEN){
 				t = &parse->tokens[parse->token_index];
 				parse->token_index += 1;
-				assert(t->tag == INTEGER_TOKEN);
+				assert_local(t->tag == INTEGER_TOKEN, "expected integer for enumeration value\n", NULL);
 				if (t->content_tag == UINT_TOKEN_TYPE){
 					structure->data.enumeration.values[structure->data.enumeration.count] = t->data.pos;
 					current_value = t->data.pos;
@@ -958,11 +969,11 @@ parse_struct_type(parser* const parse){
 			if (t->tag == BRACE_CLOSE_TOKEN){
 				break;
 			}
-			assert(t->tag == COMMA_TOKEN);
+			assert_local(t->tag == COMMA_TOKEN, "expected , between enumeration members\n", NULL);
 		}
 		break;
 	default:
-		assert(0);
+		assert_local(0, "unexpected token for structure type heade\n", NULL);
 	}
 	return structure;
 }
@@ -984,9 +995,11 @@ show_type(type_ast* const type){
 		show_type(type->data.dependency.type);
 		break;
 	case FUNCTION_TYPE:
+		printf("(");
 		show_type(type->data.function.left);
 		printf(" -> ");
 		show_type(type->data.function.right);
+		printf(")");
 		break;
 	case LIT_TYPE:
 		if (type->data.lit == U8_TYPE) printf("u8");
@@ -1110,21 +1123,31 @@ parse_program(parser* const parse){
 	pattern_ast* pat = parse_pattern(parse);
 	show_pattern(pat);
 	printf("\n");
+	implementation_ast* impl = parse_implementation(parse);
+	if (impl != NULL){
+		show_implementation(impl);
+		printf("\n");
+	}
+	term_ast* term = parse_term(parse);
+	if (term != NULL){
+		show_term(term);
+		printf("\n");
+	}
 }
 
 alias_ast*
 parse_alias(parser* const parse){
 	token* t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert(t->tag == ALIAS_TOKEN);
+	assert_local(t->tag == ALIAS_TOKEN, "expected alias token to start alias definition\n", NULL);
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert(t->tag == IDENTIFIER_TOKEN);
+	assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier for alias defintion name\n", NULL);
 	alias_ast* alias = pool_request(parse->mem, sizeof(alias_ast));
 	alias->name = t->data.name;
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert(t->tag == EQUAL_TOKEN);
+	assert_local(t->tag == EQUAL_TOKEN, "expected = to assign alias definition\n", NULL);
 	alias->type = parse_type(parse, 0, SEMI_TOKEN);
 	return alias;
 }
@@ -1133,10 +1156,10 @@ typedef_ast*
 parse_typedef(parser* const parse){
 	token* t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert(t->tag == TYPE_TOKEN);
+	assert_local(t->tag == TYPE_TOKEN, "expected type token to start type definition\n", NULL);
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert(t->tag == IDENTIFIER_TOKEN);
+	assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier for type definition name\n", NULL);
 	typedef_ast* type = pool_request(parse->mem, sizeof(typedef_ast));
 	type->name = t->data.name;
 	type->param_count = 0;
@@ -1154,12 +1177,12 @@ parse_typedef(parser* const parse){
 	for (uint64_t i = 0;i<type->param_count;++i){
 		t = &parse->tokens[parse->token_index];
 		parse->token_index += 1;
-		assert(t->tag == IDENTIFIER_TOKEN);
+		assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier for parameter name\n", NULL);
 		type->params[i] = t->data.name;
 	}
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert(t->tag == EQUAL_TOKEN);
+	assert_local(t->tag == EQUAL_TOKEN, "expected = to assign type definition\n", NULL);
 	type->type = parse_type(parse, 0, SEMI_TOKEN);
 	return type;
 }
@@ -1188,19 +1211,19 @@ typeclass_ast*
 parse_typeclass(parser* const parse){
 	token* t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert(t->tag == TYPECLASS_TOKEN);
+	assert_local(t->tag == TYPECLASS_TOKEN, "expected typeclass token to begin typeclass definition\n", NULL);
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert(t->tag == IDENTIFIER_TOKEN);
+	assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier for typeclass name\n", NULL);
 	typeclass_ast* class = pool_request(parse->mem, sizeof(typeclass_ast));
 	class->name = t->data.name;
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert(t->tag == IDENTIFIER_TOKEN);
+	assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier for typeclass parameter name\n", NULL);
 	class->param = t->data.name;
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert(t->tag == BRACE_OPEN_TOKEN);
+	assert_local(t->tag == BRACE_OPEN_TOKEN, "expected { to begin typeclass definition\n", NULL);
 	uint64_t capacity = 2;
 	class->member_count = 0;
 	class->members = pool_request(parse->mem, sizeof(term_ast)*capacity);
@@ -1235,14 +1258,39 @@ implementation_ast*
 parse_implementation(parser* const parse){
 	token* t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert(t->tag == IDENTIFIER_TOKEN);
+	assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier for implementation type name\n", NULL);
 	implementation_ast* impl = pool_request(parse->mem, sizeof(implementation_ast));
 	impl->type = t->data.name;
 	t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	assert(t->tag == IDENTIFIER_TOKEN);
+	assert_local(t->tag == IMPLEMENTS_TOKEN, "expected implements token after type name\n", NULL)
+	t = &parse->tokens[parse->token_index];
+	parse->token_index += 1;
+	assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier for typelcass implementation typeclass name\n", NULL);
 	impl->typeclass = t->data.name;
-	//TODO parse member terms
+	t = &parse->tokens[parse->token_index];
+	parse->token_index += 1;
+	assert_local(t->tag == BRACE_OPEN_TOKEN, "expected { to begin typeclass implementation\n", NULL);
+	uint64_t capacity = 2;
+	impl->member_count = 0;
+	impl->members = pool_request(parse->mem, sizeof(term_ast)*capacity);
+	while (parse->token_index < parse->token_count){
+		if (impl->member_count == capacity){
+			capacity *= 2;
+			term_ast* members = pool_request(parse->mem, sizeof(term_ast)*capacity);
+			for (uint64_t i = 0;i<impl->member_count;++i){
+				members[i] = impl->members[i];
+			}
+			impl->members = members;
+		}
+		impl->members[impl->member_count] = *parse_term(parse);
+		impl->member_count += 1;
+		t = &parse->tokens[parse->token_index];
+		if (t->tag == BRACE_CLOSE_TOKEN){
+			parse->token_index += 1;
+			break;
+		}
+	}
 	return impl;
 }
 
@@ -1264,7 +1312,136 @@ show_typeclass(typeclass_ast* const class){
 
 void
 show_implementation(implementation_ast* const impl){
-	//TODO
+	string_print(&impl->type);
+	printf(" implements ");
+	string_print(&impl->typeclass);
+	printf("{ ");
+	for (uint64_t i = 0;i<impl->member_count;++i){
+		show_term(&impl->members[i]);
+	}
+	printf(" }");
+}
+
+void
+show_term(term_ast* term){
+	show_type(term->type);
+	printf(" ");
+	string_print(&term->name);
+	printf(" = ");
+	show_expression(term->expression);
+}
+
+void
+show_expression(expr_ast* expr){
+	switch(expr->tag){
+	case APPL_EXPR:
+		printf("(");
+		show_expression(expr->data.appl.left);
+		printf(" ");
+		show_expression(expr->data.appl.right);
+		printf(")");
+		break;
+	case LAMBDA_EXPR:
+		printf("\\");
+		for (uint64_t i = 0;i<expr->data.lambda.arg_count;++i){
+			show_pattern(&expr->data.lambda.args[i]);
+			printf(" ");
+		}
+		printf(": ");
+		show_expression(expr->data.lambda.expression);
+		if (expr->data.lambda.alt != NULL){
+			printf("| ");
+			show_expression(expr->data.lambda.alt);
+		}
+		break;
+	case BLOCK_EXPR:
+		printf("{");
+		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
+			show_expression(&expr->data.block.lines[i]);
+		}
+		printf("}");
+		break;
+	case LIT_EXPR:
+		show_literal(&expr->data.literal);
+		break;
+	case TERM_EXPR:
+		show_term(expr->data.term);
+		break;
+	case STRING_EXPR:
+		string_print(&expr->data.str);
+		break;
+	case LIST_EXPR:
+		printf("[");
+		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
+			if (i != 0){
+				printf(", ");
+			}
+			show_expression(&expr->data.block.lines[i]);
+		}
+		printf("]");
+		break;
+	case STRUCT_EXPR:
+		printf("{");
+		for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
+			if (i != 0){
+				printf(", ");
+			}
+			string_print(&expr->data.constructor.names[i]);
+			printf("=");
+			show_expression(&expr->data.constructor.members[i]);
+		}
+		printf("}");
+		break;
+	case BINDING_EXPR:
+		string_print(&expr->data.binding);
+		break;
+	case MUTATION_EXPR:
+		show_expression(expr->data.mutation.left);
+		printf(" = ");
+		show_expression(expr->data.mutation.right);
+		break;
+	case RETURN_EXPR:
+		printf("return ");
+		show_expression(expr->data.ret);
+		break;
+	case REF_EXPR:
+		printf("&");
+		break;
+	case DEREF_EXPR:
+		printf("^");
+		break;
+	case IF_EXPR:
+		printf("if ");
+		show_expression(expr->data.if_statement.pred);
+		show_expression(expr->data.if_statement.cons);
+		if (expr->data.if_statement.alt != NULL){
+			show_expression(expr->data.if_statement.alt);
+		}
+		break;
+	case FOR_EXPR:
+		printf("for ");
+		string_print(&expr->data.for_statement.binding);
+		printf(" ");
+		show_expression(expr->data.for_statement.initial);
+		printf(" ");
+		show_expression(expr->data.for_statement.limit);
+		printf(" ");
+		show_expression(expr->data.for_statement.cons);
+		break;
+	case WHILE_EXPR:
+		printf("while ");
+		show_expression(expr->data.while_statement.pred);
+		show_expression(expr->data.while_statement.cons);
+		break;
+	case MATCH_EXPR:
+		printf("match ");
+		show_expression(expr->data.match.pred);
+		for (uint64_t i = 0;i<expr->data.match.count;++i){
+			show_pattern(&expr->data.match.patterns[i]);
+			show_expression(&expr->data.match.cases[i]);
+		}
+		break;
+	}
 }
 
 pattern_ast*
@@ -1274,7 +1451,7 @@ parse_pattern(parser* const parse){
 	token* outer = t;
 	t = &parse->tokens[parse->token_index];
 	if (t->tag == AT_TOKEN){
-		assert(outer->tag == IDENTIFIER_TOKEN);
+		assert_local(outer->tag == IDENTIFIER_TOKEN, "expected identifier for named structure tag\n", NULL);
 		pattern_ast* named = pool_request(parse->mem, sizeof(pattern_ast));
 		named->tag = NAMED_PATTERN;
 		named->data.named.name = outer->data.name;
@@ -1283,7 +1460,7 @@ parse_pattern(parser* const parse){
 		return named;
 	}
 	if (t->tag == EQUAL_TOKEN){ // left=x
-		assert(outer->tag == IDENTIFIER_TOKEN);
+		assert_local(outer->tag == IDENTIFIER_TOKEN, "expected identifier for union selector name\n", NULL);
 		pattern_ast* union_select = pool_request(parse->mem, sizeof(pattern_ast));
 		union_select->tag = UNION_SELECTOR_PATTERN;
 		union_select->data.union_selector.member = outer->data.name;
@@ -1327,7 +1504,7 @@ parse_pattern(parser* const parse){
 		pat->data.fat_ptr.len = parse_pattern(parse);
 		t = &parse->tokens[parse->token_index];
 		parse->token_index += 1;
-		assert(t->tag == BRACK_CLOSE_TOKEN);
+		assert_local(t->tag == BRACK_CLOSE_TOKEN, "expected ] to close fat pointer pattern\n", NULL);
 		break;
 	case HOLE_TOKEN:
 		pat->tag = HOLE_PATTERN;
@@ -1343,7 +1520,7 @@ parse_pattern(parser* const parse){
 			pat->data.literal.data.i = outer->data.neg;
 		}
 		else {
-			assert(0);
+			assert_local(0, "Unexpected literal integer type\n", NULL);
 		}
 		break;
 	case IDENTIFIER_TOKEN:
@@ -1351,7 +1528,7 @@ parse_pattern(parser* const parse){
 		pat->data.binding = outer->data.name;
 		break;
 	default:
-		assert(0);
+		assert_local(0, "Unexpected token for pattern\n", NULL);
 	}
 	return pat;
 }
@@ -1405,12 +1582,329 @@ void
 show_literal(literal_ast* const lit){
 	switch(lit->tag){
 	case INT_LITERAL:
-		printf("%ld\n", lit->data.i);
+		printf("%ld", lit->data.i);
 		break;
 	case UINT_LITERAL:
-		printf("%lu\n", lit->data.u);
+		printf("%lu", lit->data.u);
 		break;
 	}
+}
+
+expr_ast*
+parse_expr(parser* const parse, TOKEN end){
+	token* t = &parse->tokens[parse->token_index];
+	parse->token_index += 1;
+	expr_ast* expr = pool_request(parse->mem, sizeof(expr_ast));
+	expr_ast* outer = expr;
+	while (parse->token_index < parse->token_count){
+		switch (t->tag){
+		case LAMBDA_TOKEN:
+			expr->tag = LAMBDA_EXPR;
+			expr->data.lambda.arg_count = 0;
+			uint64_t capacity = 2;
+			expr->data.lambda.args = pool_request(parse->mem, sizeof(pattern_ast)*capacity);
+			while (parse->token_index < parse->token_count){
+				t = &parse->tokens[parse->token_index];
+				if (t->tag == COLON_TOKEN){
+					parse->token_index += 1;
+					break;
+				}
+				pattern_ast* arg = parse_pattern(parse);
+				if (expr->data.lambda.arg_count == capacity){
+					pattern_ast* args = pool_request(parse->mem, sizeof(pattern_ast)*capacity);
+					for (uint64_t i = 0;i<expr->data.lambda.arg_count;++i){
+						args[i] = expr->data.lambda.args[i];
+					}
+					expr->data.lambda.args = args;
+				}
+				expr->data.lambda.args[expr->data.lambda.arg_count] = *arg;
+				expr->data.lambda.arg_count += 1;
+			}
+			expr->data.lambda.expression = parse_expr(parse, end);
+			assert_prop(NULL);
+			t = &parse->tokens[parse->token_index];
+			if (end == SEMI_TOKEN){
+				if (t->tag == PIPE_TOKEN){
+					parse->token_index += 1;
+					assert_local(parse->tokens[parse->token_index].tag == LAMBDA_TOKEN, "expected \\ to begin alternate pattern case for function value\n", NULL);
+					expr->data.lambda.alt = parse_expr(parse, end);
+				}
+				return outer;
+			}
+			break;
+		case IDENTIFIER_TOKEN:
+		case SYMBOL_TOKEN:
+		case COMPOSE_TOKEN:
+			expr->tag = BINDING_EXPR;
+			expr->data.binding = t->data.name;
+			break;
+		case PAREN_OPEN_TOKEN:
+			expr_ast* temp = parse_expr(parse, PAREN_CLOSE_TOKEN);
+			assert_prop(NULL);
+			*expr = *temp;
+			break;
+		case BRACE_OPEN_TOKEN:
+			uint64_t save = parse->token_index;
+			parse_block_expression(parse, end, expr);
+			if (parse->err.len != 0){
+				parse->token_index = save;
+				parse->err.len = 0;
+				uint64_t struct_capacity = 2;
+				expr->tag = STRUCT_EXPR;
+				expr->data.constructor.member_count = 0;
+				expr->data.constructor.names = pool_request(parse->mem, sizeof(string)*struct_capacity);
+				expr->data.constructor.members = pool_request(parse->mem, sizeof(expr_ast)*struct_capacity);
+				while (parse->token_index < parse->token_count){
+					if (expr->data.constructor.member_count == struct_capacity){
+						struct_capacity *= 2;
+						string* names = pool_request(parse->mem, sizeof(string)*struct_capacity);
+						expr_ast* members = pool_request(parse->mem, sizeof(expr_ast)*struct_capacity);
+						for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
+							names[i] = expr->data.constructor.names[i];
+							members[i] = expr->data.constructor.members[i];
+						}
+						expr->data.constructor.names = names;
+						expr->data.constructor.members = members;
+					}
+					token* name = &parse->tokens[parse->token_index];
+					token* eq = &parse->tokens[parse->token_index+1];
+					if (eq->tag == EQUAL_TOKEN && (name->tag == IDENTIFIER_TOKEN || name->tag == SYMBOL_TOKEN)){
+						expr->data.constructor.names[expr->data.constructor.member_count] = name->data.name;
+						save = parse->token_index;
+						expr_ast* temp = parse_expr(parse, COMMA_TOKEN);
+						assert_prop(NULL);
+						expr->data.constructor.members[expr->data.constructor.member_count] = *temp;
+						if (parse->err.len != 0){
+							parse->token_index = save;
+							parse->err.len = 0;
+							temp = parse_expr(parse, BRACK_CLOSE_TOKEN);
+							assert_prop(NULL);
+							expr->data.constructor.members[expr->data.constructor.member_count] = *temp;
+							expr->data.constructor.member_count += 1;
+							break;
+						}
+						expr->data.constructor.member_count += 1;
+						continue;
+					}
+					expr->data.constructor.names[expr->data.constructor.member_count].len = 0;
+					save = parse->token_index;
+					expr_ast* temp = parse_expr(parse, COMMA_TOKEN);
+					assert_prop(NULL);
+					expr->data.constructor.members[expr->data.constructor.member_count] = *temp;
+					if (parse->err.len != 0){
+						parse->token_index = save;
+						parse->err.len = 0;
+						expr_ast* temp = parse_expr(parse, BRACK_CLOSE_TOKEN);
+						assert_prop(NULL);
+						expr->data.constructor.members[expr->data.constructor.member_count] = *temp;
+						expr->data.constructor.member_count += 1;
+						break;
+					}
+				}
+			}
+			break;
+		case BRACK_OPEN_TOKEN:
+			expr->tag = LIST_EXPR;
+			uint64_t list_capacity = 2;
+			expr->data.list.lines = pool_request(parse->mem, sizeof(expr_ast)*list_capacity);
+			expr->data.list.line_count = 0;
+			while (parse->token_index < parse->token_count){
+				if (expr->data.list.line_count == list_capacity){
+					list_capacity *= 2;
+					expr_ast* lines = pool_request(parse->mem, sizeof(expr_ast)*list_capacity);
+					for (uint64_t i = 0;i<expr->data.list.line_count;++i){
+						lines[i] = expr->data.list.lines[i];
+					}
+					expr->data.list.lines = lines;
+				}
+				uint64_t item_save = parse->token_index;
+				expr_ast* item = parse_expr(parse, COMMA_TOKEN);
+				if (parse->err.len != 0){
+					parse->token_index = item_save;
+					parse->err.len = 0;
+					item = parse_expr(parse, BRACK_CLOSE_TOKEN);
+					assert_prop(NULL);
+					expr->data.list.lines[expr->data.list.line_count] = *item;
+					expr->data.list.line_count += 1;
+					break;
+				}
+				expr->data.list.lines[expr->data.list.line_count] = *item;
+				expr->data.list.line_count += 1;
+			}
+			break;
+		case STRING_TOKEN:
+			expr->tag = STRING_EXPR;
+			expr->data.str = t->data.name;
+			break;
+		case CARROT_TOKEN:
+			expr->tag = DEREF_EXPR;
+			break;
+		case AMPERSAND_TOKEN:
+			expr->tag = REF_EXPR;
+			break;
+		case RETURN_TOKEN:
+			expr->tag = RETURN_EXPR;
+			expr->data.ret = parse_expr(parse, end);
+			return outer;
+		case IF_TOKEN:
+			expr->tag = IF_EXPR;
+			expr->data.if_statement.pred = parse_expr(parse, BRACE_OPEN_TOKEN);
+			assert_prop(NULL);
+			parse->token_index -= 1;
+			expr->data.if_statement.cons = parse_expr(parse, BRACE_CLOSE_TOKEN);
+			assert_prop(NULL);
+			t = &parse->tokens[parse->token_index];
+			if (t->tag == ELSE_TOKEN){
+				parse->token_index += 1;
+				t = &parse->tokens[parse->token_index];
+				assert_local(t->tag == BRACE_OPEN_TOKEN, "expected { to begin if statement consequent\n", NULL);
+				expr->data.if_statement.alt = parse_expr(parse, BRACE_CLOSE_TOKEN);
+				assert_prop(NULL);
+			}
+			else {
+				expr->data.if_statement.alt = NULL;
+			}
+			break;
+		case FOR_TOKEN:
+			expr->tag = FOR_EXPR;
+			t = &parse->tokens[parse->token_index];
+			parse->token_index += 1;
+			assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier to bind as for loop variable\n", NULL);
+			expr->data.for_statement.binding = t->data.name;
+			expr->data.for_statement.initial = parse_expr(parse, BRACE_OPEN_TOKEN);
+			assert_prop(NULL);
+			assert_local(expr->data.for_statement.initial->tag == APPL_EXPR, "expected 2 expressions for for loop bounds\n", NULL);
+			expr->data.for_statement.limit = expr->data.for_statement.initial->data.appl.right;
+			expr_ast* left = expr->data.for_statement.initial->data.appl.left;
+			expr->data.for_statement.initial = left;
+			parse->token_index -= 1;
+			expr->data.for_statement.cons = parse_expr(parse, BRACE_CLOSE_TOKEN);
+			assert_prop(NULL);
+			break;
+		case WHILE_TOKEN:
+			expr->tag = WHILE_EXPR;
+			expr->data.while_statement.pred = parse_expr(parse, BRACE_OPEN_TOKEN);
+			assert_prop(NULL);
+			parse->token_index -= 1;
+			expr->data.while_statement.cons = parse_expr(parse, BRACE_CLOSE_TOKEN);
+			assert_prop(NULL);
+			break;
+		case MATCH_TOKEN:
+			expr->tag = MATCH_EXPR;
+			expr->data.match.pred = parse_expr(parse, BRACE_OPEN_TOKEN);
+			assert_prop(NULL);
+			uint64_t match_capacity = 2;
+			expr->data.match.count = 0;
+			expr->data.match.patterns = pool_request(parse->mem, sizeof(pattern_ast)*match_capacity);
+			expr->data.match.cases = pool_request(parse->mem, sizeof(expr_ast)*match_capacity);
+			while (parse->token_index < parse->token_count){
+				pattern_ast* case_pattern = parse_pattern(parse);
+				t = &parse->tokens[parse->token_index];
+				assert_local(t->tag == BRACE_OPEN_TOKEN, "expected { for pattern case in match\n", NULL);
+				expr_ast* case_expr = parse_expr(parse, BRACE_CLOSE_TOKEN);
+				assert_prop(NULL);
+				if (expr->data.match.count == match_capacity){
+					match_capacity *= 2;
+					pattern_ast* patterns = pool_request(parse->mem, sizeof(pattern_ast)*match_capacity);
+					expr_ast* cases = pool_request(parse->mem, sizeof(expr_ast)*match_capacity);
+					for (uint64_t i = 0;i<expr->data.match.count;++i){
+						patterns[i] = expr->data.match.patterns[i];
+						cases[i] = expr->data.match.cases[i];
+					}
+					expr->data.match.patterns = patterns;
+					expr->data.match.cases = cases;
+				}
+				expr->data.match.patterns[expr->data.match.count] = *case_pattern;
+				expr->data.match.cases[expr->data.match.count] = *case_expr;
+				expr->data.match.count += 1;
+				t = &parse->tokens[parse->token_index];
+				if (t->tag == BRACE_CLOSE_TOKEN){
+					parse->token_index += 1;
+					break;
+				}
+			}
+			break;
+		case INTEGER_TOKEN:
+			expr->tag = LIT_EXPR;
+			if (t->content_tag == UINT_TOKEN_TYPE){
+				expr->data.literal.data.u = t->data.pos;
+			}
+			else if (t->content_tag == INT_TOKEN_TYPE){
+				expr->data.literal.data.i = t->data.neg;
+			}
+			break;
+		default:
+			assert_local(0, "Unexpected token in expression\n", NULL);
+		}
+		t = &parse->tokens[parse->token_index];
+		if (t->tag == end){
+			parse->token_index += 1;
+			return outer;
+		}
+		expr_ast* temp = pool_request(parse->mem, sizeof(expr_ast));
+		temp->tag = APPL_EXPR;
+		temp->data.appl.left = outer;
+		temp->data.appl.right = pool_request(parse->mem, sizeof(expr_ast));
+		expr = temp->data.appl.right;
+		outer = temp;
+		t = &parse->tokens[parse->token_index];
+		parse->token_index += 1;
+	}
+	return NULL;
+}
+
+void
+parse_block_expression(parser* const parse, TOKEN end, expr_ast* const expr){
+	expr->tag = BLOCK_EXPR;
+	uint64_t block_capacity = 2;
+	expr->data.block.lines = pool_request(parse->mem, sizeof(expr_ast)*block_capacity);
+	expr->data.block.line_count = 0;
+	while (parse->token_index < parse->token_count){
+		token* t = &parse->tokens[parse->token_index];
+		uint64_t save = parse->token_index;
+		term_ast* closure = parse_term(parse);
+		expr_ast* line;
+		if (parse->err.len == 0){
+			line = pool_request(parse->mem, sizeof(expr_ast));
+			line->tag = TERM_EXPR;
+			line->data.term = closure;
+		}
+		else{
+			parse->err.len = 0;
+			parse->token_index = save;
+			line = parse_expr(parse, SEMI_TOKEN);
+			assert_prop();
+		}
+		if (expr->data.block.line_count == block_capacity){
+			block_capacity *= 2;
+			expr_ast* lines = pool_request(parse->mem, sizeof(expr_ast)*block_capacity);
+			for (uint64_t i = 0;i<expr->data.block.line_count;++i){
+				lines[i] = expr->data.block.lines[i];
+			}
+			expr->data.block.lines = lines;
+		}
+		expr->data.block.lines[expr->data.block.line_count] = *line;
+		expr->data.block.line_count += 1;
+		t = &parse->tokens[parse->token_index];
+		if (t->tag == end){
+			break;
+		}
+		if (t->tag == BRACE_CLOSE_TOKEN){
+			parse->token_index += 1;
+			break;
+		}
+	}
+}
+
+term_ast*
+parse_term(parser* const parse){
+	term_ast* term = pool_request(parse->mem, sizeof(term_ast));
+	term->type = parse_type(parse, 1, EQUAL_TOKEN);
+	token* t = &parse->tokens[parse->token_index];
+	term->name = t->data.name;
+	parse->token_index += 2;
+	term->expression = parse_expr(parse, SEMI_TOKEN);
+	return term;
 }
 
 int

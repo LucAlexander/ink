@@ -4,7 +4,7 @@
 #include <inttypes.h>
 #include "kickstart.h"
 
-#define ARENA_SIZE 0x1000000
+#define ARENA_SIZE 0x100000000
 #define TOKEN_ARENA_SIZE 0x10000
 
 #define DEBUG
@@ -26,7 +26,7 @@ typedef enum TOKEN {
 	BACKTICK_TOKEN='`',
 	COMPOSE_TOKEN='.',
 	SHIFT_TOKEN='$',
-	ASTERISK_TOKEN='*',
+	CARROT_TOKEN='^',
 	AMPERSAND_TOKEN='&',
 	HOLE_TOKEN='_',
 	IDENTIFIER_TOKEN=1000,
@@ -116,6 +116,11 @@ void show_implementation(implementation_ast* const impl);
 pattern_ast* parse_pattern(parser* const parse);
 void show_pattern(pattern_ast* pat);
 void show_literal(literal_ast* const lit);
+void parse_block_expression(parser* const parse, TOKEN end, expr_ast* const expr);
+expr_ast* parse_expr(parser* const parse, TOKEN end);
+term_ast* parse_term(parser* const parse);
+void show_term(term_ast* term);
+void show_expression(expr_ast* expr);
 
 typedef struct alias_ast {
 	string name;
@@ -275,7 +280,8 @@ typedef struct expr_ast {
 			uint64_t line_count;
 		} block, list;
 		literal_ast literal;
-		string str, binding;
+		string str;
+		string binding;
 		term_ast* term;
 		struct {
 			expr_ast* members;
@@ -286,10 +292,28 @@ typedef struct expr_ast {
 			expr_ast* left;
 			expr_ast* right;
 		} mutation;
+		struct {
+			expr_ast* pred;
+			expr_ast* cons;
+			expr_ast* alt;
+		} if_statement;
+		struct {
+			string binding;
+			expr_ast* initial;
+			expr_ast* limit;
+			expr_ast* cons;
+		} for_statement;
+		struct {
+			expr_ast* pred;
+			expr_ast* cons;
+		} while_statement;
+		struct {
+			expr_ast* pred;
+			pattern_ast* patterns;
+			expr_ast* cases;
+			uint64_t count;
+		} match;
 		expr_ast* ret;
-		expr_ast* ref;
-		expr_ast* deref;
-		pattern_ast pattern;
 	} data;
 	enum {
 		APPL_EXPR,
@@ -303,9 +327,12 @@ typedef struct expr_ast {
 		BINDING_EXPR,
 		MUTATION_EXPR,
 		RETURN_EXPR,
-		PATTERN_EXPR,
 		REF_EXPR,
 		DEREF_EXPR,
+		IF_EXPR,
+		FOR_EXPR,
+		WHILE_EXPR,
+		MATCH_EXPR
 	} tag;
 } expr_ast;
 

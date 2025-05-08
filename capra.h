@@ -344,6 +344,7 @@ MAP_DECL(typedef_ast);
 MAP_DECL(alias_ast);
 MAP_DECL(typeclass_ast);
 MAP_DECL(implementation_ast);
+MAP_DECL(implementation_ast_map);
 MAP_DECL(term_ast);
 
 typedef struct parser {
@@ -359,7 +360,7 @@ typedef struct parser {
 	typedef_ast_map* types;
 	alias_ast_map* aliases;
 	typeclass_ast_map* typeclasses;
-	implementation_ast_map* implementations;
+	implementation_ast_map_map* implementations;
 	term_ast_map* terms;
 } parser;
 

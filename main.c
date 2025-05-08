@@ -8,6 +8,7 @@ MAP_IMPL(typedef_ast);
 MAP_IMPL(alias_ast);
 MAP_IMPL(typeclass_ast);
 MAP_IMPL(implementation_ast);
+MAP_IMPL(implementation_ast_map);
 MAP_IMPL(term_ast);
 
 void
@@ -45,7 +46,7 @@ compile_file(const char* input, const char* output){
 	typedef_ast_map types = typedef_ast_map_init(&mem);
 	alias_ast_map aliases = alias_ast_map_init(&mem);
 	typeclass_ast_map typeclasses = typeclass_ast_map_init(&mem);
-	implementation_ast_map implementations = implementation_ast_map_init(&mem);
+	implementation_ast_map_map implementations = implementation_ast_map_map_init(&mem);
 	term_ast_map terms = term_ast_map_init(&mem);
 	parser parse = {
 		.mem = &mem,
@@ -1076,6 +1077,83 @@ show_structure(structure_ast* const s){
 
 void
 parse_program(parser* const parse){
+	while (parse->token_index < parse->token_count){
+		uint64_t save = parse->token_index;
+		alias_ast* alias = parse_alias(parse);
+		if (parse->err.len == 0){
+			uint8_t dup = alias_ast_map_insert(parse->aliases, alias->name, *alias);
+			assert_local(dup==0, "Duplicate alias definition\n",);
+			parse->token_index += 1;
+#ifdef DEBUG
+			show_alias(alias);
+			printf("\n");
+#endif
+			continue;
+		}
+		parse->err.len = 0;
+		parse->token_index = save;
+		typedef_ast* type = parse_typedef(parse);
+		if (parse->err.len == 0){
+			uint8_t dup = typedef_ast_map_insert(parse->types, type->name, *type);
+			assert_local(dup==0, "Duplicate type definition\n",);
+			parse->token_index += 1;
+#ifdef DEBUG
+			show_typedef(type);
+			printf("\n");
+#endif
+			continue;
+		}
+		parse->err.len = 0;
+		parse->token_index = save;
+		typeclass_ast* class = parse_typeclass(parse);
+		if (parse->err.len == 0){
+			uint8_t dup = typeclass_ast_map_insert(parse->typeclasses, class->name, *class);
+			assert_local(dup==0, "Duplicate typeclass definition\n",);
+			parse->token_index += 1;
+#ifdef DEBUG
+			show_typeclass(class);
+			printf("\n");
+#endif
+			continue;
+		}
+		parse->err.len = 0;
+		parse->token_index = save;
+		term_ast* term = parse_term(parse);
+		if (parse->err.len == 0){
+			uint8_t dup = term_ast_map_insert(parse->terms, term->name, *term);
+			assert_local(dup==0, "Duplicate term definition\n",);
+#ifdef DEBUG
+			show_term(term);
+			printf("\n");
+#endif
+			continue;
+		}
+		parse->err.len = 0;
+		parse->token_index = save;
+		implementation_ast* impl = parse_implementation(parse);
+		if (parse->err.len == 0){
+			implementation_ast_map* map = implementation_ast_map_map_access(parse->implementations, impl->type);
+			if (map == NULL){
+				implementation_ast_map init = implementation_ast_map_init(parse->mem);
+				implementation_ast_map_insert(&init, impl->typeclass, *impl);
+				implementation_ast_map_map_insert(parse->implementations, impl->type, init);
+#ifdef DEBUG
+				show_implementation(impl);
+				printf("\n");
+#endif
+				continue;
+			}
+			uint8_t dup = implementation_ast_map_insert(map, impl->typeclass, *impl);
+			assert_local(dup==0, "Duplicate implementation definition\n",);
+#ifdef DEBUG
+			show_implementation(impl);
+			printf("\n");
+#endif
+			continue;
+		}
+		assert_prop();
+	}
+	/*
 	type_ast* a = parse_type(parse, 1, SEMI_TOKEN);
 	show_type(a);
 	printf("\n");
@@ -1129,6 +1207,7 @@ parse_program(parser* const parse){
 		show_term(term);
 		printf("\n");
 	}
+	*/
 }
 
 alias_ast*

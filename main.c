@@ -161,6 +161,7 @@ lex_string(parser* const parse){
 		case SHIFT_TOKEN:
 		case AMPERSAND_TOKEN:
 		case HOLE_TOKEN:
+			t->data.name.len += 1;
 			t->tag = c;
 			t->content_tag = STRING_TOKEN_TYPE;
 			pool_request(parse->token_mem, sizeof(token));
@@ -292,7 +293,7 @@ case 'v': c = '\v'; break;
 			pool_request(parse->token_mem, sizeof(token));
 			parse->token_count += 1;
 	t = &parse->tokens[parse->token_count];
-			continue;
+	continue;
 		}
 		else if (isdigit(c) || c == '-'){ // TODO floats
 			t->tag = INTEGER_TOKEN;
@@ -1638,13 +1639,32 @@ parse_expr(parser* const parse, TOKEN end){
 				return outer;
 			}
 			break;
-		case IDENTIFIER_TOKEN:
 		case SYMBOL_TOKEN:
 		case COMPOSE_TOKEN:
-		case EQUAL_TOKEN:
-		case SHIFT_TOKEN:
 			expr->tag = BINDING_EXPR;
 			expr->data.binding = t->data.name;
+			if (outer->tag == APPL_EXPR){
+				expr_ast* swap = outer->data.appl.left;
+				outer->data.appl.left = outer->data.appl.right;
+				outer->data.appl.right = swap;
+			}
+			break;
+		case IDENTIFIER_TOKEN:
+			expr->tag = BINDING_EXPR;
+			expr->data.binding = t->data.name;
+			break;
+		case EQUAL_TOKEN:
+			assert_local(outer->tag == APPL_EXPR, "Mutation expected left value\n", NULL);
+			outer->tag = MUTATION_EXPR;
+			expr_ast* rvalue = parse_expr(parse, end);
+			assert_prop(NULL);
+			*expr = *rvalue;
+			break;
+		case SHIFT_TOKEN:
+			assert_local(outer->tag == APPL_EXPR, "Shift expected left value\n", NULL);
+			expr_ast* rside = parse_expr(parse, end);
+			assert_prop(NULL);
+			*expr = *rside;
 			break;
 		case PAREN_OPEN_TOKEN:
 			expr_ast* temp = parse_expr(parse, PAREN_CLOSE_TOKEN);
@@ -1846,7 +1866,7 @@ parse_expr(parser* const parse, TOKEN end){
 			assert_local(0, "Unexpected token in expression\n", NULL);
 		}
 		t = &parse->tokens[parse->token_index];
-		if (t->tag == end){
+		if (t->tag == end ){
 			parse->token_index += 1;
 			return outer;
 		}

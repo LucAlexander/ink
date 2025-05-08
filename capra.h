@@ -269,7 +269,7 @@ typedef struct expr_ast {
 		struct {
 			expr_ast* left;
 			expr_ast* right;
-		} appl;
+		} appl, mutation;
 		struct {
 			pattern_ast* args;
 			expr_ast* expression;
@@ -289,10 +289,6 @@ typedef struct expr_ast {
 			string* names;
 			uint64_t member_count;
 		} constructor;
-		struct {
-			expr_ast* left;
-			expr_ast* right;
-		} mutation;
 		struct {
 			expr_ast* pred;
 			expr_ast* cons;
@@ -334,7 +330,7 @@ typedef struct expr_ast {
 		FOR_EXPR,
 		WHILE_EXPR,
 		MATCH_EXPR,
-		NOP_EXPR
+		NOP_EXPR,
 	} tag;
 } expr_ast;
 

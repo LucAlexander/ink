@@ -135,22 +135,27 @@ string string_init(pool* const mem, char* src){
 }
 
 void string_set(pool* const mem, string* const str, char* src){
-	uint64_t new_len = 0;
-	char* c = src;
-	for (uint64_t i = 0;i<ITERATION_LIMIT_MAX;++i){
-		if (*c == '\0'){
-			break;
-		}
-		str->str[new_len] = src[new_len];	
-		new_len += 1;
-		if (new_len > str->len){
-			string new = string_init(mem, src);
-			str->str = new.str;
-			str->len = new.len;
+	for (uint64_t i = 0;i<str->len;++i){
+		if (src[i] == 0){
+			str->len = i;
 			return;
 		}
+		str->str[i] = src[i];
 	}
-	str->len = new_len;
+	str->str = pool_request(mem, str->len);
+	for (uint64_t i = 0;i<str->len;++i){
+		str->str[i] = src[i];
+	}
+	char* c = &src[str->len];
+	for (uint64_t i = 0;i<ITERATION_LIMIT_MAX;++i){
+		if (*c == 0){
+			return;
+		}
+		c += 1;
+		pool_request(mem, 1);
+		str->str[str->len] = *c;
+		str->len += 1;
+	}
 }
 
 void string_print(string* const str){

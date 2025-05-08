@@ -706,11 +706,13 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 	case BRACK_OPEN_TOKEN:
 		base->tag = FAT_PTR_TYPE;
 		base->data.fat_ptr.ptr = parse_type_worker(parse, 0, BRACK_CLOSE_TOKEN);
+		assert_prop(NULL);
 		base->data.fat_ptr.len = 0;//TODO
 		parse->token_index += 1;
 		break;
 	case PAREN_OPEN_TOKEN:
 		*base = *parse_type_worker(parse, 0, PAREN_CLOSE_TOKEN);
+		assert_prop(NULL);
 		parse->token_index += 1;
 		break;
 	default:
@@ -755,10 +757,12 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 				break;
 			case PAREN_OPEN_TOKEN:
 				*arg = *parse_type_worker(parse, 0, PAREN_CLOSE_TOKEN);
+				assert_prop(NULL);
 				base->data.named.arg_count += 1;
 				break;
 			case BRACK_OPEN_TOKEN:
 				*arg = *parse_type_worker(parse, 0, BRACK_CLOSE_TOKEN);
+				assert_prop(NULL);
 				base->data.named.arg_count += 1;
 				break;
 			case IDENTIFIER_TOKEN:
@@ -810,6 +814,7 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 			outer->tag = FUNCTION_TYPE;
 			outer->data.function.left = base;
 			outer->data.function.right = parse_type_worker(parse, named, end);
+			assert_prop(NULL);
 			base = outer;
 			break;
 		default:
@@ -849,6 +854,7 @@ parse_struct_type(parser* const parse){
 		structure->data.structure.count = 0;
 		while (parse->token_index < parse->token_count){
 			type_ast* type = parse_type(parse, 1, SEMI_TOKEN);
+			assert_prop(NULL);
 			t = &parse->tokens[parse->token_index];
 			parse->token_index += 1;
 			assert_local(t->tag == IDENTIFIER_TOKEN || t->tag == SYMBOL_TOKEN, "Expected identifier or symbol for structure member name\n", NULL);
@@ -889,6 +895,7 @@ parse_struct_type(parser* const parse){
 		structure->data.union_structure.count = 0;
 		while (parse->token_index < parse->token_count){
 			type_ast* type = parse_type(parse, 1, SEMI_TOKEN);
+			assert_prop(NULL);
 			t = &parse->tokens[parse->token_index];
 			parse->token_index += 1;
 			assert_local(t->tag == IDENTIFIER_TOKEN || t->tag == SYMBOL_TOKEN, "expected identifier or symbol for union member name\n", NULL);
@@ -1229,6 +1236,7 @@ parse_typeclass(parser* const parse){
 	class->members = pool_request(parse->mem, sizeof(term_ast)*capacity);
 	while (parse->token_index < parse->token_count){
 		type_ast* type = parse_type(parse, 1, SEMI_TOKEN);
+		assert_prop(NULL);
 		t = &parse->tokens[parse->token_index];
 		parse->token_index += 2;
 		term_ast term = {
@@ -1635,6 +1643,8 @@ parse_expr(parser* const parse, TOKEN end){
 		case IDENTIFIER_TOKEN:
 		case SYMBOL_TOKEN:
 		case COMPOSE_TOKEN:
+		case EQUAL_TOKEN:
+		case SHIFT_TOKEN:
 			expr->tag = BINDING_EXPR;
 			expr->data.binding = t->data.name;
 			break;
@@ -1671,6 +1681,7 @@ parse_expr(parser* const parse, TOKEN end){
 					if (eq->tag == EQUAL_TOKEN && (name->tag == IDENTIFIER_TOKEN || name->tag == SYMBOL_TOKEN)){
 						expr->data.constructor.names[expr->data.constructor.member_count] = name->data.name;
 						save = parse->token_index;
+						parse->token_index += 2;
 						expr_ast* temp = parse_expr(parse, COMMA_TOKEN);
 						assert_prop(NULL);
 						expr->data.constructor.members[expr->data.constructor.member_count] = *temp;
@@ -1689,17 +1700,16 @@ parse_expr(parser* const parse, TOKEN end){
 					expr->data.constructor.names[expr->data.constructor.member_count].len = 0;
 					save = parse->token_index;
 					expr_ast* temp = parse_expr(parse, COMMA_TOKEN);
-					assert_prop(NULL);
-					expr->data.constructor.members[expr->data.constructor.member_count] = *temp;
 					if (parse->err.len != 0){
 						parse->token_index = save;
 						parse->err.len = 0;
-						expr_ast* temp = parse_expr(parse, BRACK_CLOSE_TOKEN);
+						expr_ast* temp = parse_expr(parse, BRACE_CLOSE_TOKEN);
 						assert_prop(NULL);
 						expr->data.constructor.members[expr->data.constructor.member_count] = *temp;
 						expr->data.constructor.member_count += 1;
 						break;
 					}
+					expr->data.constructor.members[expr->data.constructor.member_count] = *temp;
 				}
 			}
 			break;
@@ -1900,6 +1910,7 @@ term_ast*
 parse_term(parser* const parse){
 	term_ast* term = pool_request(parse->mem, sizeof(term_ast));
 	term->type = parse_type(parse, 1, EQUAL_TOKEN);
+	assert_prop(NULL);
 	token* t = &parse->tokens[parse->token_index];
 	term->name = t->data.name;
 	parse->token_index += 2;

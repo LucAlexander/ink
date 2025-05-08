@@ -584,89 +584,76 @@ show_tokens(token* tokens, uint64_t token_count){
 }
 
 type_ast*
+parse_type_dependency(parser* const parse){
+	type_ast* outer = pool_request(parse->mem, sizeof(type_ast));
+	outer->tag = DEPENDENCY_TYPE;
+	uint64_t capacity = 2;
+	outer->data.dependency.typeclass_dependencies = pool_request(parse->mem, sizeof(string)*capacity);
+	outer->data.dependency.dependency_typenames = pool_request(parse->mem, sizeof(string)*capacity);
+	outer->data.dependency.dependency_count = 0;
+	while (parse->token_index < parse->token_count){
+		token* t = &parse->tokens[parse->token_index];
+		parse->token_index += 1;
+		if (t->tag == PAREN_CLOSE_TOKEN){
+			t = &parse->tokens[parse->token_index];
+			parse->token_index += 1;
+			assert_local(t->tag == DOUBLE_ARROW_TOKEN, "expected ->", NULL);
+			break;
+		}
+		if (outer->data.dependency.dependency_count == capacity){
+			capacity *= 2;
+			string* tc_depend = pool_request(parse->mem, sizeof(string)*capacity);
+			string* depend_names = pool_request(parse->mem, sizeof(string)*capacity);
+			for (uint64_t i = 0;i<outer->data.dependency.dependency_count;++i){
+				tc_depend[i] = outer->data.dependency.typeclass_dependencies[i];
+				depend_names[i] = outer->data.dependency.dependency_typenames[i];
+			}
+			outer->data.dependency.typeclass_dependencies = tc_depend;
+			outer->data.dependency.dependency_typenames = depend_names;
+		}
+		assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier", NULL);
+		outer->data.dependency.typeclass_dependencies[outer->data.dependency.dependency_count] = t->data.name;
+		t = &parse->tokens[parse->token_index];
+		parse->token_index += 1;
+		assert_local(t->tag == IDENTIFIER_TOKEN, "expeted identifier", NULL);
+		outer->data.dependency.dependency_typenames[outer->data.dependency.dependency_count] = t->data.name;
+		outer->data.dependency.dependency_count += 1;
+		t = &parse->tokens[parse->token_index];
+		parse->token_index += 1;
+		if (t->tag == COMMA_TOKEN){
+			continue;
+		}
+		else if (t->tag == PAREN_CLOSE_TOKEN){
+			t = &parse->tokens[parse->token_index];
+			parse->token_index += 1;
+			assert_local(t->tag == DOUBLE_ARROW_TOKEN, "expected =>", NULL);
+			break;
+		}
+	}
+	return outer;
+}
+
+type_ast*
 parse_type(parser* const parse, uint8_t named, TOKEN end){
 	token* t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
-	uint8_t found = 0;
 	type_ast* outer;
 	if (t->tag == PAREN_OPEN_TOKEN){
 		uint64_t save = parse->token_index;
-		while (parse->token_index < parse->token_count){
-			t = &parse->tokens[parse->token_index];
-			parse->token_index += 1;
-			if (t->tag == end){
-				found = 0;
-				break;
-			}
-			if (t->tag == DOUBLE_ARROW_TOKEN){
-				found = 1;
-				break;
-			}
-			if (t->tag == ARROW_TOKEN){ // TODO this is not a good way to do this, try to parse it and fallback on failure
-				found = 0;
-				break;
-			}
+		outer = parse_type_dependency(parse);
+		if (parse->err.len != 0){
+			parse->token_index = save - 1;
+			parse->err.len = 0;
 		}
-		parse->token_index = save;
-		if (found == 1){
-			outer = pool_request(parse->mem, sizeof(type_ast));
-			outer->tag = DEPENDENCY_TYPE;
-			uint64_t capacity = 2;
-			outer->data.dependency.typeclass_dependencies = pool_request(parse->mem, sizeof(string)*capacity);
-			outer->data.dependency.dependency_typenames = pool_request(parse->mem, sizeof(string)*capacity);
-			outer->data.dependency.dependency_count = 0;
-			while (parse->token_index < parse->token_count){
-				t = &parse->tokens[parse->token_index];
-				parse->token_index += 1;
-				if (t->tag == PAREN_CLOSE_TOKEN){
-					t = &parse->tokens[parse->token_index];
-					parse->token_index += 1;
-					assert_local(t->tag == DOUBLE_ARROW_TOKEN, "expected ->", NULL);
-					break;
-				}
-				if (outer->data.dependency.dependency_count == capacity){
-					capacity *= 2;
-					string* tc_depend = pool_request(parse->mem, sizeof(string)*capacity);
-					string* depend_names = pool_request(parse->mem, sizeof(string)*capacity);
-					for (uint64_t i = 0;i<outer->data.dependency.dependency_count;++i){
-						tc_depend[i] = outer->data.dependency.typeclass_dependencies[i];
-						depend_names[i] = outer->data.dependency.dependency_typenames[i];
-					}
-					outer->data.dependency.typeclass_dependencies = tc_depend;
-					outer->data.dependency.dependency_typenames = depend_names;
-				}
-				assert_local(t->tag == IDENTIFIER_TOKEN, "expected identifier", NULL);
-				outer->data.dependency.typeclass_dependencies[outer->data.dependency.dependency_count] = t->data.name;
-				t = &parse->tokens[parse->token_index];
-				parse->token_index += 1;
-				assert_local(t->tag == IDENTIFIER_TOKEN, "expeted identifier", NULL);
-				outer->data.dependency.dependency_typenames[outer->data.dependency.dependency_count] = t->data.name;
-				outer->data.dependency.dependency_count += 1;
-				t = &parse->tokens[parse->token_index];
-				parse->token_index += 1;
-				if (t->tag == COMMA_TOKEN){
-					continue;
-				}
-				else if (t->tag == PAREN_CLOSE_TOKEN){
-					t = &parse->tokens[parse->token_index];
-					parse->token_index += 1;
-					assert_local(t->tag == DOUBLE_ARROW_TOKEN, "expected =>", NULL);
-					break;
-				}
-			}
-		}
-		else {
-			parse->token_index -= 1;
+		else{
+			outer->data.dependency.type = parse_type_worker(parse, named, end);
+			return outer;
 		}
 	}
 	else{
 		parse->token_index -= 1;
 	}
 	type_ast* inner = parse_type_worker(parse, named, end);
-	if (found == 1){
-		outer->data.dependency.type = inner;
-		return outer;
-	}
 	return inner;
 }
 
@@ -711,8 +698,9 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 		parse->token_index += 1;
 		break;
 	case PAREN_OPEN_TOKEN:
-		*base = *parse_type_worker(parse, 0, PAREN_CLOSE_TOKEN);
+		type_ast* temp = parse_type_worker(parse, 0, PAREN_CLOSE_TOKEN);
 		assert_prop(NULL);
+		*base = *temp;
 		parse->token_index += 1;
 		break;
 	default:

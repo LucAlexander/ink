@@ -121,6 +121,7 @@ expr_ast* parse_expr(parser* const parse, TOKEN end);
 term_ast* parse_term(parser* const parse);
 void show_term(term_ast* term);
 void show_expression(expr_ast* expr);
+type_ast* parse_type_dependency(parser* const parse);
 
 typedef struct alias_ast {
 	string name;

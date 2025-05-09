@@ -8,7 +8,7 @@
 #define TOKEN_ARENA_SIZE 0x10000
 #define ERROR_STRING_MAX 0x100
 
-#define DEBUG
+//#define DEBUG
 
 typedef enum TOKEN {
 	PAREN_OPEN_TOKEN='(',

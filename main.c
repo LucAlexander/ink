@@ -94,7 +94,7 @@ compile_file(char* input, const char* output){
 	parse.tokens = pool_request(parse.token_mem, sizeof(token));
 	lex_string(&parse);
 	if (parse.err.len != 0){
-		printf("Failed to lex, ");
+		printf("[!] Failed to lex, ");
 		string_print(&parse.err);
 		printf("\n");
 	}
@@ -104,7 +104,7 @@ compile_file(char* input, const char* output){
 #endif
 	parse_program(&parse);
 	if (parse.err.len != 0){
-		printf("Failed to parse, ");
+		printf("[!] Failed to parse, ");
 		show_error(&parse);
 	}
 }
@@ -241,10 +241,7 @@ case 'v': c = '\v'; break;
 			c = parse->text.str[parse->text_index];
 			parse->text_index += 1;
 			t->data.name.len += 1;
-			if (c != '\''){
-				string_set(parse->mem, &parse->err, "Expected '\'' to close character literal\n");
-				return;
-			}
+			assert_local(c == '\'', , "expected \' to close character literal");
 			pool_request(parse->token_mem, sizeof(token));
 			parse->token_count += 1;
 			t = &parse->tokens[parse->token_count];
@@ -1325,7 +1322,9 @@ parse_implementation(parser* const parse){
 			}
 			impl->members = members;
 		}
-		impl->members[impl->member_count] = *parse_term(parse);
+		term_ast* member = parse_term(parse);
+		assert_prop(NULL);
+		impl->members[impl->member_count] = *member;
 		impl->member_count += 1;
 		t = &parse->tokens[parse->token_index];
 		if (t->tag == BRACE_CLOSE_TOKEN){
@@ -2025,8 +2024,10 @@ parse_import(parser* const parse){
 	assert_local(str.str != NULL, , "File read error\n");
 	parse->text = str;
 	parse->text_index = 0;
+#ifdef DEBUG
 	token* new_tokens = &parse->tokens[parse->token_count];
 	uint64_t original_count = parse->token_count;
+#endif
 	lex_string(parse);
 	assert_prop();
 #ifdef DEBUG
@@ -2037,15 +2038,14 @@ parse_import(parser* const parse){
 
 void
 show_error(parser* const parse){
-	printf("[!]");
 	string_print(&parse->err);
 	printf("\n");
 	if (parse->file_offset_count > 0){
 		uint64_t i = 0;
 		string last = parse->file_offsets[i];
 		i += 1;
-		uint64_t last_offset = 0;
 		uint64_t* offset = uint64_t_map_access(parse->imported, last);
+		uint64_t last_offset = *offset;
 		assert(offset != NULL);
 		if (parse->err_token >= *offset){
 			while (parse->err_token >= *offset){
@@ -2068,8 +2068,8 @@ show_error(parser* const parse){
 }
 
 void
-lex_err(parser* const parse, uint64_t index, string filename){
-	printf("in file %s:\n", filename.str);
+lex_err(parser* const parse, uint64_t goal, string filename){
+	printf(">>> file %s:\n", filename.str);
 	FILE* fd = fopen(filename.str, "r");
 	assert(fd != NULL);
 	uint64_t read_bytes = fread(parse->mem->ptr, sizeof(uint8_t), parse->mem->left, fd);
@@ -2080,7 +2080,238 @@ lex_err(parser* const parse, uint64_t index, string filename){
 		.len = read_bytes
 	};
 	assert(str.str != NULL);
-	//TODO
+	uint64_t index = 0;
+	uint64_t text_index = 0;
+	char* line_start = str.str;
+	uint64_t line_pos = 0;
+	uint64_t line = 1;
+	while (text_index < str.len){
+		if (index == goal){
+			uint64_t position = text_index - line_pos;
+			printf(">>> line %lu:\n", line);
+			while (line_pos < str.len){
+				if (*line_start == '\0'){
+					printf("\n");
+					break;
+				}
+				printf("%c", *line_start);
+				if (*line_start == '\n'){
+					break;
+				}
+				line_start += 1;
+				line_pos += 1;
+			}
+			for (uint64_t i = 0;i<position;++i){
+				printf(" ");
+			}
+			printf("^\n");
+			return;
+		}
+		char c = str.str[text_index];
+		text_index += 1;
+		switch (c){
+		case ' ':
+		case '\r':
+		case '\t':
+		case '\n':
+			line += 1;
+			line_start = &str.str[text_index];
+			line_pos = text_index;
+			continue;
+		case COLON_TOKEN:
+		case PIPE_TOKEN:
+		case CARROT_TOKEN:
+		case EQUAL_TOKEN:
+			if (issymbol(str.str[text_index])){
+				break;
+			}
+		case AT_TOKEN:
+		case PAREN_OPEN_TOKEN:
+		case PAREN_CLOSE_TOKEN:
+		case BRACK_OPEN_TOKEN:
+		case BRACK_CLOSE_TOKEN:
+		case BRACE_OPEN_TOKEN:
+		case BRACE_CLOSE_TOKEN:
+		case COMMA_TOKEN:
+		case SEMI_TOKEN:
+		case LAMBDA_TOKEN:
+		case BACKTICK_TOKEN:
+		case COMPOSE_TOKEN:
+		case SHIFT_TOKEN:
+		case AMPERSAND_TOKEN:
+		case HOLE_TOKEN:
+			index += 1;
+			continue;
+		case '"':
+			while (text_index < str.len){
+				c = str.str[text_index];
+				text_index += 1;
+				if (c == '\n'){
+					line_start = &str.str[text_index];
+					line_pos = text_index;
+					line += 1;
+				}
+				if (c == '"'){
+					break;
+				}
+			}
+			index += 1;
+			continue;
+		case '\'':
+			c = str.str[text_index];
+			text_index += 1;
+			if (c == '\\'){
+				c = str.str[text_index];
+				text_index += 1;
+				switch (c){
+				case 'a': c = '\a'; break;
+				case 'b': c = '\b'; break;
+				case 'e': c = '\033'; break;
+				case 'f': c = '\f'; break;
+				case 'r': c = '\r'; break;
+				case 't': c = '\t'; break;
+				case 'v': c = '\v'; break;
+				case '\\': c = '\\'; break;
+				case '\'': c = '\''; break;
+				case '"': c = '"'; break;
+				case '?': c = '\?'; break;
+				case 'n': c = '\n'; break;
+				case '\n':
+					c = '\n';
+					line_start = &str.str[text_index];
+					line_pos = text_index;
+					line += 1;
+					break;
+				}
+			}
+			c = str.str[text_index];
+			text_index += 1;
+			assert_local(c == '\'', , "expected \' to close character literal");
+			index += 1;
+			continue;
+		default:
+			break;
+		}
+		if (c == '/'){
+			char k = str.str[text_index];
+			if (k == '/'){
+				while (text_index < str.len){
+					c = str.str[text_index];
+					text_index += 1;
+					if (c == '\n'){
+						line_start = &str.str[text_index];
+						line_pos = text_index;
+						line += 1;
+						break;
+					}
+				}
+				continue;
+			}
+			else if (k == '*'){
+				text_index += 1;
+				while (text_index < str.len){
+					c = str.str[text_index];
+					text_index += 1;
+					if (c == '\n'){
+						line_pos = text_index;
+						line_start = &str.str[text_index];
+						line += 1;
+					}
+					if (c == '*'){
+						k = str.str[text_index];
+						if (k == '/'){
+							text_index += 1;
+							break;
+						}
+					}
+				}
+				continue;
+			}
+		}
+		if (isalpha(c)){
+			c = str.str[text_index];
+			text_index += 1;
+			while ((text_index < str.len) && (isalpha(c) || c == '_' || isdigit(c))){
+				c = str.str[text_index];
+				text_index += 1;
+			}
+			text_index -= 1;
+			index += 1;
+			continue;
+		}
+		else if (issymbol(c)){
+			c = str.str[text_index];
+			text_index += 1;
+			while ((text_index < str.len) && issymbol(c)){
+				c = str.str[text_index];
+				text_index += 1;
+			}
+			text_index -= 1;
+			index += 1;
+			continue;
+		}
+		else if (isdigit(c) || c == '-'){ // TODO floats
+			if (c == '-'){
+				c = str.str[text_index];
+				text_index += 1;
+			}
+			if (c == '0'){
+				c = str.str[text_index];
+				text_index += 1;
+				if (c == 'x'){
+					while (text_index < str.len){
+						if (c >= '0' && c <= '9'){ }
+						else if (c >= 'A' && c <= 'F'){ }
+						else if (c >= 'a' && c <= 'f'){ }
+						else{
+							text_index -= 1;
+							break;
+						}
+						c = str.str[text_index];
+						text_index += 1;
+					}
+					index += 1;
+					continue;
+				}
+				else if (c == 'b'){
+					while (text_index < str.len){
+						if (c!='0'||c!='1'){
+							text_index -= 1;
+							break;
+						}
+						c = str.str[text_index];
+						text_index += 1;
+					}
+					index += 1;
+					continue;
+				}
+				else if (c == 'o'){
+					while (text_index < str.len){
+						if (c < '0' && c > '7'){
+							text_index -= 1;
+							break;
+						}
+						c = str.str[text_index];
+						text_index += 1;
+					}
+					index += 1;
+					continue;
+				}
+			}
+			while (text_index < str.len){
+				if (isdigit(c) == 0){
+					text_index -= 1;
+					break;
+				}
+				c = str.str[text_index];
+				text_index += 1;
+			}
+			index += 1;
+			continue;
+		}
+		assert_local(0, , "Unknown symbol");
+		return;
+	}
 }
 
 int

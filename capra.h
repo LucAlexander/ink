@@ -8,7 +8,7 @@
 #define TOKEN_ARENA_SIZE 0x10000
 #define ERROR_STRING_MAX 0x100
 
-//#define DEBUG
+#define DEBUG
 
 typedef enum TOKEN {
 	PAREN_OPEN_TOKEN='(',
@@ -368,6 +368,9 @@ typedef struct parser {
 	typeclass_ast_map* typeclasses;
 	implementation_ast_map_map* implementations;
 	term_ast_map* terms;
+	term_ast* term_list;
+	uint64_t term_count;
+	uint64_t term_capacity;
 	uint64_t_map* imported;
 	string* file_offsets;
 	uint64_t file_offset_count;

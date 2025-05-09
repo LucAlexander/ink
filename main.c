@@ -84,6 +84,9 @@ compile_file(char* input, const char* output){
 		.typeclasses = &typeclasses,
 		.implementations = &implementations,
 		.terms = &terms,
+		.term_list = pool_request(&mem, 2*sizeof(term_ast)),
+		.term_count = 0,
+		.term_capacity = 2,
 		.imported = &imported,
 		.file_offsets=pool_request(&mem, 2*sizeof(string)),
 		.file_offset_capacity=2,
@@ -94,7 +97,7 @@ compile_file(char* input, const char* output){
 	parse.tokens = pool_request(parse.token_mem, sizeof(token));
 	lex_string(&parse);
 	if (parse.err.len != 0){
-		printf("[!] Failed to lex, ");
+		printf("\033[1m[!] Failed to lex, \033[0m");
 		string_print(&parse.err);
 		printf("\n");
 	}
@@ -104,7 +107,7 @@ compile_file(char* input, const char* output){
 #endif
 	parse_program(&parse);
 	if (parse.err.len != 0){
-		printf("[!] Failed to parse, ");
+		printf("\033[1m[!] Failed to parse, \033[0m");
 		show_error(&parse);
 	}
 }
@@ -1167,6 +1170,16 @@ parse_program(parser* const parse){
 				if (parse->err.len == 0){
 					uint8_t dup = term_ast_map_insert(parse->terms, term->name.data.name, *term);
 					assert_local(dup==0, , "Duplicate term definition");
+					if (parse->term_count == parse->term_capacity){
+						parse->term_capacity *= 2;
+						term_ast* terms = pool_request(parse->mem, sizeof(term_ast)*parse->term_capacity);
+						for (uint64_t i = 0;i<parse->term_count;++i){
+							terms[i] = parse->term_list[i];
+						}
+						parse->term_list = terms;
+					}
+					parse->term_list[parse->term_count] = *term;
+					parse->term_count += 1;
 #ifdef DEBUG
 					show_term(term);
 					printf("\n");
@@ -1403,11 +1416,12 @@ show_expression(expr_ast* expr){
 		}
 		break;
 	case BLOCK_EXPR:
-		printf("{");
+		printf("{\n");
 		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
 			show_expression(&expr->data.block.lines[i]);
+			printf("\n");
 		}
-		printf("}");
+		printf("}\n");
 		break;
 	case LIT_EXPR:
 		show_literal(&expr->data.literal);
@@ -1484,9 +1498,11 @@ show_expression(expr_ast* expr){
 	case MATCH_EXPR:
 		printf("match ");
 		show_expression(expr->data.match.pred);
+		printf("\n");
 		for (uint64_t i = 0;i<expr->data.match.count;++i){
 			show_pattern(&expr->data.match.patterns[i]);
 			show_expression(&expr->data.match.cases[i]);
+			printf("\n");
 		}
 		break;
 	case NOP_EXPR:
@@ -2076,7 +2092,6 @@ show_error(parser* const parse){
 
 void
 lex_err(parser* const parse, uint64_t goal, string filename){
-	printf(">>> file %s:\n", filename.str);
 	FILE* fd = fopen(filename.str, "r");
 	assert(fd != NULL);
 	uint64_t read_bytes = fread(parse->mem->ptr, sizeof(uint8_t), parse->mem->left, fd);
@@ -2095,7 +2110,7 @@ lex_err(parser* const parse, uint64_t goal, string filename){
 	while (text_index < str.len){
 		if (index == goal){
 			uint64_t position = (1+text_index) - line_pos;
-			printf(">>> line %lu:\n", line);
+			printf("\033[1m%s:%lu:\033[0m\n", filename.str, line);
 			while (line_pos < str.len){
 				if (*line_start == '\0'){
 					printf("\n");
@@ -2111,7 +2126,7 @@ lex_err(parser* const parse, uint64_t goal, string filename){
 			for (uint64_t i = 0;i<position;++i){
 				printf(" ");
 			}
-			printf("^\n");
+			printf("\033[1m^\033[0m\n");
 			return;
 		}
 		char c = str.str[text_index];

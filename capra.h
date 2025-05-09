@@ -378,4 +378,28 @@ typedef struct parser {
 	string mainfile;
 } parser;
 
+typedef struct binding {
+	token* name;
+	type_ast* type;
+} binding;
+
+typedef struct scope {
+	pool* mem;
+	binding* bindings;
+	uint64_t binding_capacity;
+	uint64_t binding_count;
+} scope;
+
+uint64_t push_binding(scope* const s, token* const t, type_ast* const type);
+void pop_binding(scope* const s, uint64_t pos);
+
+token* reduce_alias(parser* const parse, token* const t);
+
+typedef struct walker {
+	scope* local_scope;
+} walker;
+
+void walk_expr(walker* const walk, expr_ast* const expr);
+void walk_term(walker* const walk, term_ast* const term);
+
 #endif

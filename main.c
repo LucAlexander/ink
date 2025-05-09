@@ -2337,6 +2337,112 @@ lex_err(parser* const parse, uint64_t goal, string filename){
 	}
 }
 
+void
+walk_expr(walker* const walk, expr_ast* const expr){
+	switch (expr->tag){
+	case APPL_EXPR:
+		walk_expr(walk, expr->data.appl.left);
+		walk_expr(walk, expr->data.appl.right);
+		break;
+	case LAMBDA_EXPR:
+		walk_expr(walk, expr->data.lambda.expression);
+		walk_expr(walk, expr->data.lambda.alt);
+		break;
+	case BLOCK_EXPR:
+		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
+			walk_expr(walk, &expr->data.block.lines[i]);
+		}
+		break;
+	case LIT_EXPR:
+		break;
+	case TERM_EXPR:
+		walk_term(walk, expr->data.term);
+		break;
+	case STRING_EXPR:
+		break;
+	case LIST_EXPR:
+		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
+			walk_expr(walk, &expr->data.block.lines[i]);
+		}
+		break;
+	case STRUCT_EXPR:
+		for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
+			walk_expr(walk, &expr->data.constructor.members[i]);
+		}
+		break;
+	case BINDING_EXPR:
+		break;
+	case MUTATION_EXPR:
+		walk_expr(walk, expr->data.mutation.left);
+		walk_expr(walk, expr->data.mutation.right);
+		break;
+	case RETURN_EXPR:
+		walk_expr(walk, expr->data.ret);
+		break;
+	case REF_EXPR:
+		break;
+	case DEREF_EXPR:
+		break;
+	case IF_EXPR:
+		walk_expr(walk, expr->data.if_statement.pred);
+		walk_expr(walk, expr->data.if_statement.cons);
+		walk_expr(walk, expr->data.if_statement.alt);
+		break;
+	case FOR_EXPR:
+		walk_expr(walk, expr->data.for_statement.initial);
+		walk_expr(walk, expr->data.for_statement.limit);
+		walk_expr(walk, expr->data.for_statement.cons);
+		break;
+	case WHILE_EXPR:
+		walk_expr(walk, expr->data.while_statement.pred);
+		walk_expr(walk, expr->data.while_statement.cons);
+		break;
+	case MATCH_EXPR:
+		walk_expr(walk, expr->data.match.pred);
+		for (uint64_t i = 0;i<expr->data.match.count;++i){
+			walk_expr(walk, &expr->data.match.cases[i]);
+		}
+		break;
+	case NOP_EXPR:
+		break;
+	}
+}
+
+void
+walk_term(walker* const walk, term_ast* const term){
+	walk_expr(walk, term->expression);
+}
+
+uint64_t
+push_binding(scope* const s, token* const t, type_ast* const type){
+	if (s->binding_count == s->binding_capacity){
+		s->binding_capacity *= 2;
+		binding* bindings = pool_request(s->mem, sizeof(binding)*s->binding_capacity);
+		for (uint64_t i = 0;i<s->binding_count;++i){
+			bindings[i] = s->bindings[i];
+		}
+		s->bindings = bindings;
+	}
+	binding b = {
+		.name = t,
+		.type = type
+	};
+	s->bindings[s->binding_count] = b;
+	s->binding_count += 1;
+	return s->binding_count;
+}
+
+void
+pop_binding(scope* const s, uint64_t pos){
+	s->binding_count = pos;
+}
+
+token*
+reduce_alias(parser* const parse, token* const t){
+	//TODO
+	return NULL;
+}
+
 int
 main(int argc, char** argv){
 	compile_file("types.n", "test");

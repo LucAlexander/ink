@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <stddef.h>
 #include <string.h>
-#include "capra.h"
+#include "ink.h"
 
 MAP_IMPL(TOKEN);
 MAP_IMPL(typedef_ast);

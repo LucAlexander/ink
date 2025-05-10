@@ -1,5 +1,5 @@
-#ifndef CAPRA_H
-#define CAPRA_H
+#ifndef INK_H
+#define INK_H
 
 #include <inttypes.h>
 #include "kickstart.h"

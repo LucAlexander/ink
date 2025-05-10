@@ -1,2 +1,2 @@
 debug:
-	gcc -o capra main.c kickstart.c -g -Wall
+	gcc -o ink main.c kickstart.c -g -Wall

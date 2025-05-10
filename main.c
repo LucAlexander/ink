@@ -9,6 +9,7 @@
 MAP_IMPL(TOKEN);
 MAP_IMPL(typedef_ast);
 MAP_IMPL(alias_ast);
+MAP_IMPL(const_ast);
 MAP_IMPL(typeclass_ast);
 MAP_IMPL(implementation_ast);
 MAP_IMPL(implementation_ast_map);
@@ -63,6 +64,7 @@ compile_file(char* input, const char* output){
 	pool token_mem = pool_alloc(TOKEN_ARENA_SIZE, POOL_STATIC);
 	typedef_ast_map types = typedef_ast_map_init(&mem);
 	alias_ast_map aliases = alias_ast_map_init(&mem);
+	const_ast_map constants = const_ast_map_init(&mem);
 	typeclass_ast_map typeclasses = typeclass_ast_map_init(&mem);
 	implementation_ast_map_map implementations = implementation_ast_map_map_init(&mem);
 	term_ast_map terms = term_ast_map_init(&mem);
@@ -81,6 +83,7 @@ compile_file(char* input, const char* output){
 		.err_token = 0,
 		.types = &types,
 		.aliases = &aliases,
+		.constants = &constants,
 		.typeclasses = &typeclasses,
 		.implementations = &implementations,
 		.terms = &terms,
@@ -120,6 +123,7 @@ keymap_fill(TOKEN_map* const map){
 	TOKEN_map_insert(map, string_init(map->mem, "match"), MATCH_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "while"), WHILE_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "for"), FOR_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "constant"), CONSTANT_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "u8"), U8_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "u16"), U16_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "u32"), U32_TOKEN);
@@ -1101,6 +1105,17 @@ parse_program(parser* const parse){
 				continue;
 			}
 			break;
+		case CONSTANT_TOKEN:
+			const_ast* constant = parse_constant(parse);
+			if (parse->err.len == 0){
+				uint8_t dup = const_ast_map_insert(parse->constants, constant->name.data.name, *constant);
+				assert_local(dup == 0, , "Duplicate constant definition");
+#ifdef DEBUG
+				show_constant(constant);
+				printf("\n");
+#endif
+			}
+			break;
 		case ALIAS_TOKEN:
 			alias_ast* alias = parse_alias(parse);
 			if (parse->err.len == 0){
@@ -1191,6 +1206,32 @@ parse_program(parser* const parse){
 		}
 		assert_prop();
 	}
+}
+
+const_ast*
+parse_constant(parser* const parse){
+	const_ast* c = pool_request(parse->mem, sizeof(const_ast));
+	token* t = &parse->tokens[parse->token_index];
+	assert_local(t->tag == CONSTANT_TOKEN, NULL, "Expected constant to head constnat expression");
+	parse->token_index += 1;
+	t = &parse->tokens[parse->token_index];
+	assert_local(t->tag == IDENTIFIER_TOKEN, NULL, "Expected identifier for constant name");
+	c->name = *t;
+	parse->token_index += 1;
+	t = &parse->tokens[parse->token_index];
+	assert_local(t->tag == EQUAL_TOKEN, NULL, "Expected = before constant definition");
+	parse->token_index += 1;
+	c->value = parse_expr(parse, SEMI_TOKEN);
+	assert_prop(NULL);
+	return c;
+}
+
+void
+show_constant(const_ast* constant){
+	printf("constant ");
+	string_print(&constant->name.data.name);
+	printf(" = ");
+	show_expression(constant->value);
 }
 
 alias_ast*
@@ -2442,6 +2483,14 @@ reduce_alias(parser* const parse, token* const t){
 	//TODO
 	return NULL;
 }
+
+/*TODO 
+ * sizeof
+ * constant
+ * break/continue
+ * floats
+ * null
+ * */
 
 int
 main(int argc, char** argv){

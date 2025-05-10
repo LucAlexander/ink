@@ -41,6 +41,7 @@ typedef enum TOKEN {
 	MATCH_TOKEN,
 	WHILE_TOKEN,
 	FOR_TOKEN,
+	CONSTANT_TOKEN,
 	U8_TOKEN,
 	U16_TOKEN,
 	U32_TOKEN,
@@ -85,6 +86,7 @@ void show_tokens(token* tokens, uint64_t token_count);
 
 typedef struct type_ast type_ast;
 typedef struct alias_ast alias_ast;
+typedef struct const_ast const_ast;
 typedef struct typedef_ast typedef_ast;
 typedef struct typeclass_ast typeclass_ast;
 typedef struct implementation_ast implementation_ast;
@@ -126,6 +128,13 @@ type_ast* parse_type_dependency(parser* const parse);
 void parse_import(parser* const parse);
 void show_error(parser* const parse);
 void lex_err(parser* const parse, uint64_t index, string filename);
+const_ast* parse_constant(parser* const parse);
+void show_constant(const_ast* constant);
+
+typedef struct const_ast {
+	token name;
+	expr_ast* value;
+} const_ast;
 
 typedef struct alias_ast {
 	token name;
@@ -346,6 +355,7 @@ typedef struct term_ast {
 
 MAP_DECL(typedef_ast);
 MAP_DECL(alias_ast);
+MAP_DECL(const_ast);
 MAP_DECL(typeclass_ast);
 MAP_DECL(implementation_ast);
 MAP_DECL(implementation_ast_map);
@@ -365,6 +375,7 @@ typedef struct parser {
 	uint64_t err_token;
 	typedef_ast_map* types;
 	alias_ast_map* aliases;
+	const_ast_map* constants;
 	typeclass_ast_map* typeclasses;
 	implementation_ast_map_map* implementations;
 	term_ast_map* terms;

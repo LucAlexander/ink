@@ -16,6 +16,13 @@ MAP_IMPL(implementation_ast_map);
 MAP_IMPL(term_ast);
 MAP_IMPL(uint64_t);
 
+GROWABLE_BUFFER_IMPL(typedef_ast);
+GROWABLE_BUFFER_IMPL(alias_ast);
+GROWABLE_BUFFER_IMPL(const_ast);
+GROWABLE_BUFFER_IMPL(typeclass_ast);
+GROWABLE_BUFFER_IMPL(implementation_ast);
+GROWABLE_BUFFER_IMPL(term_ast);
+
 #define assert_local(c, r, s, ...)\
 	if (!(c)){\
 		memset(parse->err.str, 0, ERROR_STRING_MAX);\
@@ -69,6 +76,7 @@ compile_file(char* input, const char* output){
 	implementation_ast_map_map implementations = implementation_ast_map_map_init(&mem);
 	term_ast_map terms = term_ast_map_init(&mem);
 	uint64_t_map imported = uint64_t_map_init(&mem);
+	uint64_t_map enum_vals = uint64_t_map_init(&mem);
 	parser parse = {
 		.mem = &mem,
 		.token_mem = &token_mem,
@@ -87,15 +95,19 @@ compile_file(char* input, const char* output){
 		.typeclasses = &typeclasses,
 		.implementations = &implementations,
 		.terms = &terms,
-		.term_list = pool_request(&mem, 2*sizeof(term_ast)),
-		.term_count = 0,
-		.term_capacity = 2,
+		.alias_list = alias_ast_buffer_init(&mem),
+		.const_list = const_ast_buffer_init(&mem),
+		.type_list = typedef_ast_buffer_init(&mem),
+		.typeclass_list = typeclass_ast_buffer_init(&mem),
+		.implementation_list = implementation_ast_buffer_init(&mem),
+		.term_list = term_ast_buffer_init(&mem),
 		.imported = &imported,
 		.file_offsets=pool_request(&mem, 2*sizeof(string)),
 		.file_offset_capacity=2,
 		.file_offset_count=0,
 		.mainfile.str = input,
-		.mainfile.len = strnlen(input, ERROR_STRING_MAX)
+		.mainfile.len = strnlen(input, ERROR_STRING_MAX),
+		.enumerated_values = &enum_vals
 	};
 	parse.tokens = pool_request(parse.token_mem, sizeof(token));
 	lex_string(&parse);
@@ -973,6 +985,7 @@ parse_struct_type(parser* const parse){
 				structure->data.enumeration.values = values;
 			}
 			structure->data.enumeration.names[structure->data.enumeration.count] = *t;
+			string* name_copy = &t->data.name;
 			t = &parse->tokens[parse->token_index];
 			parse->token_index += 1;
 			if (t->tag == EQUAL_TOKEN){
@@ -994,6 +1007,8 @@ parse_struct_type(parser* const parse){
 				structure->data.enumeration.values[structure->data.enumeration.count] = current_value;
 			}
 			structure->data.enumeration.count += 1;
+			uint8_t dup = uint64_t_map_insert(parse->enumerated_values, *name_copy, current_value);
+			assert_local(dup==0, NULL, "Duplicate enumerated value");
 			current_value += 1;
 			if (t->tag == BRACE_CLOSE_TOKEN){
 				break;
@@ -1002,7 +1017,7 @@ parse_struct_type(parser* const parse){
 		}
 		break;
 	default:
-		assert_local(0, NULL, "unexpected token for structure type heade");
+		assert_local(0, NULL, "unexpected token for structure type header");
 	}
 	return structure;
 }
@@ -1123,6 +1138,7 @@ parse_program(parser* const parse){
 			if (parse->err.len == 0){
 				uint8_t dup = const_ast_map_insert(parse->constants, constant->name.data.name, *constant);
 				assert_local(dup == 0, , "Duplicate constant definition");
+				const_ast_buffer_insert(&parse->const_list, *constant);
 #ifdef DEBUG
 				show_constant(constant);
 				printf("\n");
@@ -1135,6 +1151,7 @@ parse_program(parser* const parse){
 				uint8_t dup = alias_ast_map_insert(parse->aliases, alias->name.data.name, *alias);
 				assert_local(dup==0, , "Duplicate alias definition");
 				parse->token_index += 1;
+				alias_ast_buffer_insert(&parse->alias_list, *alias);
 #ifdef DEBUG
 				show_alias(alias);
 				printf("\n");
@@ -1148,6 +1165,7 @@ parse_program(parser* const parse){
 				uint8_t dup = typedef_ast_map_insert(parse->types, type->name.data.name, *type);
 				assert_local(dup==0, , "Duplicate type definition");
 				parse->token_index += 1;
+				typedef_ast_buffer_insert(&parse->type_list, *type);
 #ifdef DEBUG
 				show_typedef(type);
 				printf("\n");
@@ -1161,6 +1179,7 @@ parse_program(parser* const parse){
 				uint8_t dup = typeclass_ast_map_insert(parse->typeclasses, class->name.data.name, *class);
 				assert_local(dup==0, , "Duplicate typeclass definition");
 				parse->token_index += 1;
+				typeclass_ast_buffer_insert(&parse->typeclass_list, *class);
 #ifdef DEBUG
 				show_typeclass(class);
 				printf("\n");
@@ -1177,7 +1196,9 @@ parse_program(parser* const parse){
 					if (map == NULL){
 						implementation_ast_map init = implementation_ast_map_init(parse->mem);
 						implementation_ast_map_insert(&init, impl->typeclass.data.name, *impl);
-						implementation_ast_map_map_insert(parse->implementations, impl->type.data.name, init);
+						uint8_t dup = implementation_ast_map_map_insert(parse->implementations, impl->type.data.name, init);
+						assert_local(dup == 0, , "Duplicate implementation definition");
+						implementation_ast_buffer_insert(&parse->implementation_list, *impl);
 #ifdef DEBUG
 						show_implementation(impl);
 						printf("\n");
@@ -1186,6 +1207,7 @@ parse_program(parser* const parse){
 					}
 					uint8_t dup = implementation_ast_map_insert(map, impl->typeclass.data.name, *impl);
 					assert_local(dup==0, , "Duplicate implementation definition");
+					implementation_ast_buffer_insert(&parse->implementation_list, *impl);
 #ifdef DEBUG
 					show_implementation(impl);
 					printf("\n");
@@ -1198,16 +1220,7 @@ parse_program(parser* const parse){
 				if (parse->err.len == 0){
 					uint8_t dup = term_ast_map_insert(parse->terms, term->name.data.name, *term);
 					assert_local(dup==0, , "Duplicate term definition");
-					if (parse->term_count == parse->term_capacity){
-						parse->term_capacity *= 2;
-						term_ast* terms = pool_request(parse->mem, sizeof(term_ast)*parse->term_capacity);
-						for (uint64_t i = 0;i<parse->term_count;++i){
-							terms[i] = parse->term_list[i];
-						}
-						parse->term_list = terms;
-					}
-					parse->term_list[parse->term_count] = *term;
-					parse->term_count += 1;
+					term_ast_buffer_insert(&parse->term_list, *term);
 #ifdef DEBUG
 					show_term(term);
 					printf("\n");
@@ -2533,6 +2546,6 @@ reduce_alias(parser* const parse, token* const t){
 
 int
 main(int argc, char** argv){
-	compile_file("types.n", "test");
+	compile_file("types.w", "test");
 	return 0;
 }

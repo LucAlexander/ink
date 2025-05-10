@@ -372,6 +372,49 @@ MAP_DECL(implementation_ast_map);
 MAP_DECL(term_ast);
 MAP_DECL(uint64_t);
 
+#define GROWABLE_BUFFER_DECL(type)\
+	typedef struct type##_buffer {\
+		pool* mem;\
+		type* buffer;\
+		uint64_t capacity;\
+		uint64_t count;\
+	} type##_buffer;\
+\
+	type##_buffer type##_buffer_init(pool* const mem);\
+\
+	void type##_buffer_insert(type##_buffer* const buffer, type elem);
+
+#define GROWABLE_BUFFER_IMPL(type)\
+	type##_buffer type##_buffer_init(pool* const mem){\
+		type##_buffer buffer = {\
+			.mem = mem,\
+			.buffer = pool_request(mem, sizeof(type)*2),\
+			.capacity = 2,\
+			.count = 0\
+		};\
+		return buffer;\
+	}\
+\
+	void type##_buffer_insert(type##_buffer* const buffer, type elem){\
+		if (buffer->capacity == buffer->count){\
+			buffer->capacity *= 2;\
+			type* data = pool_request(buffer->mem, sizeof(type)*buffer->capacity);\
+			for (uint64_t i = 0;i<buffer->count;++i){\
+				data[i] = buffer->buffer[i];\
+			}\
+			buffer->buffer = data;\
+		}\
+		buffer->buffer[buffer->count] = elem;\
+		buffer->count += 1;\
+	}
+
+GROWABLE_BUFFER_DECL(typedef_ast);
+GROWABLE_BUFFER_DECL(alias_ast);
+GROWABLE_BUFFER_DECL(const_ast);
+GROWABLE_BUFFER_DECL(typeclass_ast);
+GROWABLE_BUFFER_DECL(implementation_ast);
+GROWABLE_BUFFER_DECL(term_ast);
+
 typedef struct parser {
 	pool* mem;
 	pool* token_mem;
@@ -389,14 +432,18 @@ typedef struct parser {
 	typeclass_ast_map* typeclasses;
 	implementation_ast_map_map* implementations;
 	term_ast_map* terms;
-	term_ast* term_list;
-	uint64_t term_count;
-	uint64_t term_capacity;
+	alias_ast_buffer alias_list;
+	const_ast_buffer const_list;
+	typedef_ast_buffer type_list;
+	typeclass_ast_buffer typeclass_list;
+	implementation_ast_buffer implementation_list;
+	term_ast_buffer term_list;
 	uint64_t_map* imported;
 	string* file_offsets;
 	uint64_t file_offset_count;
 	uint64_t file_offset_capacity;
 	string mainfile;
+	uint64_t_map* enumerated_values;
 } parser;
 
 typedef struct binding {

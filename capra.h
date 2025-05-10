@@ -44,6 +44,7 @@ typedef enum TOKEN {
 	CONSTANT_TOKEN,
 	BREAK_TOKEN,
 	CONTINUE_TOKEN,
+	AS_TOKEN,
 	U8_TOKEN,
 	U16_TOKEN,
 	U32_TOKEN,
@@ -327,6 +328,10 @@ typedef struct expr_ast {
 		} match;
 		expr_ast* ret;
 		type_ast* size_type;
+		struct {
+			type_ast* target;
+			expr_ast* source;
+		} cast;
 	} data;
 	enum {
 		APPL_EXPR,
@@ -347,6 +352,7 @@ typedef struct expr_ast {
 		FOR_EXPR,
 		WHILE_EXPR,
 		MATCH_EXPR,
+		CAST_EXPR,
 		NOP_EXPR,
 	} tag;
 } expr_ast;

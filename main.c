@@ -126,6 +126,7 @@ keymap_fill(TOKEN_map* const map){
 	TOKEN_map_insert(map, string_init(map->mem, "constant"), CONSTANT_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "break"), BREAK_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "continue"), CONTINUE_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "as"), AS_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "u8"), U8_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "u16"), U16_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "u32"), U32_TOKEN);
@@ -1562,8 +1563,16 @@ show_expression(expr_ast* expr){
 			printf("\n");
 		}
 		break;
+	case CAST_EXPR:
+		printf("(");
+		show_expression(expr->data.cast.source);
+		printf(" as ");
+		show_type(expr->data.cast.target);
+		printf(")");
+		break;
 	case NOP_EXPR:
 		printf("nop");
+		break;
 	}
 }
 
@@ -1763,6 +1772,15 @@ parse_expr(parser* const parse, TOKEN end){
 				return outer;
 			}
 			break;
+		case AS_TOKEN:
+			assert_local(outer->tag == APPL_EXPR, NULL, "Expected expression as source of cast");
+			expr_ast* source = outer->data.appl.left;
+			outer->tag = CAST_EXPR;
+			outer->data.cast.source = source;
+			outer->data.cast.target = parse_type(parse, 0, end);
+			assert_prop(NULL);
+			parse->token_index += 1;
+			return outer;
 		case SYMBOL_TOKEN:
 		case COMPOSE_TOKEN:
 			expr->tag = BINDING_EXPR;
@@ -2469,6 +2487,9 @@ walk_expr(walker* const walk, expr_ast* const expr){
 		for (uint64_t i = 0;i<expr->data.match.count;++i){
 			walk_expr(walk, &expr->data.match.cases[i]);
 		}
+		break;
+	case CAST_EXPR:
+		walk_expr(walk, expr->data.cast.source);
 		break;
 	case NOP_EXPR:
 		break;

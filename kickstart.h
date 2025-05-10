@@ -109,7 +109,7 @@ typedef enum MAP_BUCKET_TAG {
 			return type##_map_bucket_access(map, bucket->left, key, hash);\
 		}\
 		if (hash > bucket->hash){\
-			return type##_map_bucket_access(map, bucket->left, key, hash);\
+			return type##_map_bucket_access(map, bucket->right, key, hash);\
 		}\
 		return &bucket->data;\
 	}\

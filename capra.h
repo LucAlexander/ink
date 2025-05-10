@@ -326,6 +326,8 @@ typedef struct expr_ast {
 			uint64_t count;
 		} match;
 		expr_ast* ret;
+		type_ast* size_type;
+		expr_ast* size_expr;
 	} data;
 	enum {
 		APPL_EXPR,
@@ -339,6 +341,8 @@ typedef struct expr_ast {
 		BINDING_EXPR,
 		MUTATION_EXPR,
 		RETURN_EXPR,
+		SIZEOF_TYPE_EXPR,
+		SIZEOF_EXPR_EXPR,
 		REF_EXPR,
 		DEREF_EXPR,
 		IF_EXPR,

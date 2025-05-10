@@ -793,6 +793,7 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 				base->data.named.arg_count += 1;
 				break;
 			case SYMBOL_TOKEN:
+				assert_local(named == 1, NULL, "Unexpected symbol in unnamed type");
 				parse->token_index -= 1;
 				return base;
 			default :
@@ -1518,6 +1519,14 @@ show_expression(expr_ast* expr){
 		printf("return ");
 		show_expression(expr->data.ret);
 		break;
+	case SIZEOF_EXPR_EXPR:
+		printf("sizeof<expr> ");
+		show_expression(expr->data.size_expr);
+		break;
+	case SIZEOF_TYPE_EXPR:
+		printf("sizeof<type> ");
+		show_type(expr->data.size_type);
+		break;
 	case REF_EXPR:
 		printf("&");
 		break;
@@ -1891,6 +1900,20 @@ parse_expr(parser* const parse, TOKEN end){
 		case AMPERSAND_TOKEN:
 			expr->tag = REF_EXPR;
 			break;
+		case SIZEOF_TOKEN:
+			expr->tag = SIZEOF_TYPE_EXPR;
+			uint64_t sizeof_save = parse->token_index;
+			type_ast* target_type = parse_type(parse, 0, end);
+			parse->token_index += 1;
+			if (parse->err.len == 0){
+				expr->data.size_type = target_type;
+				return outer;
+			}
+			parse->token_index = sizeof_save;
+			parse->err.len = 0;
+			expr->tag = SIZEOF_EXPR_EXPR;
+			expr->data.size_expr = parse_expr(parse, end);
+			return outer;
 		case RETURN_TOKEN:
 			expr->tag = RETURN_EXPR;
 			expr->data.ret = parse_expr(parse, end);
@@ -2432,6 +2455,11 @@ walk_expr(walker* const walk, expr_ast* const expr){
 		break;
 	case RETURN_EXPR:
 		walk_expr(walk, expr->data.ret);
+		break;
+	case SIZEOF_TYPE_EXPR:
+		break;
+	case SIZEOF_EXPR_EXPR:
+		walk_expr(walk, expr->data.size_expr);
 		break;
 	case REF_EXPR:
 		break;

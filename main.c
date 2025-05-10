@@ -124,6 +124,8 @@ keymap_fill(TOKEN_map* const map){
 	TOKEN_map_insert(map, string_init(map->mem, "while"), WHILE_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "for"), FOR_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "constant"), CONSTANT_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "break"), BREAK_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "continue"), CONTINUE_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "u8"), U8_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "u16"), U16_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "u32"), U32_TOKEN);
@@ -596,6 +598,15 @@ show_tokens(token* tokens, uint64_t token_count){
 			break;
 		case SIZEOF_TOKEN:
 			printf("SIZEOF ");
+			break;
+		case BREAK_TOKEN:
+			printf("BREAK ");
+			break;
+		case CONTINUE_TOKEN:
+			printf("CONTINUE ");
+			break;
+		case CONSTANT_TOKEN:
+			printf("CONSTANT ");
 			break;
 		default:
 			printf("UNKNOWN_TOKEN_TYPE ??? ");
@@ -1757,6 +1768,8 @@ parse_expr(parser* const parse, TOKEN end){
 				outer->data.appl.right = swap;
 			}
 			break;
+		case BREAK_TOKEN:
+		case CONTINUE_TOKEN:
 		case IDENTIFIER_TOKEN:
 			expr->tag = BINDING_EXPR;
 			expr->data.binding = *t;
@@ -2486,10 +2499,8 @@ reduce_alias(parser* const parse, token* const t){
 
 /*TODO 
  * sizeof
- * constant
  * break/continue
  * floats
- * null
  * */
 
 int

@@ -1519,12 +1519,8 @@ show_expression(expr_ast* expr){
 		printf("return ");
 		show_expression(expr->data.ret);
 		break;
-	case SIZEOF_EXPR_EXPR:
-		printf("sizeof<expr> ");
-		show_expression(expr->data.size_expr);
-		break;
-	case SIZEOF_TYPE_EXPR:
-		printf("sizeof<type> ");
+	case SIZEOF_EXPR:
+		printf("sizeof ");
 		show_type(expr->data.size_type);
 		break;
 	case REF_EXPR:
@@ -1901,18 +1897,10 @@ parse_expr(parser* const parse, TOKEN end){
 			expr->tag = REF_EXPR;
 			break;
 		case SIZEOF_TOKEN:
-			expr->tag = SIZEOF_TYPE_EXPR;
-			uint64_t sizeof_save = parse->token_index;
+			expr->tag = SIZEOF_EXPR;
 			type_ast* target_type = parse_type(parse, 0, end);
 			parse->token_index += 1;
-			if (parse->err.len == 0){
-				expr->data.size_type = target_type;
-				return outer;
-			}
-			parse->token_index = sizeof_save;
-			parse->err.len = 0;
-			expr->tag = SIZEOF_EXPR_EXPR;
-			expr->data.size_expr = parse_expr(parse, end);
+			expr->data.size_type = target_type;
 			return outer;
 		case RETURN_TOKEN:
 			expr->tag = RETURN_EXPR;
@@ -2456,10 +2444,7 @@ walk_expr(walker* const walk, expr_ast* const expr){
 	case RETURN_EXPR:
 		walk_expr(walk, expr->data.ret);
 		break;
-	case SIZEOF_TYPE_EXPR:
-		break;
-	case SIZEOF_EXPR_EXPR:
-		walk_expr(walk, expr->data.size_expr);
+	case SIZEOF_EXPR:
 		break;
 	case REF_EXPR:
 		break;
@@ -2524,12 +2509,6 @@ reduce_alias(parser* const parse, token* const t){
 	//TODO
 	return NULL;
 }
-
-/*TODO 
- * sizeof
- * break/continue
- * floats
- * */
 
 int
 main(int argc, char** argv){

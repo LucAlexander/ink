@@ -2451,10 +2451,32 @@ lex_err(parser* const parse, uint64_t goal, string filename){
 	}
 }
 
-type_ast*
+type_ast* //TODO pretty much this whole function forgets to set the type of the target expr TODO also pretty much every case should reduce the type from aliases and types
 walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
+	structure_ast* inner;
+	type_ast* inner_struct
+	if (expected_type != NULL){
+		inner_struct = expected_type;
+		if (expected_type->tag == NAMED_TYPE){
+			//TODO reduce type or alias
+		}
+		walk_assert(inner_struct->tag == STRUCT_TYPE, nearest_token(expr), "Unexpected structure where non structure type was expected");
+		inner = inner_struct->data.structure;
+		if (inner->tag == UNION_STRUCT){
+			for (uint64_t k = 0;k<inner->data.union_structure.count;++k){
+				type_ast* match_inference = walk_expr(walk, expr, inner->data.union_structure.members[k]);
+				if (match_inference == NULL){
+					walk->parse->err.len = 0;
+					continue;
+				}
+				expr->type = expected_type;
+				return expected_type;
+			}
+			return NULL;
+		}
+	}
 	switch (expr->tag){
-	case APPL_EXPR:
+	case APPL_EXPR: // TODO type application, type dependency
 		type_ast* right = walk_expr(walk, expr->data.appl.right, NULL);
 		walk_assert_prop();
 		walk_assert(right != NULL, nearest_token(expr->data.appl.right), "Could not discern type");
@@ -2488,20 +2510,86 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 	case TERM_EXPR: // TODO
 		walk_term(walk, expr->data.term);
 		break;
-	case STRING_EXPR: // TODO
-		break;
-	case LIST_EXPR: // TODO
+	case STRING_EXPR:
+		if (expected_type == NULL){
+			type_ast* string_type = pool_request(walk->parse->mem, sizeof(type_ast));
+			string_type->tag = PTR_TYPE;
+			string_type->data.ptr = pool_request(walk->parse->mem, sizeof(type_ast));
+			string_type->data.ptr->tag = LIT_TYPE;
+			string_type->data.ptr->data.lit = U8_TYPE;
+			return string_type;
+		}
+		walk_assert(expected_type->tag == PTR_TYPE || expected_type->tag == FAT_PTR_TYPE, nearest_token(expr), "String must be assigned to [u8] or u8^");
+		if (expected_type->tag == FAT_PTR_TYPE){
+			walk_assert(expected_type->data.fat_ptr.ptr->tag == LIT_TYPE && expected_type->data.fat_ptr.ptr->data.lit = U8_TYPE, nearest_token(expr), "String must be assigned to [u8] or u8^");
+			return expected_type;
+		}
+		walk_assert(expected_type->data.ptr->tag == LIT_TYPE && expected_type->data.ptr->data.lit = U8_TYPE, nearest_token(expr), "String must be assigned to [u8] or u8^");
+		return expected_type;
+	case LIST_EXPR:
+		if (expected_type == NULL){
+			type_ast* first;
+			for (uint64_t i = 0;i<expr->data.block.line_count;++i){
+				if (i == 0){
+					first = walk_expr(walk, &expr->data.block.lines[i], NULL);
+					walk_assert_prop();
+					walk_assert(first != NULL, nearest_token(expr), "List element not able to resolve to type");
+					continue;
+				}
+				type_ast* rest = walk_expr(walk, &expr->data.block.lines[i], first);
+				walk_assert_prop();
+				walk_assert(rest != NULL, nearest_token(expr), "List element not able to resolve to type");
+			}
+			return first;
+		}
+		walk_assert(expected_type->tag == FAT_PTR_TYPE || expected_type->tag == PTR_TYPE, nearest_token(expr), "List assignment to non pointer type");
+		if (expected_type->tag == FAT_PTR_TYPE){
+			for (uint64_t i = 0;i<expr->data.block.line_count;++i){
+				type_ast* rest walk_expr(walk, &expr->data.block.lines[i], expected_type->data.fat_ptr.ptr);
+				walk_assert_prop();
+				walk_assert(rest != NULL, nearest_token(expr), "List element not able to resolve to type");
+			}
+			return expected_type;
+		}
 		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
-			walk_expr(walk, &expr->data.block.lines[i]);
+			type_ast* rest walk_expr(walk, &expr->data.block.lines[i], expected_type->data.ptr);
+			walk_assert_prop();
+			walk_assert(rest != NULL, nearest_token(expr), "List element not able to resolve to type");
 		}
-		break;
-	case STRUCT_EXPR: // TODO
-		for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
-			walk_expr(walk, &expr->data.constructor.members[i]);
+		return expected_type;
+	case STRUCT_EXPR:
+		walk_assert(expected_type != NULL, nearest_token(expr), "Unable to infer type of structure");
+		if (inner->tag == STRUCT_STRUCT){
+			uint64_t current_member = 0;
+			for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
+				if (expr->data.constructor.names[i] != NULL){
+					uint8_t found = 0;
+					for (uint64_t k = 0;k<inner->data.structure.count;++k){
+						if (string_compare(&inner->data.structure.names[i].data.name, &expr->data.constructur.names[i].data.name) == 0){
+							type_ast* inferred = walk_expr(walk, &expr->data.constructor.members[i], &inner->data.structure.members[k]);
+							walk_assert_prop();
+							walk_assert(inferred != NULL, nearest_token(&expr->data.constructor.members[i]_, "Unexpected type for structure member");
+							current_member = k+1;
+							found = 1;
+						}
+					}
+					walk_assert(found == 1, expr->data.constructor.names[i].token_index, "Unknown member of structure or union");
+					continue;
+				}
+				walk_assert(current_member >= inner->data.structure.count, &expr->data.constructor.names[i].token_index, "Extra member in constructor");
+				type_ast* inferred = walk_expr(walk, &expr->data.constructor.members[i], &inner->data.structure.members[current_member]);
+				walk_assert_prop();
+				walk_assert(inferred != NULL, nearest_token(&expr->data.constructor.members[i]), "Unexpected type for structure member");
+				current_member += 1;
+			}
+			expr->type = expected_type;
+			return expected_type;
 		}
-		break;
+		walk_assert(inner->tag == ENUM_STRUCT, nearest_token(expr), "Expected enumerator value");
+		walk_assert(expr->data.constructor.member_count == 1, nearest_token(expr), "Constructed enumerator requires 1 and only 1 value");
+		type_ast* enum_type = walk_expr(walk, expr->data.constructor.members[0], inner_struct);
 	case BINDING_EXPR:
-		type_ast* actual = in_scope(walk, &expr->data.binding);
+		type_ast* actual = in_scope(walk, &expr->data.binding, expected_type);
 		walk_assert(actual != NULL, nearest_token(expr), "Binding not found in scope");
 		if (expected_type == NULL){
 			return actual;
@@ -2655,14 +2743,14 @@ pop_binding(scope* const s, uint64_t pos){
 	s->binding_count = pos;
 }
 
-token*
+type_ast*
 reduce_alias(parser* const parse, token* const t){
 	//TODO
 	return NULL;
 }
 
 type_ast*
-in_scope(walker* const walk, token* bind){
+in_scope(walker* const walk, token* const bind, type_ast* const expected_type){
 	//TODO reduce alias
 	term_ast* term = term_ast_map_access(walk->parse->terms, bind->data.name);
 	if (term != NULL){
@@ -2670,6 +2758,15 @@ in_scope(walker* const walk, token* bind){
 	}
 	uint64_t* value = uint64_t_map_access(walk->parse->enumerated_values, bind->data.name);
 	if (value != NULL){
+		if (expected_type->tag != NULL){
+			if ((expected_type->tag == STRUCT_TYPE) && (expected_type->data.structure->tag == ENUM_STRUCT)){
+				for (uint64_t i = 0;i<expected_type->data.structure.data.enumeration.count;++i){
+					if (string_compare(&expected_type->data.structure.data.enumeration.names[i].data.name, &bind->data.name) == 0){
+						return expected_type;
+					}
+				}
+			}
+		}
 		type_ast* any = pool_request(walk->parse->mem, sizeof(type_ast));
 		u64->tag = LIT_TYPE;
 		u64->data.lit = INT_ANY;

@@ -303,7 +303,7 @@ typedef struct expr_ast {
 		term_ast* term;
 		struct {
 			expr_ast* members;
-			token * names;
+			token* names;
 			uint64_t member_count;
 		} constructor;
 		struct {
@@ -469,8 +469,8 @@ typedef struct walker {
 	scope* local_scope;
 } walker;
 
-token* reduce_alias(parser* const parse, token* const t);
-type_ast* in_scope(walker* const walk, token* bind);
+type_ast* reduce_alias(parser* const parse, token* const t);
+type_ast* in_scope(walker* const walk, token* const bind, type_ast* const expected_type);
 uint8_t type_equal(type_ast* const left, type_ast* const right);
 
 type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type);

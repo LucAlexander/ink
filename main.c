@@ -2476,7 +2476,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		}
 	}
 	switch (expr->tag){
-	case APPL_EXPR: // TODO type application, type dependency
+	case APPL_EXPR: // TODO type application, type dependency, . handling
 		type_ast* right = walk_expr(walk, expr->data.appl.right, NULL);
 		walk_assert_prop();
 		walk_assert(right != NULL, nearest_token(expr->data.appl.right), "Could not discern type");
@@ -2505,8 +2505,19 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			walk_expr(walk, &expr->data.block.lines[i]);
 		}
 		break;
-	case LIT_EXPR: // TODO
-		break;
+	case LIT_EXPR:
+		if (expected_type != NULL){
+			type_ast lit_type = {
+				.tag = LIT_TYPE,
+				.data.lit = INT_ANY
+			};
+			walk_assert(type_equal(expected_type, &lit_type), nearest_token(expr), "Literal integer type assigned to non matching type");
+			return expected_type;
+		}
+		type_ast* lit_type = pool_request(walk->parse->mem, sizeof(type_ast));i
+		lit_type->tag = LIT_TYPE;
+		lit_type->data.lit = INT_ANY;
+		return lit_type;
 	case TERM_EXPR: // TODO
 		walk_term(walk, expr->data.term);
 		break;
@@ -2616,10 +2627,27 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		}
 		walk_assert(type_equals(sizeof_type, expected_type), nearset_token(expr), "Expected type did not match type of sizeof expression (u64 or int_any)");
 		return sizeof_type;
-	case REF_EXPR: //TODO these two probably shouldnt be reached outside of being the left hand side of an application, really they have type T -> T^ and T^ -> T
+	case REF_EXPR: //TODO type T -> T^
 		break;
-	case DEREF_EXPR: // TODO so we'll come back to these later when weve thought about them a bit
-		break;
+	case DEREF_EXPR:
+		if (expected_type == NULL){
+			type_ast* deref_infer = walk_expr(walk, expr->data.deref, NULL);
+			walk_assert_prop();
+			walk_assert(deref_infer != NULL, nearest_token(expr), "Unable to infer type to dereference");
+			walk_assert(deref_infer->tag == PTR_TYPE || deref_infer->tag == FAT_PTR_TYPE, nearest_token(expr), "Expected pointer to dereference");
+			if (deref_infer->tag == FAT_PTR_TYPE){
+				return deref_infer->data.fat_ptr.ptr;
+			}
+			return deref_infer->data.ptr;
+		}
+		type_ast expected_ptr = {
+			.tag = PTR_TYPE,
+			.data.ptr = expected_type
+		};
+		type_ast* deref_infer = walk_expr(walk, expr->data.deref, &expected_ptr);
+		walk_assert_prop();
+		walk_assert(deref_infer != NULL, nearest_token(expr), "Expected pointer to dereference");
+		return expected_type;
 	case IF_EXPR:
 		type_ast if_predicate = {
 			.tag = LIT_TYPE,

@@ -32,9 +32,22 @@ GROWABLE_BUFFER_IMPL(term_ast);
 		return r;\
 	}
 
+#define walk_assert(c, i, s, ...)\
+	if (!(c)){\
+		memset(walk->parse->err.str, 0, ERROR_STRING_MAX);\
+		snprintf(walk->parse->err.str, ERROR_STRING_MAX, s __VA_ARGS__);\
+		parse->err.len = ERROR_STRING_MAX;\
+		parse->err_token = i;\
+	}
+
 #define assert_prop(r)\
 	if (parse->err.len != 0){\
 		return r;\
+	}
+
+#define walk_assert_prop()\
+	if (walk->parse->err.len != 0){\
+		return NULL;\
 	}
 
 void
@@ -1743,6 +1756,7 @@ parse_expr(parser* const parse, TOKEN end){
 	token* t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
 	expr_ast* expr = pool_request(parse->mem, sizeof(expr_ast));
+	expr->type = NULL;
 	expr_ast* outer = expr;
 	if (t->tag == end){
 		outer->tag = NOP_EXPR;
@@ -1923,9 +1937,11 @@ parse_expr(parser* const parse, TOKEN end){
 			break;
 		case CARROT_TOKEN:
 			expr->tag = DEREF_EXPR;
+			expr->data.deref = parse_expr(parse, end);
 			break;
 		case AMPERSAND_TOKEN:
 			expr->tag = REF_EXPR;
+			expr->data.ref = parse_expr(parse, end);
 			break;
 		case SIZEOF_TOKEN:
 			expr->tag = SIZEOF_EXPR;
@@ -2038,7 +2054,9 @@ parse_expr(parser* const parse, TOKEN end){
 		temp->data.appl.left = outer;
 		temp->data.appl.right = pool_request(parse->mem, sizeof(expr_ast));
 		expr = temp->data.appl.right;
+		expr->type = NULL;
 		outer = temp;
+		outer->type = NULL;
 		t = &parse->tokens[parse->token_index];
 		parse->token_index += 1;
 	}
@@ -2433,85 +2451,184 @@ lex_err(parser* const parse, uint64_t goal, string filename){
 	}
 }
 
-void
-walk_expr(walker* const walk, expr_ast* const expr){
+type_ast*
+walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 	switch (expr->tag){
 	case APPL_EXPR:
-		walk_expr(walk, expr->data.appl.left);
-		walk_expr(walk, expr->data.appl.right);
-		break;
-	case LAMBDA_EXPR:
+		type_ast* right = walk_expr(walk, expr->data.appl.right, NULL);
+		walk_assert_prop();
+		walk_assert(right != NULL, nearest_token(expr->data.appl.right), "Could not discern type");
+		if (expected_type != NULL){
+			type_ast* left = pool_request(walk->parse->mem, sizeof(type_ast));
+			left->tag = FUNCTION_TYPE;
+			left->data.function.left = right;
+			left->data.function.right = expected_type;
+			type_ast* confirm = walk_expr(walk, expr->data.appl.left, left);
+			walk_assert_prop();
+			walk_assert(confirm != NULL, nearest_token(expr->data.appl.left), "Left type of application expression did not match expected type inferred from right of application");
+			return expected_type;
+		}
+		type_ast* left = walk_expr(walk, expr->data.appl.left, NULL);
+		walk_assert_prop();
+		walk_assert(left != NULL, nearest_token(expr->data.appl.left), "Unable to infer type of left of application");
+		walk_assert(left->tag == FUNCTION_TYPE, nearest_token(expr->data.appl.left), "Left of application type was needs to be function");
+		walk_assert(type_equal(left->data.function.left, right), nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
+		return left->data.function.right;
+	case LAMBDA_EXPR: // TODO
 		walk_expr(walk, expr->data.lambda.expression);
 		walk_expr(walk, expr->data.lambda.alt);
 		break;
-	case BLOCK_EXPR:
+	case BLOCK_EXPR: // TODO
 		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
 			walk_expr(walk, &expr->data.block.lines[i]);
 		}
 		break;
-	case LIT_EXPR:
+	case LIT_EXPR: // TODO
 		break;
-	case TERM_EXPR:
+	case TERM_EXPR: // TODO
 		walk_term(walk, expr->data.term);
 		break;
-	case STRING_EXPR:
+	case STRING_EXPR: // TODO
 		break;
-	case LIST_EXPR:
+	case LIST_EXPR: // TODO
 		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
 			walk_expr(walk, &expr->data.block.lines[i]);
 		}
 		break;
-	case STRUCT_EXPR:
+	case STRUCT_EXPR: // TODO
 		for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
 			walk_expr(walk, &expr->data.constructor.members[i]);
 		}
 		break;
 	case BINDING_EXPR:
-		break;
+		type_ast* actual = in_scope(walk, &expr->data.binding);
+		walk_assert(actual != NULL, nearest_token(expr), "Binding not found in scope");
+		if (expected_type == NULL){
+			return actual;
+		}
+		walk_assert(type_equal(actual, expected), nearest_token(expr), "Binding was not the expected type");
+		return actual;
 	case MUTATION_EXPR:
-		walk_expr(walk, expr->data.mutation.left);
-		walk_expr(walk, expr->data.mutation.right);
-		break;
+		walk_assert(expected_type == NULL);
+		type_ast* mut_left = walk_expr(walk, expr->data.mutation.left, NULL);
+		walk_assert_prop();
+		walk_assert(mut_left != NULL, nearest_token(expr->data.mutation.left), "Left side of mutation did not resolve to a type");
+		type_ast* mut_right = walk_expr(walk, expr->data.mutation.right, mut_left);;
+		walk_assert_prop();
+		walk_assert(mut_right != NULL, nearest_token(expr->data.mutation.right), "Left side of mutation did not match type of right side");
+		return NULL;
 	case RETURN_EXPR:
-		walk_expr(walk, expr->data.ret);
-		break;
+		return walk_expr(walk, expr->data.ret, expected_type);
 	case SIZEOF_EXPR:
+		type_ast* sizeof_type = pool_request(walk->parse->mem, sizeof(type_ast));
+		sizeof_type->tag = LIT_TYPE,
+		sizeof_type->data.lit = U64_TYPE
+		if (expected_type == NULL){
+			return sizeof_type;
+		}
+		walk_assert(type_equals(sizeof_type, expected_type), nearset_token(expr), "Expected type did not match type of sizeof expression (u64 or int_any)");
+		return sizeof_type;
+	case REF_EXPR: //TODO these two probably shouldnt be reached outside of being the left hand side of an application, really they have type T -> T^ and T^ -> T
 		break;
-	case REF_EXPR:
-		break;
-	case DEREF_EXPR:
+	case DEREF_EXPR: // TODO so we'll come back to these later when weve thought about them a bit
 		break;
 	case IF_EXPR:
-		walk_expr(walk, expr->data.if_statement.pred);
-		walk_expr(walk, expr->data.if_statement.cons);
-		walk_expr(walk, expr->data.if_statement.alt);
-		break;
-	case FOR_EXPR:
-		walk_expr(walk, expr->data.for_statement.initial);
-		walk_expr(walk, expr->data.for_statement.limit);
-		walk_expr(walk, expr->data.for_statement.cons);
-		break;
-	case WHILE_EXPR:
-		walk_expr(walk, expr->data.while_statement.pred);
-		walk_expr(walk, expr->data.while_statement.cons);
-		break;
-	case MATCH_EXPR:
-		walk_expr(walk, expr->data.match.pred);
-		for (uint64_t i = 0;i<expr->data.match.count;++i){
-			walk_expr(walk, &expr->data.match.cases[i]);
+		type_ast if_predicate = {
+			.tag = LIT_TYPE,
+			.data.lit = INT_ANY
+		};
+		type_ast* ifpredtype = walk_expr(walk, expr->data.if_statement.pred, &if_predicate);
+		walk_assert_prop();
+		walk_assert(ifpredtype != NULL, nearest_token(expr->data.if_statement.pred), "If predicate must be integral");
+		if (expected_type != NULL){
+			type_ast* cons_type = walk_expr(walk, expr->data.if_statement.cons, NULL);
+			walk_assert_prop();
+			walk_assert(type_equal(const_type, expected_type), nearest_token(expr->data.if_statement.cons), "If statement consequent did not resolve to expected type");
+			if (expr->data.if_statement.alt != NULL){
+				type_ast* alt_type = walk_expr(walk, expr->data.if_statement.alt, cons_type);
+			   	walk_assert_prop();
+				walk_assert(alt_type != NULL, nearest_token(expr->data.if_statement.alt), "If alternate must be same type as cons when if statement is used as expression");
+			}
+			return cons_type;
 		}
-		break;
+		type_ast* cons_type = walk_expr(walk, expr->data.if_statement.cons, NULL);
+		walk_assert_prop();
+		walk_assert(const_type != NULL, nearest_token(expr->data.if_statement.cons), "If statement consequent did not resolve to a type");
+		if (expr->data.if_statement.alt != NULL){
+			if (walk_expr(walk, expr->data.if_statement.alt, const_type) == NULL){
+				return NULL;
+			}
+		}
+		return cons_type;
+	case FOR_EXPR:
+		walk_assert(expected_type == NULL, nearest_token(expr), "Iterative loops cannot be used as expressions");
+		type_ast for_type = {
+			.tag = LIT_TYPE,
+			.data.lit = INT_ANY
+		};
+		type_ast* forinittype = walk_expr(walk, expr->data.for_statement.initial, &for_type);
+		walk_assert_prop();
+	   	walk_assert(forinittype != NULL, nearest_token(expr->data.for_statement.initial), "For loop range must be integral");
+		type_ast* forlimittype = walk_expr(walk, expr->data.for_statement.limit, &for_type);
+		walk_assert_prop();
+	   	walk_assert(forlimittype != NULL, nearest_token(expr->data.for_statement.limit), "For loop range must be integral");
+		walk_expr(walk, expr->data.for_statement.cons, NULL);
+		return NULL;
+	case WHILE_EXPR:
+		walk_assert(expected_type == NULL, nearest_token(expr), "Iterative loops cannot be used as expressions");
+		type_ast while_predicate = {
+			.tag = LIT_TYPE,
+			.data.lit = INT_ANY
+		};
+		type_ast* whilepredtype = walk_expr(walk, expr->data.while_statement.pred, &while_predicate);
+		walk_assert_prop();
+	   	walk_assert(whilepredtype != NULL, nearest_token(expr->data.while_statement.pred), "While predicate must be integral");
+		walk_expr(walk, expr->data.while_statement.cons, NULL);
+		return NULL;
+	case MATCH_EXPR:
+		if (expected_type != NULL){
+			type_ast* match_infer = walk_expr(walk, expr->data.match.pred, NULL);
+			walk_assert(match_infer != NULL, nearest_token(expr->data.match.pred), "Could not infer type of match predicate");
+			for (uint64_t i = 0;i<expr->data.match.count;++i){
+				type_ast* confirm = walk_expr(walk, &expr->data.match.cases[i], expected_type);
+				walk_assert(confirm != NULL, nearest_token(&expr->data.match.cases[i]), "Match case did not resolve to expected type");
+			}
+			return expected_type;
+		}
+		walk_expr(walk, expr->data.match.pred);
+		type_ast* first;
+		uint8_t matches = 1;
+		for (uint64_t i = 0;i<expr->data.match.count;++i){
+			if (i == 0){
+				first = walk_expr(walk, &expr->data.match.cases[i], NULL);
+			}
+			if (walk_expr(walk, &expr->data.match.cases[i], first) == NULL){
+				matches = 0;
+			}
+			walk_assert_prop();
+		}
+		if (matches == 0){
+			return NULL;
+		}
+		return first;
 	case CAST_EXPR:
-		walk_expr(walk, expr->data.cast.source);
-		break;
+		type_ast* cast_confirm = walk_expr(walk, expr->data.cast.source, NULL);
+		walk_assert(cast_confirm != NULL, nearest_token(expr), "Could not infer source type of cast"):
+		if (expected_type == NULL){
+			return expr->data.cast.target;
+		}
+		walk_assert(type_equal(expected_type, expr->data.cast.target), nearest_token(expr), "Expected type did not match target type of cast");
+		return expr->data.cast.target;
 	case NOP_EXPR:
-		break;
+		walk_assert(expected_type == NULL, nearest_token(expr), "Expected type, found NOP expression");
+		return NULL;
 	}
 }
 
-void
-walk_term(walker* const walk, term_ast* const term){
-	walk_expr(walk, term->expression);
+type_ast*
+walk_term(walker* const walk, term_ast* const term, type_ast* expected_type){
+	//TODO theres some logic because theres a type tethered to the closure/outer term
+	walk_expr(walk, term->expressionm, expected_type);
 }
 
 uint64_t
@@ -2543,6 +2660,49 @@ reduce_alias(parser* const parse, token* const t){
 	//TODO
 	return NULL;
 }
+
+type_ast*
+in_scope(walker* const walk, token* bind){
+	//TODO reduce alias
+	term_ast* term = term_ast_map_access(walk->parse->terms, bind->data.name);
+	if (term != NULL){
+		return term->type;
+	}
+	uint64_t* value = uint64_t_map_access(walk->parse->enumerated_values, bind->data.name);
+	if (value != NULL){
+		type_ast* any = pool_request(walk->parse->mem, sizeof(type_ast));
+		u64->tag = LIT_TYPE;
+		u64->data.lit = INT_ANY;
+		return any;
+	}
+	for (uint64_t i = 0;i<walk->local_scope->binding_count;++i){
+		if (string_compare(&bind->data.string, &walk->local_scope->bindings[i].name->data.name) == 0){
+			return walk->local_scope->bindings[i].type;
+		}
+	}
+	return NULL;
+}
+
+uint8_t
+type_equal(type_ast* const left, type_ast* const right){
+	//TODO
+}
+
+uint64_t nearest_token(expr_ast* e){
+	//TODO
+}
+
+/* TODO
+ * typeclass/implementation member tracking
+ * scope checking on bindings + enumerated values
+ * type inference and typed ast filling
+ * type enforcement on bindings
+ * alias reduction
+ * structure/defined type monomorphization
+ * lambda capture to arg and lifting
+ * closure capture to arg and lifting
+ * function type monomorphization
+ */
 
 int
 main(int argc, char** argv){

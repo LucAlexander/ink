@@ -253,7 +253,8 @@ typedef struct type_ast {
 			I8_TYPE,
 			I16_TYPE,
 			I32_TYPE,
-			I64_TYPE
+			I64_TYPE,
+			INT_ANY
 		} lit;
 		type_ast* ptr;
 		struct {
@@ -327,6 +328,8 @@ typedef struct expr_ast {
 			uint64_t count;
 		} match;
 		expr_ast* ret;
+		expr_ast* ref;
+		expr_ast* deref;
 		type_ast* size_type;
 		struct {
 			type_ast* target;
@@ -452,7 +455,7 @@ typedef struct binding {
 } binding;
 
 typedef struct scope {
-	pool* mem;
+	pool* meterm->type;
 	binding* bindings;
 	uint64_t binding_capacity;
 	uint64_t binding_count;
@@ -461,13 +464,16 @@ typedef struct scope {
 uint64_t push_binding(scope* const s, token* const t, type_ast* const type);
 void pop_binding(scope* const s, uint64_t pos);
 
-token* reduce_alias(parser* const parse, token* const t);
-
 typedef struct walker {
+	parser* parse;
 	scope* local_scope;
 } walker;
 
-void walk_expr(walker* const walk, expr_ast* const expr);
-void walk_term(walker* const walk, term_ast* const term);
+token* reduce_alias(parser* const parse, token* const t);
+type_ast* in_scope(walker* const walk, token* bind);
+uint8_t type_equal(type_ast* const left, type_ast* const right);
+
+type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type);
+type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected_type);
 
 #endif

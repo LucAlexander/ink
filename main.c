@@ -2453,37 +2453,38 @@ lex_err(parser* const parse, uint64_t goal, string filename){
 
 //NOTE every return requires a pop of the local scope, except term, because that binding needs to persist
 //NOTE every case reduces both type and alias except binding, which just reduces alias, as strict term typing matters when comparing two strict types
-type_ast* //TODO also pretty much every case should reduce the type from aliases and types
+type_ast*
 walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 	uint64_t scope_pos = walk->local_scope->binding_count;
 	structure_ast* inner;
 	type_ast* inner_struct
 	if (expected_type != NULL){
 		inner_struct = expected_type;
-		if (expected_type->tag == NAMED_TYPE){
-			//TODO reduce type or alias
+		if (expr->tag != BINDING_EXPR){
+			expected_type = reduce_type_and_alias(walk->parse, expected_type);
 		}
-		walk_assert(inner_struct->tag == STRUCT_TYPE, nearest_token(expr), "Unexpected structure where non structure type was expected");
-		inner = inner_struct->data.structure;
-		if (inner->tag == UNION_STRUCT){
-			for (uint64_t k = 0;k<inner->data.union_structure.count;++k){
-				type_ast* match_inference = walk_expr(walk, expr, inner->data.union_structure.members[k]);
-				if (match_inference == NULL){
-					walk->parse->err.len = 0;
-					continue;
+		if (inner_struct->tag == STRUCT_TYPE){
+			inner = inner_struct->data.structure;
+			if (inner->tag == UNION_STRUCT){
+				for (uint64_t k = 0;k<inner->data.union_structure.count;++k){
+					type_ast* match_inference = walk_expr(walk, expr, inner->data.union_structure.members[k]);
+					if (match_inference == NULL){
+						walk->parse->err.len = 0;
+						continue;
+					}
+					expr->type = expected_type;
+					pop_binding(walk->local_scope, pos);
+					expr->type = expected_type;
+					return expected_type;
 				}
-				expr->type = expected_type;
 				pop_binding(walk->local_scope, pos);
-				expr->type = expected_type;
-				return expected_type;
+				expr->type = NULL;
+				return NULL;
 			}
-			pop_binding(walk->local_scope, pos);
-			expr->type = NULL;
-			return NULL;
 		}
 	}
 	switch (expr->tag){
-	case APPL_EXPR: // TODO type application, type dependency, . handling
+	case APPL_EXPR: // TODO template type application, type dependency, . handling
 		type_ast* right = walk_expr(walk, expr->data.appl.right, NULL);
 		walk_assert_prop();
 		walk_assert(right != NULL, nearest_token(expr->data.appl.right), "Could not discern type");
@@ -2786,7 +2787,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		pop_binding(walk->local_scope, pos);
 		expr->type = NULL;
 		return NULL;
-	case MATCH_EXPR:
+	case MATCH_EXPR: // TODO pattern binding and structure checking
 		if (expected_type != NULL){
 			type_ast* match_infer = walk_expr(walk, expr->data.match.pred, NULL);
 			walk_assert(match_infer != NULL, nearest_token(expr->data.match.pred), "Could not infer type of match predicate");
@@ -2876,20 +2877,20 @@ pop_binding(scope* const s, uint64_t pos){
 }
 
 type_ast*
-reduce_alias(parser* const parse, token* const t){
+reduce_alias(parser* const parse, type_ast* const start_type){
 	//TODO
 	return NULL;
 }
 
 type_ast*
-reduce_alias_and_type(parser* const parse, token* const t){
+reduce_alias_and_type(parser* const parse, type_ast* const start_type){
 	//TODO
 	return NULL;
 }
 
 type_ast*
-in_scope(walker* const walk, token* const bind, type_ast* const expected_type){
-	//TODO reduce alias
+in_scope(walker* const walk, token* const bind, type_ast* expected_type){
+	expected_type = reduce_alias(walk->parse, expected_type)
 	term_ast* term = term_ast_map_access(walk->parse->terms, bind->data.name);
 	if (term != NULL){
 		return term->type;

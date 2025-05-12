@@ -470,6 +470,7 @@ typedef struct walker {
 } walker;
 
 type_ast* reduce_alias(parser* const parse, token* const t);
+type_ast* reduce_alias_and_type(parser* const parse, token* const t);
 type_ast* in_scope(walker* const walk, token* const bind, type_ast* const expected_type);
 uint8_t type_equal(type_ast* const left, type_ast* const right);
 

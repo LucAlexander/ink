@@ -2877,9 +2877,15 @@ pop_binding(scope* const s, uint64_t pos){
 }
 
 type_ast*
-reduce_alias(parser* const parse, type_ast* const start_type){
-	//TODO
-	return NULL;
+reduce_alias(parser* const parse, type_ast* start_type){
+	while (start_type->tag == NAMED_TYPE){
+		alias_ast* alias = alias_ast_map_access(parse->aliases, start_type->data.named.name.data.name);
+		if (alias == NULL){
+			return start_type;
+		}
+		start_type = alias->type;
+	}
+	return start_type;
 }
 
 type_ast*

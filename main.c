@@ -306,9 +306,9 @@ case 'v': c = '\v'; break;
 						if (k == '/'){
 							parse->text_index += 1;
 							break;
-						}
+		}
 					}
-				}
+}
 				continue;
 			}
 		}
@@ -337,7 +337,7 @@ case 'v': c = '\v'; break;
 			t->data.name.len += 1;
 			t->tag = SYMBOL_TOKEN;
 			t->content_tag = STRING_TOKEN_TYPE;
-			c = parse->text.str[parse->text_index];
+c = parse->text.str[parse->text_index];
 			parse->text_index += 1;
 			while ((parse->text_index < parse->text.len) && issymbol(c)){
 				t->data.name.len += 1;
@@ -2932,7 +2932,58 @@ type_equal(type_ast* const left, type_ast* const right){
 
 uint64_t
 nearest_token(expr_ast* e){
-	//TODO
+	switch (e->tag){
+	case APPL_EXPR:
+		return nearest_token(e->data.appl.left);
+	case LAMBDA_EXPR:
+		return nearest_token(e->data.lambda.expression);
+	case BLOCK_EXPR:
+		if (e->data.block.line_count > 0){
+			return nearest_token(e->data.block.lines[0]);
+		}
+		return 0;
+	case LIT_EXPR:
+		return 0;
+	case TERM_EXPR:
+		return e->data.term->name.token_index;
+	case STRING_EXPR:
+		return e->data.str.token_index;
+	case LIST_EXPR:
+		if (e->data.list.line_count > 0){
+			return nearest_token(ex->data.list.lines[0]);
+		}
+		return 0;
+	case STRUCT_EXPR:
+		if (e->data.constructor.member_count > 0){
+			return nearest_token(e->data.constructor.members[0]);
+		}
+		return 0;
+	case BINDING_EXPR:
+		return e->data.binding.token_index;
+	case MUTATION_EXPR:
+		return nearest_token(e->data.mutation.left);
+	case RETURN_EXPR:
+		return nearest_token(e->data.ret);
+	case SIZEOF_EXPR:
+		return nearest_token(e->data.size_type);
+	case REF_EXPR:
+		return nearest_token(e->data.ref);
+	case DEREF_EXPR:
+		return nearest_token(e->data.deref);
+	case IF_EXPR:
+		return nearest_token(e->data.if_statement.pred);
+	case FOR_EXPR:
+		return e->data.for_statement.binding.token_index;
+	case WHILE_EXPR:
+		return nearest_token(e->data.while_statement.pred);
+	case MATCH_EXPR:
+		return nearest_token(e->data.match.pred);
+	case CAST_EXPR:
+		return nearest_token(e->data.cast.source);
+	case NOP_EXPR:
+		return 0;
+	}
+	return 0;
 }
 
 /* TODO

@@ -2512,11 +2512,25 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		walk_expr(walk, expr->data.lambda.expression);
 		walk_expr(walk, expr->data.lambda.alt);
 		break;
-	case BLOCK_EXPR: // TODO
+	case BLOCK_EXPR:
 		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
-			walk_expr(walk, &expr->data.block.lines[i]);
+			if (expr->data.block.lines[i].tag == RETURN_EXPR){
+				type_ast* line_type = walk_expr(walk, &expr->data.block.lines[i], expected_type);
+				walk_assert_prop();
+				if (expected_type != NULL){
+					walk_assert(line_type != NULL, nearest_token(&expr->data.block.lines[i]), "Return expression did not resolve to correct type");
+				}
+				continue;
+			}
+			walk_expr(walk, &expr->data.block.lines[i], NULL); // TODO test what happens for nested returns, do they get validated or are their types ignored
+			walk_assert_prop();
 		}
-		break;
+		if (expected_type != NULL){
+			walk_assert(expr->data.block.lines[expr->data.block.line_count-1].tag == RETURN_EXPR);
+		}
+		pop_binding(walk->local_scope, pos);
+		expr->type = expected_type;
+		return expected_type;
 	case LIT_EXPR:
 		if (expected_type != NULL){
 			type_ast lit_type = {
@@ -2927,7 +2941,26 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type){
 
 uint8_t
 type_equal(type_ast* const left, type_ast* const right){
-	//TODO
+	if (left->tag != right->tag){
+		return 0;
+	}
+	switch (left->tag){
+	case DEPENDENCY_TYPE:
+		//TODO
+	case FUNCTION_TYPE:
+		//TODO
+	case LIT_TYPE:
+		//TODO
+	case PTR_TYPE:
+		//TODO
+	case FAT_PTR_TYPE:
+		//TODO
+	case STRUCT_TYPE:
+		//TODO
+	case NAMED_TYPE:
+		//TODO
+	}
+	return 0;
 }
 
 uint64_t
@@ -2996,6 +3029,7 @@ nearest_token(expr_ast* e){
  * lambda capture to arg and lifting
  * closure capture to arg and lifting
  * function type monomorphization
+ * expression for break/continue was missed somehow, they are turned into bindings, fix this after the type checker is done, one problem at a time
  */
 
 int

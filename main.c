@@ -2461,7 +2461,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 	if (expected_type != NULL){
 		inner_struct = expected_type;
 		if (expr->tag != BINDING_EXPR){
-			expected_type = reduce_type_and_alias(walk->parse, expected_type);
+			expected_type = reduce_alias_and_type(walk->parse, expected_type);
 		}
 		if (inner_struct->tag == STRUCT_TYPE){
 			inner = inner_struct->data.structure;
@@ -2903,9 +2903,30 @@ reduce_alias(parser* const parse, type_ast* start_type){
 }
 
 type_ast*
-reduce_alias_and_type(parser* const parse, type_ast* const start_type){
-	//TODO
-	return NULL;
+reduce_alias_and_type(parser* const parse, type_ast* start_type){
+	while (start_type->tag == NAMED_TYPE){
+		alias_ast* alias = alias_ast_map_access(parse->aliases, start_type->data.named.name.data.name);
+		if (alias != NULL){
+			start_type = alias->type;
+			continue;
+		}
+		typedef_ast* type = typedef_ast_map_access(parse->types, start_type->data.named.name.data.name);
+		if (type != NULL){
+			if (start_type->data.named.arg_count != 0){
+				type_ast_map relation = type_ast_map_init(parse->mem);
+				assert_local(type->param_count >= start_type->data.named.arg_count, NULL, "Too many arguments given for parametric type\n");
+				for (uint64_t i = 0;i<start_type->data.named.arg_count;++i){
+					type_ast_map_insert(&relation, type->params[i].data.name, start_type->data.named.args[i]);
+				}
+				start_type = deep_copy_type_replace(parse->mem, &relation, type->type);
+				continue;
+			}
+			start_type = type;
+			continue;
+		}
+		return start_type;
+	}
+	return start_type;
 }
 
 type_ast*
@@ -3017,6 +3038,62 @@ nearest_token(expr_ast* e){
 		return 0;
 	}
 	return 0;
+}
+
+type_ast*
+deep_copy_type_replace(pool* const mem, type_ast_map* relation, type_ast* const source){
+	type_ast* dest = pool_request(mem, sizeof(type_ast));
+	*dest = *source;
+	switch (source->tag){
+	case DEPENDENCY_TYPE:
+		dest->data.dependency.type = deep_copy_type_replace(mem, relation, source->data.dependency.type);
+		return dest;
+	case FUNCTION_TYPE:
+		dest->data.function.left = deep_copy_type_replace(mem, relation, source->data.function.left);
+		dest->data.function.right = deep_copy_type_replace(mem, relation, source->data.function.right);
+		return dest;
+	case LIT_TYPE:
+		return dest;
+	case PTR_TYPE:
+		dest->data.ptr = deep_copy_type_replace(mem, relation, source->data.ptr);
+		return dest;
+	case FAT_PTR_TYPE:
+		dest->data.fat_ptr.ptr = deep_copy_type_replace(mem, relation, source->data.fat_ptr.ptr);
+		return dest;
+	case STRUCT_TYPE:
+		dest->data.structure = deep_copy_structure_replace(mem, relation, source->data.structure);
+		return dest;
+	case NAMED_TYPE:
+		type_ast* replacement = type_ast_map_acceses(relation, source->data.named.name.data.name);
+		if (replacement == NULL){
+			for (uint64_t i = 0;i<source->data.named.arg_count;++i){
+				dest->data.named.args[i] = *deep_cope_type_replace(mem, relation, &source->data.named.args[i])
+			}
+			return dest;
+		}
+		return deep_copy_replace(mem, relation, replacement);
+	}
+	return NULL;
+}
+
+structure_ast*
+deep_copy_structure_replace(pool* const mem, type_ast_map* relation, structure_ast* const source){
+	structure_ast* dest = pool_request(mem, sizeof(structure_ast));
+	*dest = *source;
+	switch (source->tag){
+	case STRUCT_STRUCT:
+		for (uint64_t i = 0;i<source->data.structure.count;++i){
+			dest->data.structure.members[i] = *deep_copy_type_replace(mem, relation, &source->data.structure.members[i]);
+		}
+		return dest;
+	case UNION_STRUCT:
+		for (uint64_t i = 0;i<source->data.union_structure.count;++i){
+			dest->data.union_structure.members[i] = *deep_copy_type_replace(mem, relation, &source->data.union_structure.members[i]);
+		}
+		return dest;
+	case ENUM_STRUCT:
+		return dest;
+	}
 }
 
 /* TODO

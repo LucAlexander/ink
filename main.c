@@ -2801,22 +2801,28 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		pop_binding(walk->local_scope, pos);
 		expr->type = NULL;
 		return NULL;
-	case MATCH_EXPR: // TODO pattern binding and structure checking
+	case MATCH_EXPR:
+		type_ast* match_infer = walk_expr(walk, expr->data.match.pred, NULL);
+		walk_assert(match_infer != NULL, nearest_token(expr->data.match.pred), "Could not infer type of match predicate");
 		if (expected_type != NULL){
-			type_ast* match_infer = walk_expr(walk, expr->data.match.pred, NULL);
-			walk_assert(match_infer != NULL, nearest_token(expr->data.match.pred), "Could not infer type of match predicate");
 			for (uint64_t i = 0;i<expr->data.match.count;++i){
+				type_ast* pat_confirm = walk_pattern(walk, &expr->data.match.patterns[i], match_infer);
+				walk_assert_prop();
+				walk_assert(pat_confirm != NULL, nearest_pattern_token(&expr->data.match.patterns[i]), "Pattern in match did not resolve to correct type");
 				type_ast* confirm = walk_expr(walk, &expr->data.match.cases[i], expected_type);
+				walk_assert_prop();
 				walk_assert(confirm != NULL, nearest_token(&expr->data.match.cases[i]), "Match case did not resolve to expected type");
 			}
 			pop_binding(walk->local_scope, pos);
 			expr->type = expected_type;
 			return expected_type;
 		}
-		walk_expr(walk, expr->data.match.pred);
 		type_ast* first;
 		uint8_t matches = 1;
 		for (uint64_t i = 0;i<expr->data.match.count;++i){
+			type_ast* pat_confirm = walk_pattern(walk, &expr->data.match.patterns[i], match_infer);
+			walk_assert_prop();
+			walk_assert(pat_confirm != NULL, nearest_pattern_token(&expr->data.match.patterns[i]), "Pattern in match did not resolve to correct type");
 			if (i == 0){
 				first = walk_expr(walk, &expr->data.match.cases[i], NULL);
 				walk_assert_prop();

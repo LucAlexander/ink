@@ -2683,7 +2683,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			expr->type = sizeof_type;
 			return sizeof_type;
 		}
-		walk_assert(type_equals(sizeof_type, expected_type), nearset_token(expr), "Expected type did not match type of sizeof expression (u64 or int_any)");
+		walk_assert(type_equals(sizeof_type, expected_type), nearest_token(expr), "Expected type did not match type of sizeof expression (u64 or int_any)");
 		pop_binding(walk->local_scope, pos);
 		expr->type = sizeof_type;
 		return sizeof_type;
@@ -2858,7 +2858,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 
 type_ast*
 walk_term(walker* const walk, term_ast* const term, type_ast* expected_type){
-	uint64_t pos = push_binding(walk->local_scope, term->name, term->type);
+	uint64_t pos = push_binding(walk->local_scope, term->name, term->type);//TODO check for duplicate
 	type_ast* real_type = walk_expr(walk, term->expression, term->type);
 	pop_binding(walk->local_scope, pos);
 	walk_assert_prop();
@@ -2985,7 +2985,7 @@ type_equal(type_ast* const left, type_ast* const right){
 }
 
 uint64_t
-nearest_token(expr_ast* e){
+nearest_token(expr_ast* const e){
 	switch (e->tag){
 	case APPL_EXPR:
 		return nearest_token(e->data.appl.left);
@@ -3094,6 +3094,88 @@ deep_copy_structure_replace(pool* const mem, type_ast_map* relation, structure_a
 	case ENUM_STRUCT:
 		return dest;
 	}
+}
+
+type_ast*
+walk_pattern(walker* const walk, pattern* const pat, type_ast* expected_type){
+	expected_type = reduce_alias_and_type(walk->parse, expected_type);
+	switch (pat->tag){
+	case NAMED_PATTERN:
+		push_binding(walk->local_scope, &pat->data.named.name, expecte_type);
+		return walk_pattern(walk, pat->data.named.inner, expected_type);
+	case STRUCT_PATTERN:
+		walk_assert(expected_type->tag == STRUCT_TYPE, nearest_pattern_token(pat), "Tried to destructure non structure type as structure pattern");
+		walk_assert(expected_type->data.structure->tag == STRUCT_STRUCT, nearest_pattern_token(pat),"Tried to destructure non structure structure type in pattern destructure");
+		walk_assert(pat->data.structure.count == expected_type->data.structure->data.structure.count, nearest_pattern_token(pat), "Expected structure pattern destructure to match struct member count");
+		for (uint64_t i = 0;i<pat->data.structure.count;++i){
+			walk_pattern(walk, &pat->data.structure.member[i], &expected_type->data.structure->data.structure.members[i]);
+			walk_assert_prop();
+		}
+		return expected_type;
+	case FAT_PTR_PATTERN:
+		walk_assert(expected_type->tag == FAT_PTR_TYPE, nearest_pattern_token(pat), "Expected fat pointer to destructure pattern");
+		type_ast len_type = {
+			.tag = LIT_TYPE,
+			.data.lit = INT_ANY
+		};
+		walk_pattern(walk, pat->data.fat_ptr.len, &len_type);
+		walk_assert_prop();
+		walk_pattern(walk, pat->data.fat_ptr.ptr, expected_type->data.fat_ptr.ptr);
+		return expected_type;
+	case HOLE_PATTERN:
+		return expected_type;
+	case BINDING_PATTERN:
+		push_binding(walk->local_scope, &pat->data.binding, expected_type);
+		return expected_type;
+	case LITERAL_PATTERN:
+		walk_assert(expected_type->tag == LIT_TYPE, nearest_pattern_token(pat), "Tried to destructure non literal as literal pattern");
+		return expected_type;
+	case STRING_PATTERN:
+		walk_assert(expected_type->tag == PTR_TYPE || expected_type->tag == FAT_PTR_TYPE, nearest_pattern_token(pat), "Tried to destructure non string type as string pattern");
+		if (expected_type->tag == FAT_PTR_TYPE){
+			walk_assert(expected_type->data.fat_ptr.ptr->tag == LIT_TYPE && expected_type->data.fat_ptr.ptr->data.lit == U8_TYPE, nearest_pattern_token(pat), "Destructuring a string must be from [u8] or u8^");
+			return expected_type;
+		}
+		walk_assert(expected_type->data.ptr->tag == LIT_TYPE && expected_type->data.ptr.data.lit == U8_TYPE, nearest_pattern_token(pat), "String must be destructured from [u8] or u8^");
+		return expected_type;
+	case UNION_SELECTOR_PATTERN:
+		walk_assert(expected_type->tag == STRUCT_TYPE, nearest_pattern_token(pat), "Expected union structure type to destructure");
+		walk_assert(expected_type->data.structure->tag == UNION_STRUCT, nearest_pattern_token(pat), "Expected structure type to be union in pattern destructure");
+		for (uint64_t i = 0;i<expected_type->data.structure->data.union_structure.count;++i){
+			if (string_compare(&expected_type->data.structure->data.union_structure.names[i], &pat->data.union_selector.member) == 0){
+				walk_pattern(walk, pat->data.union_selector.nest, &expected_type->data.structure->data.union_structure.members[i]);
+				return expected_type;
+			}
+		}
+		return NULL;
+	}
+	return NULL;
+}
+
+uint64_t
+nearest_pattern_token(pattern* const pat){
+	switch (pat->tag){
+	case NAMED_PATTERN:
+		return pat->data.named.name.token_index;
+	case STRUCT_PATTERN:
+		if (pat->data.structure.count == 0){
+			return 0;
+		}
+		return nearest_pattern_token(&pat->data.structure.members[0]);
+	case FAT_PTR_PATTERN:
+		return nearest_pattern_token(pat->data.fat_ptr.ptr);
+	case HOLE_PATTERN:
+		return 0;
+	case BINDING_PATTERN:
+		return pat->data.binding.token_index;
+	case LITERAL_PATTERN:
+		return 0;
+	case STRING_PATTERN:
+		return pat->data.str.token_index;
+	case UNION_SELECTOR_PATTERN:
+		return nearest_pattern_token(pat->data.union_selector.nest);
+	}
+	return 0;
 }
 
 /* TODO

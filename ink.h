@@ -475,8 +475,11 @@ type_ast* in_scope(walker* const walk, token* const bind, type_ast* const expect
 uint8_t type_equal(type_ast* const left, type_ast* const right);
 type_ast* deep_copy_type_replace(pool* const mem, type_ast_map* relation, type_ast* const source);
 structure_ast* deep_copy_structure_replace(pool* const mem, type_ast_map* relation, structure_ast* const source);
+uint64_t nearest_token(expr_ast* const e);
+uint64_t nearest_pattern_token(pattern* const pat);
 
 type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type);
 type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected_type);
+type_ast* walk_pattern(walker* const walk, pattern* const pat, type_ast* const expected_type);
 
 #endif

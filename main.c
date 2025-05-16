@@ -2878,7 +2878,8 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 
 type_ast*
 walk_term(walker* const walk, term_ast* const term, type_ast* expected_type){
-	uint64_t pos = push_binding(walk->local_scope, term->name, term->type);//TODO check for duplicate
+	uint64_t pos = push_binding(walk->parse, walk->local_scope, term->name, term->type);
+	walk_assert_prop();
 	type_ast* real_type = walk_expr(walk, term->expression, term->type);
 	pop_binding(walk->local_scope, pos);
 	walk_assert_prop();
@@ -2887,7 +2888,10 @@ walk_term(walker* const walk, term_ast* const term, type_ast* expected_type){
 }
 
 uint64_t
-push_binding(scope* const s, token* const t, type_ast* const type){
+push_binding(parser* const parse, scope* const s, token* const t, type_ast* const type){
+	for (uint64_t i = 0;i<s->binding_count;++i){
+		assert_local(string_compare(&t->data.name, s->bindings[i].name->data.name) != 0, 0, "Duplicate bound name");
+	}
 	if (s->binding_count == s->binding_capacity){
 		s->binding_capacity *= 2;
 		binding* bindings = pool_request(s->mem, sizeof(binding)*s->binding_capacity);
@@ -3121,7 +3125,8 @@ walk_pattern(walker* const walk, pattern* const pat, type_ast* expected_type){
 	expected_type = reduce_alias_and_type(walk->parse, expected_type);
 	switch (pat->tag){
 	case NAMED_PATTERN:
-		push_binding(walk->local_scope, &pat->data.named.name, expecte_type);
+		push_binding(walk->parse, walk->local_scope, &pat->data.named.name, expecte_type);
+		walk_assert_prop();
 		return walk_pattern(walk, pat->data.named.inner, expected_type);
 	case STRUCT_PATTERN:
 		walk_assert(expected_type->tag == STRUCT_TYPE, nearest_pattern_token(pat), "Tried to destructure non structure type as structure pattern");
@@ -3145,7 +3150,8 @@ walk_pattern(walker* const walk, pattern* const pat, type_ast* expected_type){
 	case HOLE_PATTERN:
 		return expected_type;
 	case BINDING_PATTERN:
-		push_binding(walk->local_scope, &pat->data.binding, expected_type);
+		push_binding(walk->parse, walk->local_scope, &pat->data.binding, expected_type);
+		walk_assert_prop();
 		return expected_type;
 	case LITERAL_PATTERN:
 		walk_assert(expected_type->tag == LIT_TYPE, nearest_pattern_token(pat), "Tried to destructure non literal as literal pattern");

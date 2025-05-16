@@ -461,7 +461,7 @@ typedef struct scope {
 	uint64_t binding_count;
 } scope;
 
-uint64_t push_binding(scope* const s, token* const t, type_ast* const type);
+uint64_t push_binding(parser* const parse, scope* const s, token* const t, type_ast* const type);
 void pop_binding(scope* const s, uint64_t pos);
 
 typedef struct walker {

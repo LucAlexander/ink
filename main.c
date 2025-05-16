@@ -2508,10 +2508,24 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		pop_binding(walk->local_scope, pos);
 		expr->type = left->data.function.right;
 		return left->data.function.right;
-	case LAMBDA_EXPR: // TODO
-		walk_expr(walk, expr->data.lambda.expression);
-		walk_expr(walk, expr->data.lambda.alt);
-		break;
+	case LAMBDA_EXPR:
+		walk_assert(expected_type != NULL, nearest_token(expr), "Unable to discern type of lambda term");
+		type_ast* expected_view = expected_type;
+		for (uint64_t i = 0;i<expr->data.lambda.arg_count;++i){
+			walk_assert(expected_view->tag == FUNCTION_TYPE, nearest_token(expr), "Too many arguments given to lambda for expected type");
+			type_ast* arg_type = expected_view->data.function.left;
+			type_ast* real_type = walk_pattern(expr->data.lambda.args[i], arg_type);
+			expected_view = expected_view->data.function.right;
+			walk_assert_prop();
+			walk_assert(real_type != NULL, nearest_pattern_token(&expr->data.lambda.args[i]), "Lambda term argument did not match expected type");
+		}
+		type_ast* eval_type = walk_expr(walk, expr->data.lambda.expression, expected_type);
+		walk_assert_prop();
+		walk_assert(eval_type != NULL, nearest_token(expr->data.lambda.expression), "Lambda term expression did not match expected type");
+		type_ast* alt_type = walk_expr(walk, expr->data.lambda.alt, expected_type);
+		walk_assert_prop();
+		walk_assert(alt_type != NULL, nearest_token(expr->data.lambda.expression), "Lambda term alternate did not match expected type");
+		return expected_type;
 	case BLOCK_EXPR:
 		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
 			if (expr->data.block.lines[i].tag == RETURN_EXPR){

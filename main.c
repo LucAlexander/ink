@@ -2490,7 +2490,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		}
 	}
 	switch (expr->tag){
-	case APPL_EXPR: // TODO type dependency after initial typechecker works, template type application
+	case APPL_EXPR: // TODO type dependency after initial typechecker works
 		if (expr->data.appl.right->tag == LIST_EXPR){
 			if (expr->data.appl.right->data.list.line_count == 1){
 				// x[i]
@@ -2596,10 +2596,12 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		walk_assert_prop();
 		walk_assert(left != NULL, nearest_token(expr->data.appl.left), "Unable to infer type of left of application");
 		walk_assert(left->tag == FUNCTION_TYPE, nearest_token(expr->data.appl.left), "Left of application type was needs to be function");
-		walk_assert(type_equal(left->data.function.left, right), nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
+		type_ast_map* relation = clash_types(walk->parse, left->data.function.left, right);
+		walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
+		type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, left->data.function.right);
 		pop_binding(walk->local_scope, pos);
-		expr->type = left->data.function.right;
-		return left->data.function.right;
+		expr->type = generic_applied_type;
+		return generic_applied_type;
 	case LAMBDA_EXPR:
 		walk_assert(expected_type != NULL, nearest_token(expr), "Unable to discern type of lambda term");
 		type_ast* expected_view = expected_type;
@@ -3160,7 +3162,7 @@ structure_equal(parser* const parse, token_map* const generics, structure_ast* c
 			return 0;
 		}
 		for (uint64_t i = 0;i<left->data.structure.count;++i){
-			if (type_equal_worker(parse, generics, left->data.structure.members[i], right->data.structure.members[i]) == 0){
+			if (type_equal_worker(parse, generics, &left->data.structure.members[i], &right->data.structure.members[i]) == 0){
 				return 0;
 			}
 		}
@@ -3416,6 +3418,136 @@ is_member(type_ast* const outer, expr_ast* const field){
 		return NULL;
 	}
 	return NULL;
+}
+
+type_ast_map*
+clash_types(parser* const parse, type_ast* const left, type_ast* const right){
+	type_ast_map* relation = pool_request(parse->mem, sizeof(type_ast_map));
+	*relation = type_ast_map_init(parse->mem);
+	if (clash_types_worker(parse, relation, left, right) == 0){
+		return NULL;
+	}
+	return relation;
+}
+
+uint8_t
+clash_types_worker(parser* const parse, type_ast_map* relation, type_ast* const left, type_ast* const right){
+	if (left->tag != right->tag){
+		if (left->tag != NAMED_TYPE){
+			return 0;
+		}
+		type_ast* confirm = type_ast_map_access(parse, relation, left->data.named.name.data.name);
+		if (confirm != NULL){
+			if (type_equal(confirm, right) == 0){
+				return 0;
+			}
+			return 1;
+		}
+		type_ast_map_insert(parse, relation, left->data.named.name.data.name, right);
+		return 1;
+	}
+	switch (left->tag){
+	case DEPENDENCY_TYPE: // TODO ignoring this case until type checker otherwise works
+		return clash_types_worker(parse, relation, left->data.dependency.type, right->data.dependency.type);
+	case FUNCTION_TYPE:
+		return clash_types_worker(parse, relation, left->data.function.left, right->data.function.left)
+		     & clash_types_worker(parse, relation, left->data.function.right, right->data.function.right);
+	case LIT_TYPE:
+		if (lfet->data.lit == INT_ANY || right->data.lit == INT_ANY){'
+			return 1;
+		}
+		return left->data.lit == right->data.lit;
+		//TODO coersion? we'll experiment without for now, you can always explicit cast
+	case PTR_TYPE:
+		return clash_types_worker(parse, relation, left->data.ptr, right->data.ptr);
+	case FAT_PTR_TYPE:
+		return clash_types_worker(parse, relation, left->data.fat_ptr.ptr, right->data.fat_ptr.ptr);
+	case STRUCT_TYPE:
+		return clash_structure_worker(parse, relation, left->data.structure, right->data.structure);
+	case NAMED_TYPE:
+		type_ast* confirm = type_ast_map_access(relation, left->data.named.name.data.name);
+		if (confirm != NULL){
+			if (type_equal(confirm, right) == 0){
+				return 0;
+			}
+		}
+		else{
+			typedef_ast* istypedef = typedef_ast_map_access(parse->types, left->data.named.name.data.name);
+			if (istypedef != NULL){
+				if (istypedef != typedef_ast_map_access(parse->types, right->data.named.name.data.name)){
+					return 0;
+				}
+			}
+			else {
+				alias_ast* isalias = alias_ast_map_access(parse->aliases, left->data.named.name.data.name);
+				if (isalias != NULL){
+					if (isalias != alias_ast_map_access(parse->aliases, right->data.named.name.data.name)){
+						return 0;
+					}
+				}
+				else {
+					typedef_ast* righttypedef = typedef_ast_map_access(parse->types, right->data.named.name.data.name);
+					alias_ast* rightalias = alias_ast_map_access(parse->aliases, right->data.named.name.data.name);
+					if (rightalias != NULL || righttypedef != NULL){
+						return 0;
+					}
+					type_ast_map_insert(parse, relation, left->data.named.name.data.name, right);
+				}
+			}
+		}
+		if (left->data.named.arg_count != right->data.named.arg_count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.named.arg_count;++i){
+			if (clash_types_worker(relation, &left->data.named.args[i], &right->data.named.args[i]) == 0){
+				return 0;
+			}
+		}
+		return 1;
+	}
+}
+
+uint8_t
+clash_structure_worker(parser* const parse, type_ast_map* relation, structure_ast* const left, structure_ast* const right){
+	if (left->tag != right->tag){
+		return 0;
+	}
+	switch (left->tag){
+	case STRUCT_STRUCT:
+		if (left->data.structure.count != right->data.structure.count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.structure.count;++i){
+			if (clash_types_worker(parse, relation, &left->data.structure.members[i], &right->data.structure.members[i]) == 0){
+				return 0;
+			}
+		}
+		return 1;
+	case UNION_STRUCT:
+		if (left->data.union_structure.count != right->data.union_structure.count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.union_structure.count;++i){
+			if (clash_types_worker(parse, relation, &left->data.union_structure.members[i], &right->data.union_structure.members[i]) == 0){
+				return 0;
+			}
+		}
+		return 1;
+	case ENUM_STRUCT:
+		if (left->data.enumeration.count != right->data.enumeration.count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.enumeration.count;++i){
+			if (string_compare(&left->data.enumeration.names[i].data.name, &right->data.enumeration.names[i].data.name) != 0){
+				return 0;
+			}
+			if (left->data.enumeration.values[i] != right->data.enumeration.values[i]){
+				return 0;
+			}
+		}
+		return 1;
+	}
+	return 0;
 }
 
 /* TODO

@@ -482,6 +482,9 @@ structure_ast* deep_copy_structure_replace(pool* const mem, type_ast_map* relati
 uint64_t nearest_token(expr_ast* const e);
 uint64_t nearest_pattern_token(pattern* const pat);
 type_ast* is_member(type_ast* const obj, expr_ast* const field);
+type_ast_map* clash_types(parser* const parse, type_ast* const left, type_ast* const right);
+uint8_t clash_types_worker(parser* const parse, type_ast_map* relation, type_ast* const left, type_ast* const right);
+uint8_t clash_structure_worker(parser* const parse, type_ast_map* relation structure_ast* const left, structure_ast* const right);
 
 type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type);
 type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected_type);

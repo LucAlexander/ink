@@ -374,6 +374,7 @@ MAP_DECL(implementation_ast);
 MAP_DECL(implementation_ast_map);
 MAP_DECL(term_ast);
 MAP_DECL(uint64_t);
+MAP_DECL(token);
 
 #define GROWABLE_BUFFER_DECL(type)\
 	typedef struct type##_buffer {\
@@ -472,7 +473,9 @@ typedef struct walker {
 type_ast* reduce_alias(parser* const parse, type_ast* start);
 type_ast* reduce_alias_and_type(parser* const parse, type_ast* start);
 type_ast* in_scope(walker* const walk, token* const bind, type_ast* const expected_type);
-uint8_t type_equal(type_ast* const left, type_ast* const right);
+uint8_t type_equal(parser* const parse, type_ast* const left, type_ast* const right);
+uint8_t type_equal_worker(parser* const parse, token_map* const generics, type_ast* const left, type_ast* const right);
+uint8_t structure_equal(parser* const parse, token_map* const generics, structure_ast* const left, structure_ast* const right);
 type_ast* deep_copy_type_replace(pool* const mem, type_ast_map* relation, type_ast* const source);
 structure_ast* deep_copy_structure_replace(pool* const mem, type_ast_map* relation, structure_ast* const source);
 uint64_t nearest_token(expr_ast* const e);

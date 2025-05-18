@@ -15,6 +15,7 @@ MAP_IMPL(implementation_ast);
 MAP_IMPL(implementation_ast_map);
 MAP_IMPL(term_ast);
 MAP_IMPL(uint64_t);
+MAP_IMPL(token);
 
 GROWABLE_BUFFER_IMPL(typedef_ast);
 GROWABLE_BUFFER_IMPL(alias_ast);
@@ -2484,7 +2485,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		}
 	}
 	switch (expr->tag){
-	case APPL_EXPR: // TODO template type application, type dependency, . handling
+	case APPL_EXPR: // TODO template type application, type dependency, . handling, x[i] handling, [fat].len / [fat].ptr
 		type_ast* right = walk_expr(walk, expr->data.appl.right, NULL);
 		walk_assert_prop();
 		walk_assert(right != NULL, nearest_token(expr->data.appl.right), "Could not discern type");
@@ -2985,25 +2986,117 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type){
 }
 
 uint8_t
-type_equal(type_ast* const left, type_ast* const right){
+type_equal(parser* const parse, type_ast* const left, type_ast* const right){
+	token_map generics = token_map_init(parse->mem);
+	return type_equal_worker(parse, &egenerics, left, right);
+}
+
+uint8_t
+type_equal_worker(parser* const parse, token_map* const generics, type_ast* const left, type_ast* const right){
 	if (left->tag != right->tag){
 		return 0;
 	}
 	switch (left->tag){
-	case DEPENDENCY_TYPE:
-		//TODO
+	case DEPENDENCY_TYPE: // TODO ignoring this case until the type checker otherwise works
+		return type_equal_worker(parse, generics, left->data.dependency.type, right->data.dependency.type);
 	case FUNCTION_TYPE:
-		//TODO
+		return type_equal_worker(parse, generics, left->data.function.left, right->data.function.left)
+		     & type_equal_worker(parse, generics, left->data.function.right, right->data.function.right);
 	case LIT_TYPE:
-		//TODO
+		if (left->data.lit == INT_ANY || right->data.lit == INT_ANY){
+			return 1;
+		}
+		return left->data.lit == right->data.lit;
+		//TODO coersion? we'll experiment without for now, you can always explicit cast
 	case PTR_TYPE:
-		//TODO
+		return type_equal_worker(parse, generics, left->data.ptr, right->data.ptr);
 	case FAT_PTR_TYPE:
-		//TODO
+		return type_equal_worker(parse, generics, left->data.fat_ptr.ptr, right->data.fat_ptr.ptr);
 	case STRUCT_TYPE:
-		//TODO
+		return structure_equal(parse, generics, left->data.structure, right->data.structure);
 	case NAMED_TYPE:
-		//TODO
+		token* isgeneric = token_map_access(generics, left->data.named.name.data.name);
+		if (isgeneric != NULL){
+			if (string_compare(&isgeneric->data.name, &right->data.named.name.data.name) != 0){
+				return 0;
+			}
+		}
+		else {
+			typedef_ast* istypedef = typedef_ast_map_access(parse->types, left->data.named.name.data.name);
+			if (istypedef != NULL){
+				if (istypedef != typedef_ast_map_access(parse->types, right->data.named.name.data.name)){
+					return 0;
+				}
+			}
+			else {
+				alias_ast* isalias = alias_ast_map_access(parse->aliases, left->data.named.name.data.name);
+				if (isalias != NULL){
+					if (isalias != alias_ast_map_access(parse->aliases, right->data.named.name.data.name)){
+						return 0;
+					}
+				}
+				else {
+					typedef_ast* righttypedef = typedef_ast_map_access(parse->types, right->data.named.name.data.name);
+					alias_ast* rightalias = alias_ast_map_access(parse->aliases, right->data.named.name.data.name);
+					if (rightalias != NULL || righttypedef != NULL){
+						return 0;
+					}
+					token_map_push(generics, left->data.named.name.data.name, right->data.named.name);
+				}
+			}
+		}
+		if (left->data.named.arg_count != right->data.named.arg_count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.named.arg_count;++i){
+			if (type_equal_worker(parse, generics, &left->data.named.args[i], &right->data.named.args[i]) == 0){
+				return 0;
+			}
+		}
+		return 1;
+	}
+	return 0;
+}
+
+uint8_t
+structure_equal(parser* const parse, token_map* const generics, structure_ast* const left, structure_ast* const right){
+	if (left->tag != right->tag){
+		return 0;
+	}
+	switch (left->tag){
+	case STRUCT_STRUCT:
+		if (left->data.structure.count != right->data.structure.count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.structure.count;++i){
+			if (type_equal_worker(parse, generics, left->data.structure.members[i], right->data.structure.members[i]) == 0){
+				return 0;
+			}
+		}
+		return 1;
+	case UNION_STRUCT:
+		if (left->data.union_structure.count != right->data.union_structure.count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.union_structure.count;++i){
+			if (type_equal_worker(parse, generics, left->data.union_structure.members[i], right->data.union_structure.members[i]) == 0){
+				return 0;
+			}
+		}
+		return 1;
+	case ENUM_STRUCT:
+		if (left->data.enumeration.count != right->data.enumeration.count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.enumeration.count;++i){
+			if (string_compare(&left->data.enumeration.names[i].data.name, &right->data.enumeration.names[i].data.name) != 0){
+				return 0;
+			}
+			if (left->data.enumeration.values[i] != right->data.enumeration.values[i]){
+				return 0;
+			}
+		}
+		return 1;
 	}
 	return 0;
 }

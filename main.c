@@ -1757,6 +1757,7 @@ parse_expr(parser* const parse, TOKEN end){
 	token* t = &parse->tokens[parse->token_index];
 	parse->token_index += 1;
 	expr_ast* expr = pool_request(parse->mem, sizeof(expr_ast));
+	expr->dot = 0;
 	expr->type = NULL;
 	expr_ast* outer = expr;
 	if (t->tag == end){
@@ -1813,6 +1814,7 @@ parse_expr(parser* const parse, TOKEN end){
 		case COMPOSE_TOKEN:
 			expr->tag = BINDING_EXPR;
 			expr->data.binding = *t;
+			expr->dot = 1;
 			if (outer->tag == APPL_EXPR){
 				expr_ast* swap = outer->data.appl.left;
 				outer->data.appl.left = outer->data.appl.right;
@@ -2052,9 +2054,12 @@ parse_expr(parser* const parse, TOKEN end){
 		}
 		expr_ast* temp = pool_request(parse->mem, sizeof(expr_ast));
 		temp->tag = APPL_EXPR;
+		temp->type = NULL;
+		temp->dot = 0;
 		temp->data.appl.left = outer;
 		temp->data.appl.right = pool_request(parse->mem, sizeof(expr_ast));
 		expr = temp->data.appl.right;
+		expr->dot = 0;
 		expr->type = NULL;
 		outer = temp;
 		outer->type = NULL;
@@ -2485,7 +2490,69 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		}
 	}
 	switch (expr->tag){
-	case APPL_EXPR: // TODO template type application, type dependency, . handling, x[i] handling, [fat].len / [fat].ptr
+	case APPL_EXPR: // TODO template type application, type dependency, x[i] handling
+		if (expr->data.appl.left->tag == APPL_EXPR){
+			if (expr->data.appl.left.data.appl.left->tag == BINDING_EXPR){
+				if (expr->data.appl.left.data.appl.left->dot == 1){
+					// ((. obj) field)
+					type_ast* obj = walk_expr(walk, expr->data.appl.left->data.appl.right, NULL);
+					walk_assert_prop();
+					walk_assert(obj != NULL, nearest_token(expr->data.appl.left.appl.right), "Unable to determine left type of either composition or field access");
+					if (obj->tag == STRUCT_TYPE){
+						walk_assert(expr->data.appl.right->tag == BINDING_EXPR, nearest_token(expr->data.appl.right), "Expected field for structure access");
+						type_ast* field = is_member(obj, expr->data.appl.right)
+						walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Expected member of structure in field access");
+						expr->data.appl.right->type = field;
+						expr->type = field;
+						return field;
+					}
+					else if (obj->tag == PTR_TYPE){
+						walk_assert(expr->data.appl.right->tag == BINDING_EXPR, nearest_token(expr->data.appl.right), "Expected field for structure access");
+						type_ast* inner = obj->data.ptr;
+						walk_assert(inner->tag == STRUCTURE_TYPE, nearest_token(expr->data.appl.right), "Field access from pointer must be from pointer to structure");
+						type_ast* field = is_member(inner, expr->data.appl.right);
+						walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Expected member of structure in field access");
+						expr->data.appl.right->type = field;
+						expr->type = field;
+						return field;
+					}
+					else if (obj->tag == FAT_PTR_TYPE){
+						walk_assert(expr->data.appl.right->tag == BINDING_EXPR, nearest_token(expr->data.appl.right), "Expected field for structure access");
+						if (cstring_compare(expr->data.appl.right.data.binding.data.name, "ptr")){
+							expr->type = obj->data.fat_ptr.ptr;
+							return obj->data.fat_ptr.ptr;
+						}
+						if (cstring_compare(expr->data.appl.right.data.binding.data.name, "len")){
+							type_ast* lenlit = pool_request(walk->parse->mem, sizeof(type_ast));
+							lenlit->tag = LIT_TYPE;
+							lenlit->data.lit = U64_TYPE;
+							expr->type = lenlit;
+							return lenlit;
+						}
+						type_ast* inner = obj->data.fat_ptr.ptr;
+						walk_assert(inner->tag == STRUCTURE_TYPE, nearest_token(expr->data.appl.right), "Field access from pointer must be from pointer to structure");
+						type_ast* field = is_member(inner, expr->data.appl.right);
+						walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Expected member of structure in field access");
+						expr->data.appl.right->type = field;
+						expr->type = field;
+						return field;
+					}
+					walk_assert(obj->tag == FUNCTION_TYPE, nearest_token(expr), "Expected either structure access or composition, but left type was neither a function nor a structure");
+					//is f . g
+					type_ast* field = walk_expr(walk, expr->data.appl.right, NULL);
+					walk_assert_prop();
+					walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Unable to determine type in composition expression");
+					walk_assert(field->tag == FUNCTION_TYPE, nearest_token(expr->data.appl.right), "Right side of composition must be function");
+					walk_assert(type_equal(obj->data.function.left, field->data.function.right) == 1, nearest_token(expr), "Composition arguments must have types (a -> b) . (c -> a)");
+					type_ast* composed = pool_request(walk->parse->mem, sizeof(type_ast));
+					composed->tag = FUNCTION_TYPE;
+					composed->data.function.left = field->data.function.left;
+					composed->data.function.right = obj->data.function.right;
+					expr->type = composed;
+					return composed;
+				}
+			}
+		}
 		type_ast* right = walk_expr(walk, expr->data.appl.right, NULL);
 		walk_assert_prop();
 		walk_assert(right != NULL, nearest_token(expr->data.appl.right), "Could not discern type");
@@ -3224,7 +3291,7 @@ walk_pattern(walker* const walk, pattern* const pat, type_ast* expected_type){
 	case STRUCT_PATTERN:
 		walk_assert(expected_type->tag == STRUCT_TYPE, nearest_pattern_token(pat), "Tried to destructure non structure type as structure pattern");
 		walk_assert(expected_type->data.structure->tag == STRUCT_STRUCT, nearest_pattern_token(pat),"Tried to destructure non structure structure type in pattern destructure");
-		walk_assert(pat->data.structure.count == expected_type->data.structure->data.structure.count, nearest_pattern_token(pat), "Expected structure pattern destructure to match struct member count");
+		walk_assert(pat->data.structure.count <= expected_type->data.structure->data.structure.count, nearest_pattern_token(pat), "Expected structure pattern destructure to at most match structure member count");
 		for (uint64_t i = 0;i<pat->data.structure.count;++i){
 			walk_pattern(walk, &pat->data.structure.member[i], &expected_type->data.structure->data.structure.members[i]);
 			walk_assert_prop();
@@ -3295,6 +3362,36 @@ nearest_pattern_token(pattern* const pat){
 		return nearest_pattern_token(pat->data.union_selector.nest);
 	}
 	return 0;
+}
+
+type_ast* 
+is_member(type_ast* const outer, expr_ast* const field){
+	token* name = &field->data.binding;
+	structure_ast* obj = outer->data.structure;
+	switch (obj->tag){
+	case STRUCT_STRUCT:
+		for (uint64_t i = 0;i<obj->data.structure.count;++i){
+			if (string_compare(&name->data.name, &obj->data.structure.names[i].data.name) == 0){
+				return &obj->data.structure.members[i];
+			}
+		}
+		return NULL;
+	case UNION_STRUCT:
+		for (uint64_t i = 0;i<obj->data.union_structure.count;++i){
+			if (string_compare(&name->data.name, &obj->data.union_structure.names[i].data.name) == 0){
+				return &obj->data.union_structure.members[i];
+			}
+		}
+		return NULL;
+	case ENUM_STRUCT:
+		for (uint64_t i = 0;i<obj->data.enumeration.count;++i){
+			if (string_compare(&name->data.name, &obj->data.enumeration.names[i]) == 0){
+				return outer;
+			}
+		}
+		return NULL;
+	}
+	return NULL;
 }
 
 /* TODO

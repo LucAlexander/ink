@@ -282,6 +282,7 @@ typedef struct type_ast {
 
 typedef struct expr_ast {
 	type_ast* type;
+	uint8_t dot;
 	union {
 		struct {
 			expr_ast* left;
@@ -480,6 +481,7 @@ type_ast* deep_copy_type_replace(pool* const mem, type_ast_map* relation, type_a
 structure_ast* deep_copy_structure_replace(pool* const mem, type_ast_map* relation, structure_ast* const source);
 uint64_t nearest_token(expr_ast* const e);
 uint64_t nearest_pattern_token(pattern* const pat);
+type_ast* is_member(type_ast* const obj, expr_ast* const field);
 
 type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type);
 type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected_type);

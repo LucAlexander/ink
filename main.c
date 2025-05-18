@@ -2490,7 +2490,25 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		}
 	}
 	switch (expr->tag){
-	case APPL_EXPR: // TODO template type application, type dependency, x[i] handling
+	case APPL_EXPR: // TODO type dependency after initial typechecker works, template type application
+		if (expr->data.appl.right->tag == LIST_EXPR){
+			if (expr->data.appl.right->data.list.line_count == 1){
+				// x[i]
+				type_ast* array = walk_expr(walk, expr->data.appl.left, NULL);
+				walk_assert_prop();
+				walk_assert(array != NULL, nearest_token(expr), "Unable to discern type of left expression in list application");
+				if (array->tag == FAT_PTR_TYPE){
+					pop_binding(walk->local_scope, pos);
+					expr->type = array->data.fat_ptr.ptr;
+					return array->data.fat_ptr.ptr;
+				}
+				else if (array->tag == PTR_TYPE){
+					pop_binding(walk->local_scope, pos);
+					expr->type = array->data.ptr;
+					return array->data.ptr;
+				}
+			}
+		}
 		if (expr->data.appl.left->tag == APPL_EXPR){
 			if (expr->data.appl.left.data.appl.left->tag == BINDING_EXPR){
 				if (expr->data.appl.left.data.appl.left->dot == 1){
@@ -2503,6 +2521,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 						type_ast* field = is_member(obj, expr->data.appl.right)
 						walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Expected member of structure in field access");
 						expr->data.appl.right->type = field;
+						pop_binding(walk->local_scope, pos);
 						expr->type = field;
 						return field;
 					}
@@ -2513,12 +2532,14 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 						type_ast* field = is_member(inner, expr->data.appl.right);
 						walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Expected member of structure in field access");
 						expr->data.appl.right->type = field;
+						pop_binding(walk->local_scope, pos);
 						expr->type = field;
 						return field;
 					}
 					else if (obj->tag == FAT_PTR_TYPE){
 						walk_assert(expr->data.appl.right->tag == BINDING_EXPR, nearest_token(expr->data.appl.right), "Expected field for structure access");
 						if (cstring_compare(expr->data.appl.right.data.binding.data.name, "ptr")){
+							pop_binding(walk->local_scope, pos);
 							expr->type = obj->data.fat_ptr.ptr;
 							return obj->data.fat_ptr.ptr;
 						}
@@ -2526,6 +2547,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 							type_ast* lenlit = pool_request(walk->parse->mem, sizeof(type_ast));
 							lenlit->tag = LIT_TYPE;
 							lenlit->data.lit = U64_TYPE;
+							pop_binding(walk->local_scope, pos);
 							expr->type = lenlit;
 							return lenlit;
 						}
@@ -2534,11 +2556,12 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 						type_ast* field = is_member(inner, expr->data.appl.right);
 						walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Expected member of structure in field access");
 						expr->data.appl.right->type = field;
+						pop_binding(walk->local_scope, pos);
 						expr->type = field;
 						return field;
 					}
 					walk_assert(obj->tag == FUNCTION_TYPE, nearest_token(expr), "Expected either structure access or composition, but left type was neither a function nor a structure");
-					//is f . g
+					// f . g
 					type_ast* field = walk_expr(walk, expr->data.appl.right, NULL);
 					walk_assert_prop();
 					walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Unable to determine type in composition expression");
@@ -2548,6 +2571,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 					composed->tag = FUNCTION_TYPE;
 					composed->data.function.left = field->data.function.left;
 					composed->data.function.right = obj->data.function.right;
+					pop_binding(walk->local_scope, pos);
 					expr->type = composed;
 					return composed;
 				}

@@ -374,6 +374,7 @@ MAP_DECL(typeclass_ast);
 MAP_DECL(implementation_ast);
 MAP_DECL(implementation_ast_map);
 MAP_DECL(term_ast);
+MAP_DECL(type_ast);
 MAP_DECL(uint64_t);
 MAP_DECL(token);
 
@@ -457,7 +458,7 @@ typedef struct binding {
 } binding;
 
 typedef struct scope {
-	pool* meterm->type;
+	pool* mem;
 	binding* bindings;
 	uint64_t binding_capacity;
 	uint64_t binding_count;
@@ -480,14 +481,14 @@ uint8_t structure_equal(parser* const parse, token_map* const generics, structur
 type_ast* deep_copy_type_replace(pool* const mem, type_ast_map* relation, type_ast* const source);
 structure_ast* deep_copy_structure_replace(pool* const mem, type_ast_map* relation, structure_ast* const source);
 uint64_t nearest_token(expr_ast* const e);
-uint64_t nearest_pattern_token(pattern* const pat);
+uint64_t nearest_pattern_token(pattern_ast* const pat);
 type_ast* is_member(type_ast* const obj, expr_ast* const field);
 type_ast_map* clash_types(parser* const parse, type_ast* const left, type_ast* const right);
 uint8_t clash_types_worker(parser* const parse, type_ast_map* relation, type_ast* const left, type_ast* const right);
-uint8_t clash_structure_worker(parser* const parse, type_ast_map* relation structure_ast* const left, structure_ast* const right);
+uint8_t clash_structure_worker(parser* const parse, type_ast_map* relation, structure_ast* const left, structure_ast* const right);
 
 type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type);
 type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected_type);
-type_ast* walk_pattern(walker* const walk, pattern* const pat, type_ast* const expected_type);
+type_ast* walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* const expected_type);
 
 #endif

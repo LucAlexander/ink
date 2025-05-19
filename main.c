@@ -2471,8 +2471,9 @@ lex_err(parser* const parse, uint64_t goal, string filename){
 
 //NOTE every return requires a pop of the local scope, except term, because that binding needs to persist
 //NOTE every case reduces both type and alias except binding, which just reduces alias, as strict term typing matters when comparing two strict types
+//NOTE every case uses the outer type from a term or the outer type from a mutation and passes it along, outer_type is never null
 type_ast*
-walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
+walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, type_ast* const outer_type){
 	uint64_t scope_pos = walk->local_scope->binding_count;
 	structure_ast* inner;
 	type_ast* inner_struct;
@@ -2485,7 +2486,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			inner = inner_struct->data.structure;
 			if (inner->tag == UNION_STRUCT){
 				for (uint64_t k = 0;k<inner->data.union_structure.count;++k){
-					type_ast* match_inference = walk_expr(walk, expr, &inner->data.union_structure.members[k]);
+					type_ast* match_inference = walk_expr(walk, expr, &inner->data.union_structure.members[k], outer_type);
 					if (match_inference == NULL){
 						walk->parse->err.len = 0;
 						continue;
@@ -2506,7 +2507,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		if (expr->data.appl.right->tag == LIST_EXPR){
 			if (expr->data.appl.right->data.list.line_count == 1){
 				// x[i]
-				type_ast* array = walk_expr(walk, expr->data.appl.left, NULL);
+				type_ast* array = walk_expr(walk, expr->data.appl.left, NULL, outer_type);
 				walk_assert_prop();
 				walk_assert(array != NULL, nearest_token(expr), "Unable to discern type of left expression in list application");
 				if (array->tag == FAT_PTR_TYPE){
@@ -2525,7 +2526,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			if (expr->data.appl.left->data.appl.left->tag == BINDING_EXPR){
 				if (expr->data.appl.left->data.appl.left->dot == 1){
 					// ((. obj) field)
-					type_ast* obj = walk_expr(walk, expr->data.appl.left->data.appl.right, NULL);
+					type_ast* obj = walk_expr(walk, expr->data.appl.left->data.appl.right, NULL, outer_type);
 					walk_assert_prop();
 					walk_assert(obj != NULL, nearest_token(expr->data.appl.left->data.appl.right), "Unable to determine left type of either composition or field access");
 					if (obj->tag == STRUCT_TYPE){
@@ -2574,7 +2575,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 					}
 					walk_assert(obj->tag == FUNCTION_TYPE, nearest_token(expr), "Expected either structure access or composition, but left type was neither a function nor a structure");
 					// f . g
-					type_ast* field = walk_expr(walk, expr->data.appl.right, NULL);
+					type_ast* field = walk_expr(walk, expr->data.appl.right, NULL, outer_type);
 					walk_assert_prop();
 					walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Unable to determine type in composition expression");
 					walk_assert(field->tag == FUNCTION_TYPE, nearest_token(expr->data.appl.right), "Right side of composition must be function");
@@ -2589,11 +2590,11 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 				}
 			}
 		}
-		type_ast* right = walk_expr(walk, expr->data.appl.right, NULL);
+		type_ast* right = walk_expr(walk, expr->data.appl.right, NULL, outer_type);
 		walk_assert_prop();
 		walk_assert(right != NULL, nearest_token(expr->data.appl.right), "Could not discern type");
 		if (expected_type != NULL){
-			type_ast* left_real = walk_expr(walk, expr->data.appl.left, NULL);
+			type_ast* left_real = walk_expr(walk, expr->data.appl.left, NULL, outer_type);
 			walk_assert_prop();
 			walk_assert(left_real != NULL, nearest_token(expr->data.appl.left), "Left type of application expression did not resolve to type");
 			walk_assert(left_real->tag == FUNCTION_TYPE, nearest_token(expr->data.appl.left), "Left side of application expression was not a function");
@@ -2606,7 +2607,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			expr->type = generic_applied_type;
 			return generic_applied_type;
 		}
-		type_ast* left = walk_expr(walk, expr->data.appl.left, NULL);
+		type_ast* left = walk_expr(walk, expr->data.appl.left, NULL, outer_type);
 		walk_assert_prop();
 		walk_assert(left != NULL, nearest_token(expr->data.appl.left), "Unable to infer type of left of application");
 		walk_assert(left->tag == FUNCTION_TYPE, nearest_token(expr->data.appl.left), "Left of application type needs to be function");
@@ -2628,12 +2629,12 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			walk_assert_prop();
 			walk_assert(real_type != NULL, nearest_pattern_token(&expr->data.lambda.args[i]), "Lambda term argument did not match expected type");
 		}
-		type_ast* eval_type = walk_expr(walk, expr->data.lambda.expression, expected_view);
+		type_ast* eval_type = walk_expr(walk, expr->data.lambda.expression, expected_view, outer_type);
 		walk_assert_prop();
 		walk_assert(eval_type != NULL, nearest_token(expr->data.lambda.expression), "Lambda term expression did not match expected type");
 		if (expr->data.lambda.alt != NULL){
 			pop_binding(walk->local_scope, scope_pos);
-			type_ast* alt_type = walk_expr(walk, expr->data.lambda.alt, expected_type);
+			type_ast* alt_type = walk_expr(walk, expr->data.lambda.alt, expected_type, outer_type);
 			walk_assert_prop();
 			walk_assert(alt_type != NULL, nearest_token(expr->data.lambda.expression), "Lambda term alternate did not match expected type");
 		}
@@ -2643,14 +2644,14 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 	case BLOCK_EXPR:
 		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
 			if (expr->data.block.lines[i].tag == RETURN_EXPR){
-				type_ast* line_type = walk_expr(walk, &expr->data.block.lines[i], expected_type);
+				type_ast* line_type = walk_expr(walk, &expr->data.block.lines[i], expected_type, outer_type);
 				walk_assert_prop();
 				walk_assert(line_type != NULL, nearest_token(&expr->data.block.lines[i]), "Return expression did not resolve to any type");
 				pop_binding(walk->local_scope, scope_pos);
 				expr->type = line_type;
 				return line_type;
 			}
-			walk_expr(walk, &expr->data.block.lines[i], NULL); // TODO test what happens for nested returns, do they get validated or are their types ignored, may need an outer expected type to match specificially returns on
+			walk_expr(walk, &expr->data.block.lines[i], NULL, outer_type); // TODO test what happens for nested returns, do they get validated or are their types ignored, may need an outer expected type to match specificially returns on
 			walk_assert_prop();
 		}
 		if (expected_type != NULL){
@@ -2707,12 +2708,12 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			type_ast* first;
 			for (uint64_t i = 0;i<expr->data.block.line_count;++i){
 				if (i == 0){
-					first = walk_expr(walk, &expr->data.block.lines[i], NULL);
+					first = walk_expr(walk, &expr->data.block.lines[i], NULL, outer_type);
 					walk_assert_prop();
 					walk_assert(first != NULL, nearest_token(expr), "List element not able to resolve to type");
 					continue;
 				}
-				type_ast* rest = walk_expr(walk, &expr->data.block.lines[i], first);
+				type_ast* rest = walk_expr(walk, &expr->data.block.lines[i], first, outer_type);
 				walk_assert_prop();
 				walk_assert(rest != NULL, nearest_token(expr), "List element not able to resolve to type");
 			}
@@ -2723,7 +2724,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		walk_assert(expected_type->tag == FAT_PTR_TYPE || expected_type->tag == PTR_TYPE, nearest_token(expr), "List assignment to non pointer type");
 		if (expected_type->tag == FAT_PTR_TYPE){
 			for (uint64_t i = 0;i<expr->data.block.line_count;++i){
-				type_ast* rest = walk_expr(walk, &expr->data.block.lines[i], expected_type->data.fat_ptr.ptr);
+				type_ast* rest = walk_expr(walk, &expr->data.block.lines[i], expected_type->data.fat_ptr.ptr, outer_type);
 				walk_assert_prop();
 				walk_assert(rest != NULL, nearest_token(expr), "List element not able to resolve to type");
 			}
@@ -2732,7 +2733,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			return expected_type;
 		}
 		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
-			type_ast* rest = walk_expr(walk, &expr->data.block.lines[i], expected_type->data.ptr);
+			type_ast* rest = walk_expr(walk, &expr->data.block.lines[i], expected_type->data.ptr, outer_type);
 			walk_assert_prop();
 			walk_assert(rest != NULL, nearest_token(expr), "List element not able to resolve to type");
 		}
@@ -2748,7 +2749,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 					uint8_t found = 0;
 					for (uint64_t k = 0;k<inner->data.structure.count;++k){
 						if (string_compare(&inner->data.structure.names[i].data.name, &expr->data.constructor.names[i].data.name) == 0){
-							type_ast* inferred = walk_expr(walk, &expr->data.constructor.members[i], &inner->data.structure.members[k]);
+							type_ast* inferred = walk_expr(walk, &expr->data.constructor.members[i], &inner->data.structure.members[k], outer_type);
 							walk_assert_prop();
 							walk_assert(inferred != NULL, nearest_token(&expr->data.constructor.members[i]), "Unexpected type for structure member");
 							current_member = k+1;
@@ -2759,7 +2760,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 					continue;
 				}
 				walk_assert(current_member >= inner->data.structure.count, expr->data.constructor.names[i].index, "Extra member in constructor");
-				type_ast* inferred = walk_expr(walk, &expr->data.constructor.members[i], &inner->data.structure.members[current_member]);
+				type_ast* inferred = walk_expr(walk, &expr->data.constructor.members[i], &inner->data.structure.members[current_member], outer_type);
 				walk_assert_prop();
 				walk_assert(inferred != NULL, nearest_token(&expr->data.constructor.members[i]), "Unexpected type for structure member");
 				current_member += 1;
@@ -2770,7 +2771,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		}
 		walk_assert(inner->tag == ENUM_STRUCT, nearest_token(expr), "Expected enumerator value");
 		walk_assert(expr->data.constructor.member_count == 1, nearest_token(expr), "Constructed enumerator requires 1 and only 1 value");
-		type_ast* enum_type = walk_expr(walk, &expr->data.constructor.members[0], inner_struct);
+		type_ast* enum_type = walk_expr(walk, &expr->data.constructor.members[0], inner_struct, outer_type);
 		pop_binding(walk->local_scope, scope_pos);
 		expr->type = enum_type;
 		return enum_type;
@@ -2788,17 +2789,17 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		return actual;
 	case MUTATION_EXPR:
 		walk_assert(expected_type == NULL, nearest_token(expr), "Mutation should not be expected to resolve to a type");
-		type_ast* mut_left = walk_expr(walk, expr->data.mutation.left, NULL);
+		type_ast* mut_left = walk_expr(walk, expr->data.mutation.left, NULL, outer_type);
 		walk_assert_prop();
 		walk_assert(mut_left != NULL, nearest_token(expr->data.mutation.left), "Left side of mutation did not resolve to a type");
-		type_ast* mut_right = walk_expr(walk, expr->data.mutation.right, mut_left);;
+		type_ast* mut_right = walk_expr(walk, expr->data.mutation.right, mut_left, mut_left);
 		walk_assert_prop();
 		walk_assert(mut_right != NULL, nearest_token(expr->data.mutation.right), "Left side of mutation did not match type of right side");
 		pop_binding(walk->local_scope, scope_pos);
 		expr->type = NULL;
 		return NULL;
 	case RETURN_EXPR:
-		type_ast* ret_type = walk_expr(walk, expr->data.ret, expected_type);
+		type_ast* ret_type = walk_expr(walk, expr->data.ret, outer_type, outer_type);
 		pop_binding(walk->local_scope, scope_pos);
 		expr->type = ret_type;
 		return ret_type;
@@ -2818,7 +2819,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		return sizeof_type;
 	case REF_EXPR:
 		if (expected_type == NULL){
-			type_ast* ref_infer = walk_expr(walk, expr->data.ref, NULL);
+			type_ast* ref_infer = walk_expr(walk, expr->data.ref, NULL, outer_type);
 			walk_assert_prop();
 			walk_assert(ref_infer != NULL, nearest_token(expr), "Unable to infer type to reference");
 			type_ast* ref = pool_request(walk->parse->mem, sizeof(type_ast));
@@ -2836,7 +2837,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		else{
 			ref_inner = expected_type->data.ptr;
 		}
-		type_ast* ref_infer = walk_expr(walk, expr->data.ref, ref_inner);
+		type_ast* ref_infer = walk_expr(walk, expr->data.ref, ref_inner, outer_type);
 		walk_assert_prop();
 		walk_assert(ref_infer != NULL, nearest_token(expr), "Reference to type did not match expected type reference");
 		pop_binding(walk->local_scope, scope_pos);
@@ -2844,7 +2845,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		return expected_type;
 	case DEREF_EXPR:
 		if (expected_type == NULL){
-			type_ast* deref_infer = walk_expr(walk, expr->data.deref, NULL);
+			type_ast* deref_infer = walk_expr(walk, expr->data.deref, NULL, outer_type);
 			walk_assert_prop();
 			walk_assert(deref_infer != NULL, nearest_token(expr), "Unable to infer type to dereference");
 			walk_assert(deref_infer->tag == PTR_TYPE || deref_infer->tag == FAT_PTR_TYPE, nearest_token(expr), "Expected pointer to dereference");
@@ -2861,7 +2862,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			.tag = PTR_TYPE,
 			.data.ptr = expected_type
 		};
-		type_ast* deref_infer = walk_expr(walk, expr->data.deref, &expected_ptr);
+		type_ast* deref_infer = walk_expr(walk, expr->data.deref, &expected_ptr, outer_type);
 		walk_assert_prop();
 		walk_assert(deref_infer != NULL, nearest_token(expr), "Expected pointer to dereference");
 		pop_binding(walk->local_scope, scope_pos);
@@ -2872,15 +2873,15 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			.tag = LIT_TYPE,
 			.data.lit = INT_ANY
 		};
-		type_ast* ifpredtype = walk_expr(walk, expr->data.if_statement.pred, &if_predicate);
+		type_ast* ifpredtype = walk_expr(walk, expr->data.if_statement.pred, &if_predicate, outer_type);
 		walk_assert_prop();
 		walk_assert(ifpredtype != NULL, nearest_token(expr->data.if_statement.pred), "If predicate must be integral");
 		if (expected_type != NULL){
-			type_ast* cons_type = walk_expr(walk, expr->data.if_statement.cons, NULL);
+			type_ast* cons_type = walk_expr(walk, expr->data.if_statement.cons, NULL, outer_type);
 			walk_assert_prop();
 			walk_assert(type_equal(walk->parse, cons_type, expected_type), nearest_token(expr->data.if_statement.cons), "If statement consequent did not resolve to expected type");
 			if (expr->data.if_statement.alt != NULL){
-				type_ast* alt_type = walk_expr(walk, expr->data.if_statement.alt, cons_type);
+				type_ast* alt_type = walk_expr(walk, expr->data.if_statement.alt, cons_type, outer_type);
 			   	walk_assert_prop();
 				walk_assert(alt_type != NULL, nearest_token(expr->data.if_statement.alt), "If alternate must be same type as cons when if statement is used as expression");
 			}
@@ -2888,10 +2889,10 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			expr->type = cons_type;
 			return cons_type;
 		}
-		type_ast* cons_type = walk_expr(walk, expr->data.if_statement.cons, NULL);
+		type_ast* cons_type = walk_expr(walk, expr->data.if_statement.cons, NULL, outer_type);
 		walk_assert_prop();
 		if (expr->data.if_statement.alt != NULL){
-			type_ast* alt_type = walk_expr(walk, expr->data.if_statement.alt, NULL);
+			type_ast* alt_type = walk_expr(walk, expr->data.if_statement.alt, NULL, outer_type);
 			if (type_equal(walk->parse, cons_type, alt_type) == 1){
 				pop_binding(walk->local_scope, scope_pos);
 				expr->type = cons_type;
@@ -2910,13 +2911,13 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			.tag = LIT_TYPE,
 			.data.lit = INT_ANY
 		};
-		type_ast* forinittype = walk_expr(walk, expr->data.for_statement.initial, &for_type);
+		type_ast* forinittype = walk_expr(walk, expr->data.for_statement.initial, &for_type, outer_type);
 		walk_assert_prop();
 	   	walk_assert(forinittype != NULL, nearest_token(expr->data.for_statement.initial), "For loop range must be integral");
-		type_ast* forlimittype = walk_expr(walk, expr->data.for_statement.limit, &for_type);
+		type_ast* forlimittype = walk_expr(walk, expr->data.for_statement.limit, &for_type, outer_type);
 		walk_assert_prop();
 	   	walk_assert(forlimittype != NULL, nearest_token(expr->data.for_statement.limit), "For loop range must be integral");
-		walk_expr(walk, expr->data.for_statement.cons, NULL);
+		walk_expr(walk, expr->data.for_statement.cons, NULL, outer_type);
 		pop_binding(walk->local_scope, scope_pos);
 		expr->type = NULL;
 		return NULL;
@@ -2926,22 +2927,22 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			.tag = LIT_TYPE,
 			.data.lit = INT_ANY
 		};
-		type_ast* whilepredtype = walk_expr(walk, expr->data.while_statement.pred, &while_predicate);
+		type_ast* whilepredtype = walk_expr(walk, expr->data.while_statement.pred, &while_predicate, outer_type);
 		walk_assert_prop();
 	   	walk_assert(whilepredtype != NULL, nearest_token(expr->data.while_statement.pred), "While predicate must be integral");
-		walk_expr(walk, expr->data.while_statement.cons, NULL);
+		walk_expr(walk, expr->data.while_statement.cons, NULL, outer_type);
 		pop_binding(walk->local_scope, scope_pos);
 		expr->type = NULL;
 		return NULL;
 	case MATCH_EXPR:
-		type_ast* match_infer = walk_expr(walk, expr->data.match.pred, NULL);
+		type_ast* match_infer = walk_expr(walk, expr->data.match.pred, NULL, outer_type);
 		walk_assert(match_infer != NULL, nearest_token(expr->data.match.pred), "Could not infer type of match predicate");
 		if (expected_type != NULL){
 			for (uint64_t i = 0;i<expr->data.match.count;++i){
 				type_ast* pat_confirm = walk_pattern(walk, &expr->data.match.patterns[i], match_infer);
 				walk_assert_prop();
 				walk_assert(pat_confirm != NULL, nearest_pattern_token(&expr->data.match.patterns[i]), "Pattern in match did not resolve to correct type");
-				type_ast* confirm = walk_expr(walk, &expr->data.match.cases[i], expected_type);
+				type_ast* confirm = walk_expr(walk, &expr->data.match.cases[i], expected_type, outer_type);
 				walk_assert_prop();
 				walk_assert(confirm != NULL, nearest_token(&expr->data.match.cases[i]), "Match case did not resolve to expected type");
 			}
@@ -2956,12 +2957,12 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			walk_assert_prop();
 			walk_assert(pat_confirm != NULL, nearest_pattern_token(&expr->data.match.patterns[i]), "Pattern in match did not resolve to correct type");
 			if (i == 0){
-				first = walk_expr(walk, &expr->data.match.cases[i], NULL);
+				first = walk_expr(walk, &expr->data.match.cases[i], NULL, outer_type);
 				walk_assert_prop();
 				pop_binding(walk->local_scope, scope_pos);
 				continue;
 			}
-			if (walk_expr(walk, &expr->data.match.cases[i], first) == NULL){
+			if (walk_expr(walk, &expr->data.match.cases[i], first, outer_type) == NULL){
 				matches = 0;
 			}
 			walk_assert_prop();
@@ -2976,7 +2977,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		return first;
 	case CAST_EXPR:
 		expr->data.cast.target = type_pass(walk, expr->data.cast.target);
-		type_ast* cast_confirm = walk_expr(walk, expr->data.cast.source, NULL);
+		type_ast* cast_confirm = walk_expr(walk, expr->data.cast.source, NULL, outer_type);
 		walk_assert(cast_confirm != NULL, nearest_token(expr), "Could not infer source type of cast");
 		if (expected_type == NULL){
 			pop_binding(walk->local_scope, scope_pos);
@@ -3000,7 +3001,7 @@ type_ast*
 walk_term(walker* const walk, term_ast* const term, type_ast* expected_type){
 	uint64_t pos = push_binding(walk->parse, walk->local_scope, &term->name, term->type);
 	walk_assert_prop();
-	type_ast* real_type = walk_expr(walk, term->expression, term->type);
+	type_ast* real_type = walk_expr(walk, term->expression, term->type, term->type);
 	pop_binding(walk->local_scope, pos);
 	walk_assert_prop();
 	walk_assert(real_type != NULL, nearest_token(term->expression), "Term type did not match declared type");

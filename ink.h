@@ -506,7 +506,7 @@ type_ast* type_pass_worker(walker* const walk, token_map* const relation, type_a
 uint8_t type_valid(parser* const parse, type_ast* const type);
 uint8_t struct_valid(parser* const parse, structure_ast* const s);
 
-type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type);
+type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, type_ast* const outer_type);
 type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected_type);
 type_ast* walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* const expected_type);
 void check_program(parser* const parse);

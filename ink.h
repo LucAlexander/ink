@@ -503,6 +503,8 @@ uint8_t clash_structure_worker(parser* const parse, type_ast_map* relation, stru
 type_ast* type_pass(walker* const walk, type_ast* const source);
 structure_ast* type_pass_structure_worker(walker* const walk, token_map* const relation, structure_ast* const source);
 type_ast* type_pass_worker(walker* const walk, token_map* const relation, type_ast* const source);
+uint8_t type_valid(parser* const parse, type_ast* const type);
+uint8_t struct_valid(parser* const parse, structure_ast* const s);
 
 type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type);
 type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected_type);

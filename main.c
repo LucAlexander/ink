@@ -3712,6 +3712,62 @@ type_pass_structure_worker(walker* const walk, token_map* const relation, struct
 	return new;
 }
 
+uint8_t
+type_valid(parser* const parse, type_ast* const type){
+	switch (type->tag){
+	case DEPENDENCY_TYPE:
+		return type_valid(parse, type->data.dependency.type);
+	case FUNCTION_TYPE:
+		return type_valid(parse, type->data.function.left)
+		     & type_valid(parse, type->data.function.right);
+	case LIT_TYPE:
+		return 1;
+	case PTR_TYPE:
+		return type_valid(parse, type->data.ptr);
+	case FAT_PTR_TYPE:
+		return type_valid(parse, type->data.fat_ptr.ptr);
+	case STRUCT_TYPE:
+		return struct_valid(parse, type->data.structure);
+	case NAMED_TYPE:
+		typedef_ast** def = typedef_ptr_map_access(parse->types, type->data.named.name.data.name);
+		if (def == NULL){
+			alias_ast** alias = alias_ptr_map_access(parse->aliases, type->data.named.name.data.name);
+			if (alias == NULL){
+				return 0; // this means generics are not valid normal form types
+			}
+		}
+		for (uint64_t i = 0;i<type->data.named.arg_count;++i){
+			if (type_valid(parse, &type->data.named.args[i]) == 0){
+				return 0;
+			}
+		}
+		return 1;
+	}
+	return 0;
+}
+
+uint8_t
+struct_valid(parser* const parse, structure_ast* const s){
+	switch (s->tag){
+	case STRUCT_STRUCT:
+		for (uint64_t i = 0;i<s->data.structure.count;++i){
+			if (type_valid(parse, &s->data.structure.members[i]) == 0){
+				return 0;
+			}
+		}
+		return 1;
+	case UNION_STRUCT:
+		for (uint64_t i = 0;i<s->data.union_structure.count;++i){
+			if (type_valid(parse, &s->data.union_structure.members[i]) == 0){
+				return 0;
+			}
+		}
+		return 1;
+	case ENUM_STRUCT:
+		return 1;
+	}
+	return 0;
+}
 
 /* TODO
  * typeclass/implementation member tracking
@@ -3721,6 +3777,7 @@ type_pass_structure_worker(walker* const walk, token_map* const relation, struct
  * function type monomorphization
  * expression for break/continue was missed somehow, they are turned into bindings, fix this after the type checker is done, one problem at a time
  * global and local assertions
+ * validate cast and sizeof expressionas after monomorphization (because generics are gone) to validate that they are correct types [ type_valid() ]
  */
 
 int

@@ -7,13 +7,13 @@
 #include "ink.h"
 
 MAP_IMPL(TOKEN);
-MAP_IMPL(typedef_ast);
-MAP_IMPL(alias_ast);
-MAP_IMPL(const_ast);
-MAP_IMPL(typeclass_ast);
-MAP_IMPL(implementation_ast);
-MAP_IMPL(implementation_ast_map);
-MAP_IMPL(term_ast);
+MAP_IMPL(typedef_ptr);
+MAP_IMPL(alias_ptr);
+MAP_IMPL(const_ptr);
+MAP_IMPL(typeclass_ptr);
+MAP_IMPL(implementation_ptr);
+MAP_IMPL(implementation_ptr_map);
+MAP_IMPL(term_ptr);
 MAP_IMPL(type_ast);
 MAP_IMPL(uint64_t);
 MAP_IMPL(token);
@@ -85,12 +85,12 @@ compile_file(char* input, const char* output){
 	TOKEN_map keymap = TOKEN_map_init(&mem);
 	keymap_fill(&keymap);
 	pool token_mem = pool_alloc(TOKEN_ARENA_SIZE, POOL_STATIC);
-	typedef_ast_map types = typedef_ast_map_init(&mem);
-	alias_ast_map aliases = alias_ast_map_init(&mem);
-	const_ast_map constants = const_ast_map_init(&mem);
-	typeclass_ast_map typeclasses = typeclass_ast_map_init(&mem);
-	implementation_ast_map_map implementations = implementation_ast_map_map_init(&mem);
-	term_ast_map terms = term_ast_map_init(&mem);
+	typedef_ptr_map types = typedef_ptr_map_init(&mem);
+	alias_ptr_map aliases = alias_ptr_map_init(&mem);
+	const_ptr_map constants = const_ptr_map_init(&mem);
+	typeclass_ptr_map typeclasses = typeclass_ptr_map_init(&mem);
+	implementation_ptr_map_map implementations = implementation_ptr_map_map_init(&mem);
+	term_ptr_map terms = term_ptr_map_init(&mem);
 	uint64_t_map imported = uint64_t_map_init(&mem);
 	uint64_t_map enum_vals = uint64_t_map_init(&mem);
 	parser parse = {
@@ -1160,9 +1160,9 @@ parse_program(parser* const parse){
 		case CONSTANT_TOKEN:
 			const_ast* constant = parse_constant(parse);
 			if (parse->err.len == 0){
-				uint8_t dup = const_ast_map_insert(parse->constants, constant->name.data.name, *constant);
-				assert_local(dup == 0, , "Duplicate constant definition");
 				const_ast_buffer_insert(&parse->const_list, *constant);
+				uint8_t dup = const_ptr_map_insert(parse->constants, constant->name.data.name, const_ast_buffer_top(&parse->const_list));
+				assert_local(dup == 0, , "Duplicate constant definition");
 #ifdef DEBUG
 				show_constant(constant);
 				printf("\n");
@@ -1172,10 +1172,10 @@ parse_program(parser* const parse){
 		case ALIAS_TOKEN:
 			alias_ast* alias = parse_alias(parse);
 			if (parse->err.len == 0){
-				uint8_t dup = alias_ast_map_insert(parse->aliases, alias->name.data.name, *alias);
-				assert_local(dup==0, , "Duplicate alias definition");
 				parse->token_index += 1;
 				alias_ast_buffer_insert(&parse->alias_list, *alias);
+				uint8_t dup = alias_ptr_map_insert(parse->aliases, alias->name.data.name, alias_ast_buffer_top(&parse->alias_list));
+				assert_local(dup==0, , "Duplicate alias definition");
 #ifdef DEBUG
 				show_alias(alias);
 				printf("\n");
@@ -1186,10 +1186,10 @@ parse_program(parser* const parse){
 		case TYPE_TOKEN:
 			typedef_ast* type = parse_typedef(parse);
 			if (parse->err.len == 0){
-				uint8_t dup = typedef_ast_map_insert(parse->types, type->name.data.name, *type);
-				assert_local(dup==0, , "Duplicate type definition");
 				parse->token_index += 1;
 				typedef_ast_buffer_insert(&parse->type_list, *type);
+				uint8_t dup = typedef_ptr_map_insert(parse->types, type->name.data.name, typedef_ast_buffer_top(&parse->type_list));
+				assert_local(dup==0, , "Duplicate type definition");
 #ifdef DEBUG
 				show_typedef(type);
 				printf("\n");
@@ -1200,10 +1200,10 @@ parse_program(parser* const parse){
 		case TYPECLASS_TOKEN:
 			typeclass_ast* class = parse_typeclass(parse);
 			if (parse->err.len == 0){
-				uint8_t dup = typeclass_ast_map_insert(parse->typeclasses, class->name.data.name, *class);
-				assert_local(dup==0, , "Duplicate typeclass definition");
 				parse->token_index += 1;
 				typeclass_ast_buffer_insert(&parse->typeclass_list, *class);
+				uint8_t dup = typeclass_ptr_map_insert(parse->typeclasses, class->name.data.name, typeclass_ast_buffer_top(&parse->typeclass_list));
+				assert_local(dup==0, , "Duplicate typeclass definition");
 #ifdef DEBUG
 				show_typeclass(class);
 				printf("\n");
@@ -1216,22 +1216,22 @@ parse_program(parser* const parse){
 			if (next->tag == IMPLEMENTS_TOKEN){
 				implementation_ast* impl = parse_implementation(parse);
 				if (parse->err.len == 0){
-					implementation_ast_map* map = implementation_ast_map_map_access(parse->implementations, impl->type.data.name);
+					implementation_ptr_map* map = implementation_ptr_map_map_access(parse->implementations, impl->type.data.name);
 					if (map == NULL){
-						implementation_ast_map init = implementation_ast_map_init(parse->mem);
-						implementation_ast_map_insert(&init, impl->typeclass.data.name, *impl);
-						uint8_t dup = implementation_ast_map_map_insert(parse->implementations, impl->type.data.name, init);
-						assert_local(dup == 0, , "Duplicate implementation definition");
 						implementation_ast_buffer_insert(&parse->implementation_list, *impl);
+						implementation_ptr_map init = implementation_ptr_map_init(parse->mem);
+						implementation_ptr_map_insert(&init, impl->typeclass.data.name, implementation_ast_buffer_top(&parse->implementation_list));
+						uint8_t dup = implementation_ptr_map_map_insert(parse->implementations, impl->type.data.name, init);
+						assert_local(dup == 0, , "Duplicate implementation definition");
 #ifdef DEBUG
 						show_implementation(impl);
 						printf("\n");
 #endif
 						continue;
 					}
-					uint8_t dup = implementation_ast_map_insert(map, impl->typeclass.data.name, *impl);
-					assert_local(dup==0, , "Duplicate implementation definition");
 					implementation_ast_buffer_insert(&parse->implementation_list, *impl);
+					uint8_t dup = implementation_ptr_map_insert(map, impl->typeclass.data.name, implementation_ast_buffer_top(&parse->implementation_list));
+					assert_local(dup==0, , "Duplicate implementation definition");
 #ifdef DEBUG
 					show_implementation(impl);
 					printf("\n");
@@ -1242,9 +1242,9 @@ parse_program(parser* const parse){
 			else{
 				term_ast* term = parse_term(parse);
 				if (parse->err.len == 0){
-					uint8_t dup = term_ast_map_insert(parse->terms, term->name.data.name, *term);
-					assert_local(dup==0, , "Duplicate term definition");
 					term_ast_buffer_insert(&parse->term_list, *term);
+					uint8_t dup = term_ptr_map_insert(parse->terms, term->name.data.name, term_ast_buffer_top(&parse->term_list));
+					assert_local(dup==0, , "Duplicate term definition");
 #ifdef DEBUG
 					show_term(term);
 					printf("\n");
@@ -3038,11 +3038,11 @@ pop_binding(scope* const s, uint64_t pos){
 type_ast*
 reduce_alias(parser* const parse, type_ast* start_type){
 	while (start_type->tag == NAMED_TYPE){
-		alias_ast* alias = alias_ast_map_access(parse->aliases, start_type->data.named.name.data.name);
+		alias_ast** alias = alias_ptr_map_access(parse->aliases, start_type->data.named.name.data.name);
 		if (alias == NULL){
 			return start_type;
 		}
-		start_type = alias->type;
+		start_type = (*alias)->type;
 	}
 	return start_type;
 }
@@ -3050,23 +3050,23 @@ reduce_alias(parser* const parse, type_ast* start_type){
 type_ast*
 reduce_alias_and_type(parser* const parse, type_ast* start_type){
 	while (start_type->tag == NAMED_TYPE){
-		alias_ast* alias = alias_ast_map_access(parse->aliases, start_type->data.named.name.data.name);
+		alias_ast** alias = alias_ptr_map_access(parse->aliases, start_type->data.named.name.data.name);
 		if (alias != NULL){
-			start_type = alias->type;
+			start_type = (*alias)->type;
 			continue;
 		}
-		typedef_ast* type = typedef_ast_map_access(parse->types, start_type->data.named.name.data.name);
+		typedef_ast** type = typedef_ptr_map_access(parse->types, start_type->data.named.name.data.name);
 		if (type != NULL){
 			if (start_type->data.named.arg_count != 0){
 				type_ast_map relation = type_ast_map_init(parse->mem);
-				assert_local(type->param_count >= start_type->data.named.arg_count, NULL, "Too many arguments given for parametric type\n");
+				assert_local((*type)->param_count >= start_type->data.named.arg_count, NULL, "Too many arguments given for parametric type\n");
 				for (uint64_t i = 0;i<start_type->data.named.arg_count;++i){
-					type_ast_map_insert(&relation, type->params[i].data.name, start_type->data.named.args[i]);
+					type_ast_map_insert(&relation, (*type)->params[i].data.name, start_type->data.named.args[i]);
 				}
-				start_type = deep_copy_type_replace(parse->mem, &relation, type->type);
+				start_type = deep_copy_type_replace(parse->mem, &relation, (*type)->type);
 				continue;
 			}
-			start_type = type->type;
+			start_type = (*type)->type;
 			continue;
 		}
 		return start_type;
@@ -3079,9 +3079,9 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type){
 	if (expected_type != NULL){
 		expected_type = reduce_alias(walk->parse, expected_type);
 	}
-	term_ast* term = term_ast_map_access(walk->parse->terms, bind->data.name);
+	term_ast** term = term_ptr_map_access(walk->parse->terms, bind->data.name);
 	if (term != NULL){
-		return term->type;
+		return (*term)->type;
 	}
 	uint64_t* value = uint64_t_map_access(walk->parse->enumerated_values, bind->data.name);
 	if (value != NULL){
@@ -3144,22 +3144,30 @@ type_equal_worker(parser* const parse, token_map* const generics, type_ast* cons
 			}
 		}
 		else {
-			typedef_ast* istypedef = typedef_ast_map_access(parse->types, left->data.named.name.data.name);
+			typedef_ast** istypedef = typedef_ptr_map_access(parse->types, left->data.named.name.data.name);
 			if (istypedef != NULL){
-				if (istypedef != typedef_ast_map_access(parse->types, right->data.named.name.data.name)){
+				typedef_ast** isrighttypedef = typedef_ptr_map_access(parse->types, right->data.named.name.data.name);
+				if (isrighttypedef == NULL){
+					return 0;
+				}
+				if ((*istypedef) != (*isrighttypedef)){
 					return 0;
 				}
 			}
 			else {
-				alias_ast* isalias = alias_ast_map_access(parse->aliases, left->data.named.name.data.name);
+				alias_ast** isalias = alias_ptr_map_access(parse->aliases, left->data.named.name.data.name);
 				if (isalias != NULL){
-					if (isalias != alias_ast_map_access(parse->aliases, right->data.named.name.data.name)){
+					alias_ast** isrightalias = alias_ptr_map_access(parse->aliases, right->data.named.name.data.name);
+					if (isrightalias == NULL){
+						return 0;
+					}
+					if ((*isalias) != (*isrightalias)){
 						return 0;
 					}
 				}
 				else {
-					typedef_ast* righttypedef = typedef_ast_map_access(parse->types, right->data.named.name.data.name);
-					alias_ast* rightalias = alias_ast_map_access(parse->aliases, right->data.named.name.data.name);
+					typedef_ast** righttypedef = typedef_ptr_map_access(parse->types, right->data.named.name.data.name);
+					alias_ast** rightalias = alias_ptr_map_access(parse->aliases, right->data.named.name.data.name);
 					if (rightalias != NULL || righttypedef != NULL){
 						return 0;
 					}
@@ -3502,22 +3510,30 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast* const 
 			}
 		}
 		else{
-			typedef_ast* istypedef = typedef_ast_map_access(parse->types, left->data.named.name.data.name);
+			typedef_ast** istypedef = typedef_ptr_map_access(parse->types, left->data.named.name.data.name);
 			if (istypedef != NULL){
-				if (istypedef != typedef_ast_map_access(parse->types, right->data.named.name.data.name)){
+				typedef_ast** isrighttypedef = typedef_ptr_map_access(parse->types, right->data.named.name.data.name);
+				if (isrighttypedef == NULL){
+					return 0;
+				}
+				if ((*istypedef) != (*isrighttypedef)){
 					return 0;
 				}
 			}
 			else {
-				alias_ast* isalias = alias_ast_map_access(parse->aliases, left->data.named.name.data.name);
+				alias_ast** isalias = alias_ptr_map_access(parse->aliases, left->data.named.name.data.name);
 				if (isalias != NULL){
-					if (isalias != alias_ast_map_access(parse->aliases, right->data.named.name.data.name)){
+					alias_ast** isrightalias = alias_ptr_map_access(parse->aliases, right->data.named.name.data.name);
+					if (isrightalias == NULL){
+						return 0;
+					}
+					if ((*isalias) != (*isrightalias)){
 						return 0;
 					}
 				}
 				else {
-					typedef_ast* righttypedef = typedef_ast_map_access(parse->types, right->data.named.name.data.name);
-					alias_ast* rightalias = alias_ast_map_access(parse->aliases, right->data.named.name.data.name);
+					typedef_ast** righttypedef = typedef_ptr_map_access(parse->types, right->data.named.name.data.name);
+					alias_ast** rightalias = alias_ptr_map_access(parse->aliases, right->data.named.name.data.name);
 					if (rightalias != NULL || righttypedef != NULL){
 						return 0;
 					}
@@ -3594,6 +3610,8 @@ check_program(parser* const parse){
 		.local_scope = &local_scope,
 		.next_generic = string_init(parse->mem, "@A")
 	};
+	//TODO pass over all typedef, alias, and term type
+	//TODO pass over all deep copies
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
 		walk_term(&walk, &parse->term_list.buffer[i], NULL);
 		if (parse->err.len != 0){
@@ -3630,9 +3648,9 @@ type_pass_worker(walker* const walk, token_map* const relation, type_ast* const 
 		type_pass_structure_worker(walk, relation, source->data.structure);
 		return;
 	case NAMED_TYPE:
-		typedef_ast* type = typedef_ast_map_access(walk->parse->types, source->data.named.name.data.name);
+		typedef_ast** type = typedef_ptr_map_access(walk->parse->types, source->data.named.name.data.name);
 		if (type == NULL){
-			alias_ast* alias = alias_ast_map_access(walk->parse->aliases, source->data.named.name.data.name);
+			alias_ast** alias = alias_ptr_map_access(walk->parse->aliases, source->data.named.name.data.name);
 			if (alias == NULL){
 				token* exists = token_map_access(relation, source->data.named.name.data.name);
 				if (exists != NULL){

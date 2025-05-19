@@ -367,13 +367,20 @@ typedef struct term_ast {
 	expr_ast* expression;
 } term_ast;
 
-MAP_DECL(typedef_ast);
-MAP_DECL(alias_ast);
-MAP_DECL(const_ast);
-MAP_DECL(typeclass_ast);
-MAP_DECL(implementation_ast);
-MAP_DECL(implementation_ast_map);
-MAP_DECL(term_ast);
+typedef typedef_ast* typedef_ptr;
+typedef alias_ast* alias_ptr;
+typedef const_ast* const_ptr;
+typedef typeclass_ast* typeclass_ptr;
+typedef implementation_ast* implementation_ptr;
+typedef term_ast* term_ptr;
+
+MAP_DECL(typedef_ptr);
+MAP_DECL(alias_ptr);
+MAP_DECL(const_ptr);
+MAP_DECL(typeclass_ptr);
+MAP_DECL(implementation_ptr);
+MAP_DECL(implementation_ptr_map);
+MAP_DECL(term_ptr);
 MAP_DECL(type_ast);
 MAP_DECL(uint64_t);
 MAP_DECL(token);
@@ -388,7 +395,9 @@ MAP_DECL(token);
 \
 	type##_buffer type##_buffer_init(pool* const mem);\
 \
-	void type##_buffer_insert(type##_buffer* const buffer, type elem);
+	void type##_buffer_insert(type##_buffer* const buffer, type elem);\
+\
+	type* type##_buffer_top(type##_buffer* const buffer);
 
 #define GROWABLE_BUFFER_IMPL(type)\
 	type##_buffer type##_buffer_init(pool* const mem){\
@@ -412,6 +421,10 @@ MAP_DECL(token);
 		}\
 		buffer->buffer[buffer->count] = elem;\
 		buffer->count += 1;\
+	}\
+\
+	type* type##_buffer_top(type##_buffer* const buffer){\
+		return &buffer->buffer[buffer->count-1];\
 	}
 
 GROWABLE_BUFFER_DECL(typedef_ast);
@@ -432,12 +445,12 @@ typedef struct parser {
 	uint64_t token_index;
 	string err;
 	uint64_t err_token;
-	typedef_ast_map* types;
-	alias_ast_map* aliases;
-	const_ast_map* constants;
-	typeclass_ast_map* typeclasses;
-	implementation_ast_map_map* implementations;
-	term_ast_map* terms;
+	typedef_ptr_map* types;
+	alias_ptr_map* aliases;
+	const_ptr_map* constants;
+	typeclass_ptr_map* typeclasses;
+	implementation_ptr_map_map* implementations;
+	term_ptr_map* terms;
 	alias_ast_buffer alias_list;
 	const_ast_buffer const_list;
 	typedef_ast_buffer type_list;

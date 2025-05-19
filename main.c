@@ -2804,6 +2804,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		expr->type = ret_type;
 		return ret_type;
 	case SIZEOF_EXPR:
+		type_pass(walk, expr->data.size_type);
 		type_ast* sizeof_type = pool_request(walk->parse->mem, sizeof(type_ast));
 		sizeof_type->tag = LIT_TYPE;
 		sizeof_type->data.lit = U64_TYPE;
@@ -2975,6 +2976,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		expr->type = first;
 		return first;
 	case CAST_EXPR:
+		type_pass(walk, expr->data.cast.target);
 		type_ast* cast_confirm = walk_expr(walk, expr->data.cast.source, NULL);
 		walk_assert(cast_confirm != NULL, nearest_token(expr), "Could not infer source type of cast");
 		if (expected_type == NULL){
@@ -3589,7 +3591,8 @@ check_program(parser* const parse){
 	};
 	walker walk = {
 		.parse = parse,
-		.local_scope = &local_scope
+		.local_scope = &local_scope,
+		.next_generic = string_init(parse->mem, "@A")
 	};
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
 		walk_term(&walk, &parse->term_list.buffer[i], NULL);
@@ -3599,17 +3602,105 @@ check_program(parser* const parse){
 	}
 }
 
+void
+type_pass(walker* const walk, type_ast* const source){
+	token_map relation = token_map_init(walk->parse->mem);
+	type_pass_worker(walk, &relation, source);
+}
+
+void
+type_pass_worker(walker* const walk, token_map* const relation, type_ast* const source){
+	switch (source->tag){
+	case DEPENDENCY_TYPE: // TODO ignoring this case until the type checker otherwise works
+		type_pass_worker(walk, relation, source->data.dependency.type);
+		return;
+	case FUNCTION_TYPE:
+		type_pass_worker(walk, relation, source->data.function.left);
+		type_pass_worker(walk, relation, source->data.function.right);
+		return;
+	case LIT_TYPE:
+		return;
+	case PTR_TYPE:
+		type_pass_worker(walk, relation, source->data.ptr);
+		return;
+	case FAT_PTR_TYPE:
+		type_pass_worker(walk, relation, source->data.fat_ptr.ptr);
+		return;
+	case STRUCT_TYPE:
+		type_pass_structure_worker(walk, relation, source->data.structure);
+		return;
+	case NAMED_TYPE:
+		typedef_ast* type = typedef_ast_map_access(walk->parse->types, source->data.named.name.data.name);
+		if (type == NULL){
+			alias_ast* alias = alias_ast_map_access(walk->parse->aliases, source->data.named.name.data.name);
+			if (alias == NULL){
+				token* exists = token_map_access(relation, source->data.named.name.data.name);
+				if (exists != NULL){
+					source->data.named.name = *exists;
+				}
+				else{
+					token new = source->data.named.name;
+					new.data.name = walk->next_generic;
+					token_map_insert(relation, source->data.named.name.data.name, new);
+					source->data.named.name = new;
+					string old = walk->next_generic;
+					uint64_t i = 1;
+					for (;i<old.len;++i){ // 1 because 0 is @
+						if (old.str[i] < 'Z'){
+							break;
+						}
+					}
+					if (i == old.len){
+						old = string_copy(walk->parse->mem, &walk->next_generic);
+						old.str[i] += 1;
+					}
+					else{
+						old.str = pool_request(walk->parse->mem, old.len+1);
+						old.len += 1;
+						old.str[0] = '@';
+						for (uint64_t k = 1;k<old.len;++k){
+							old.str[k] = 'A';
+						}
+					}
+					walk->next_generic = old;
+				}
+			}
+		}
+		for (uint64_t i = 0;i<source->data.named.arg_count;++i){
+			type_pass_worker(walk, relation, &source->data.named.args[i]);
+		}
+		return;
+	}
+}
+
+void
+type_pass_structure_worker(walker* const walk, token_map* const relation, structure_ast* const source){
+	switch (source->tag){
+	case STRUCT_STRUCT:
+		for (uint64_t i = 0;i<source->data.structure.count;++i){
+			type_pass_worker(walk, relation, &source->data.structure.members[i]);
+		}
+		return;
+	case UNION_STRUCT:
+		for (uint64_t i = 0;i<source->data.union_structure.count;++i){
+			type_pass_worker(walk, relation, &source->data.union_structure.members[i]);
+		}
+		return;
+	case ENUM_STRUCT:
+		return;
+	}
+}
+
+
 /* TODO
+	//we still have multiple source of truth for the maps and lists
  * typeclass/implementation member tracking
- * scope checking on bindings + enumerated values
- * type inference and typed ast filling
- * type enforcement on bindings
- * alias reduction
  * structure/defined type monomorphization
  * lambda capture to arg and lifting
  * closure capture to arg and lifting
  * function type monomorphization
  * expression for break/continue was missed somehow, they are turned into bindings, fix this after the type checker is done, one problem at a time
+ * global and local assertions
  */
 
 int

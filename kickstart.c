@@ -180,15 +180,21 @@ void string_cat(pool* const mem, string* const a, string* const b){
 
 int8_t string_compare(string* const a, string* const b){
 	if (a->len < b->len){
-		return strncmp(a->str, b->str, a->len);
+		return -1;
 	}
-	return strncmp(a->str, b->str, b->len);
+	else if (a->len > b->len){
+		return 1;
+	}
+	return strncmp(a->str, b->str, a->len);
 }
 
 int8_t cstring_compare(string* const a, char* b){
 	uint64_t len = strlen(b);
 	if (len < a->len){
-		return strncmp(a->str, b, len);
+		return 1;
+	}
+	else if (len > a->len){
+		return -1;
 	}
 	return strncmp(a->str, b, a->len);
 }

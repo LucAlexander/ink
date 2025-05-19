@@ -40,6 +40,7 @@ GROWABLE_BUFFER_IMPL(term_ast);
 		snprintf(walk->parse->err.str, ERROR_STRING_MAX, s __VA_ARGS__);\
 		walk->parse->err.len = ERROR_STRING_MAX;\
 		walk->parse->err_token = i;\
+		return NULL;\
 	}
 
 #define assert_prop(r)\
@@ -640,6 +641,9 @@ show_tokens(token* tokens, uint64_t token_count){
 			break;
 		case CONSTANT_TOKEN:
 			printf("CONSTANT ");
+			break;
+		case AS_TOKEN:
+			printf("AS ");
 			break;
 		default:
 			printf("UNKNOWN_TOKEN_TYPE ??? ");
@@ -1559,9 +1563,11 @@ show_expression(expr_ast* expr){
 		break;
 	case REF_EXPR:
 		printf("&");
+		show_expression(expr->data.ref);
 		break;
 	case DEREF_EXPR:
 		printf("^");
+		show_expression(expr->data.deref);
 		break;
 	case IF_EXPR:
 		printf("if ");
@@ -1947,11 +1953,11 @@ parse_expr(parser* const parse, TOKEN end){
 		case CARROT_TOKEN:
 			expr->tag = DEREF_EXPR;
 			expr->data.deref = parse_expr(parse, end);
-			break;
+			return outer;
 		case AMPERSAND_TOKEN:
 			expr->tag = REF_EXPR;
 			expr->data.ref = parse_expr(parse, end);
-			break;
+			return outer;
 		case SIZEOF_TOKEN:
 			expr->tag = SIZEOF_EXPR;
 			type_ast* target_type = parse_type(parse, 0, end);
@@ -2591,12 +2597,16 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			left->tag = FUNCTION_TYPE;
 			left->data.function.left = right;
 			left->data.function.right = expected_type;
-			type_ast* confirm = walk_expr(walk, expr->data.appl.left, left);
+			type_ast* left_real = walk_expr(walk, expr->data.appl.left, NULL);
 			walk_assert_prop();
-			walk_assert(confirm != NULL, nearest_token(expr->data.appl.left), "Left type of application expression did not match expected type inferred from right of application");
+			walk_assert(left_real != NULL, nearest_token(expr->data.appl.left), "Left type of application expression did not resolve to type");
+			type_ast_map* relation = clash_types(walk->parse, left_real->data.function.left, right);
+			walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
+			type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, left_real->data.function.right);
+			walk_assert(type_equal(walk->parse, expected_type, generic_applied_type), nearest_token(expr), "Applied generic type did not match expected type");
 			pop_binding(walk->local_scope, scope_pos);
-			expr->type = expected_type;
-			return expected_type;
+			expr->type = generic_applied_type;
+			return generic_applied_type;
 		}
 		type_ast* left = walk_expr(walk, expr->data.appl.left, NULL);
 		walk_assert_prop();
@@ -2619,12 +2629,15 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			walk_assert_prop();
 			walk_assert(real_type != NULL, nearest_pattern_token(&expr->data.lambda.args[i]), "Lambda term argument did not match expected type");
 		}
-		type_ast* eval_type = walk_expr(walk, expr->data.lambda.expression, expected_type);
+		type_ast* eval_type = walk_expr(walk, expr->data.lambda.expression, expected_view);
 		walk_assert_prop();
 		walk_assert(eval_type != NULL, nearest_token(expr->data.lambda.expression), "Lambda term expression did not match expected type");
-		type_ast* alt_type = walk_expr(walk, expr->data.lambda.alt, expected_type);
-		walk_assert_prop();
-		walk_assert(alt_type != NULL, nearest_token(expr->data.lambda.expression), "Lambda term alternate did not match expected type");
+		if (expr->data.lambda.alt != NULL){
+			pop_binding(walk->local_scope, scope_pos);
+			type_ast* alt_type = walk_expr(walk, expr->data.lambda.alt, expected_type);
+			walk_assert_prop();
+			walk_assert(alt_type != NULL, nearest_token(expr->data.lambda.expression), "Lambda term alternate did not match expected type");
+		}
 		pop_binding(walk->local_scope, scope_pos);
 		expr->type = expected_type;
 		return expected_type;
@@ -2633,12 +2646,12 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			if (expr->data.block.lines[i].tag == RETURN_EXPR){
 				type_ast* line_type = walk_expr(walk, &expr->data.block.lines[i], expected_type);
 				walk_assert_prop();
-				if (expected_type != NULL){
-					walk_assert(line_type != NULL, nearest_token(&expr->data.block.lines[i]), "Return expression did not resolve to correct type");
-				}
-				continue;
+				walk_assert(line_type != NULL, nearest_token(&expr->data.block.lines[i]), "Return expression did not resolve to any type");
+				pop_binding(walk->local_scope, scope_pos);
+				expr->type = line_type;
+				return line_type;
 			}
-			walk_expr(walk, &expr->data.block.lines[i], NULL); // TODO test what happens for nested returns, do they get validated or are their types ignored
+			walk_expr(walk, &expr->data.block.lines[i], NULL); // TODO test what happens for nested returns, do they get validated or are their types ignored, may need an outer expected type to match specificially returns on
 			walk_assert_prop();
 		}
 		if (expected_type != NULL){
@@ -2674,19 +2687,19 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 			string_type->tag = PTR_TYPE;
 			string_type->data.ptr = pool_request(walk->parse->mem, sizeof(type_ast));
 			string_type->data.ptr->tag = LIT_TYPE;
-			string_type->data.ptr->data.lit = U8_TYPE;
+			string_type->data.ptr->data.lit = I8_TYPE;
 			pop_binding(walk->local_scope, scope_pos);
 			expr->type = string_type;
 			return string_type;
 		}
-		walk_assert(expected_type->tag == PTR_TYPE || expected_type->tag == FAT_PTR_TYPE, nearest_token(expr), "String must be assigned to [u8] or u8^");
+		walk_assert(expected_type->tag == PTR_TYPE || expected_type->tag == FAT_PTR_TYPE, nearest_token(expr), "String must be assigned to [i8] or i8^");
 		if (expected_type->tag == FAT_PTR_TYPE){
-			walk_assert(expected_type->data.fat_ptr.ptr->tag == LIT_TYPE && expected_type->data.fat_ptr.ptr->data.lit == U8_TYPE, nearest_token(expr), "String must be assigned to [u8] or u8^");
+			walk_assert(expected_type->data.fat_ptr.ptr->tag == LIT_TYPE && expected_type->data.fat_ptr.ptr->data.lit == I8_TYPE, nearest_token(expr), "String must be assigned to [i8] or i8^");
 			pop_binding(walk->local_scope, scope_pos);
 			expr->type = expected_type;
 			return expected_type;
 		}
-		walk_assert(expected_type->data.ptr->tag == LIT_TYPE && expected_type->data.ptr->data.lit == U8_TYPE, nearest_token(expr), "String must be assigned to [u8] or u8^");
+		walk_assert(expected_type->data.ptr->tag == LIT_TYPE && expected_type->data.ptr->data.lit == I8_TYPE, nearest_token(expr), "String must be assigned to [i8] or i8^");
 		pop_binding(walk->local_scope, scope_pos);
 		expr->type = expected_type;
 		return expected_type;
@@ -2877,13 +2890,16 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		}
 		type_ast* cons_type = walk_expr(walk, expr->data.if_statement.cons, NULL);
 		walk_assert_prop();
-		walk_assert(cons_type != NULL, nearest_token(expr->data.if_statement.cons), "If statement consequent did not resolve to a type");
 		if (expr->data.if_statement.alt != NULL){
-			if (walk_expr(walk, expr->data.if_statement.alt, cons_type) == NULL){
+			type_ast* alt_type = walk_expr(walk, expr->data.if_statement.alt, NULL);
+			if (type_equal(walk->parse, cons_type, alt_type) == 1){
 				pop_binding(walk->local_scope, scope_pos);
-				expr->type = NULL;
-				return NULL;
+				expr->type = cons_type;
+				return cons_type;
 			}
+			pop_binding(walk->local_scope, scope_pos);
+			expr->type = NULL;
+			return NULL;
 		}
 		pop_binding(walk->local_scope, scope_pos);
 		expr->type = cons_type;
@@ -3058,7 +3074,9 @@ reduce_alias_and_type(parser* const parse, type_ast* start_type){
 
 type_ast*
 in_scope(walker* const walk, token* const bind, type_ast* expected_type){
-	expected_type = reduce_alias(walk->parse, expected_type);
+	if (expected_type != NULL){
+		expected_type = reduce_alias(walk->parse, expected_type);
+	}
 	term_ast* term = term_ast_map_access(walk->parse->terms, bind->data.name);
 	if (term != NULL){
 		return term->type;

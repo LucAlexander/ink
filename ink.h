@@ -500,9 +500,9 @@ type_ast* is_member(type_ast* const obj, expr_ast* const field);
 type_ast_map* clash_types(parser* const parse, type_ast* const left, type_ast* const right);
 uint8_t clash_types_worker(parser* const parse, type_ast_map* relation, type_ast* const left, type_ast* const right);
 uint8_t clash_structure_worker(parser* const parse, type_ast_map* relation, structure_ast* const left, structure_ast* const right);
-void type_pass(walker* const walk, type_ast* const source);
-void type_pass_structure_worker(walker* const walk, token_map* const relation, structure_ast* const source);
-void type_pass_worker(walker* const walk, token_map* const relation, type_ast* const source);
+type_ast* type_pass(walker* const walk, type_ast* const source);
+structure_ast* type_pass_structure_worker(walker* const walk, token_map* const relation, structure_ast* const source);
+type_ast* type_pass_worker(walker* const walk, token_map* const relation, type_ast* const source);
 
 type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type);
 type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected_type);

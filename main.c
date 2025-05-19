@@ -2593,13 +2593,11 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		walk_assert_prop();
 		walk_assert(right != NULL, nearest_token(expr->data.appl.right), "Could not discern type");
 		if (expected_type != NULL){
-			type_ast* left = pool_request(walk->parse->mem, sizeof(type_ast));
-			left->tag = FUNCTION_TYPE;
-			left->data.function.left = right;
-			left->data.function.right = expected_type;
 			type_ast* left_real = walk_expr(walk, expr->data.appl.left, NULL);
 			walk_assert_prop();
 			walk_assert(left_real != NULL, nearest_token(expr->data.appl.left), "Left type of application expression did not resolve to type");
+			walk_assert(left_real->tag == FUNCTION_TYPE, nearest_token(expr->data.appl.left), "Left side of application expression was not a function");
+			left_real = type_pass(walk, left_real);
 			type_ast_map* relation = clash_types(walk->parse, left_real->data.function.left, right);
 			walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
 			type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, left_real->data.function.right);
@@ -2611,7 +2609,8 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		type_ast* left = walk_expr(walk, expr->data.appl.left, NULL);
 		walk_assert_prop();
 		walk_assert(left != NULL, nearest_token(expr->data.appl.left), "Unable to infer type of left of application");
-		walk_assert(left->tag == FUNCTION_TYPE, nearest_token(expr->data.appl.left), "Left of application type was needs to be function");
+		walk_assert(left->tag == FUNCTION_TYPE, nearest_token(expr->data.appl.left), "Left of application type needs to be function");
+		left = type_pass(walk, left);
 		type_ast_map* relation = clash_types(walk->parse, left->data.function.left, right);
 		walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
 		type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, left->data.function.right);
@@ -2804,7 +2803,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		expr->type = ret_type;
 		return ret_type;
 	case SIZEOF_EXPR:
-		type_pass(walk, expr->data.size_type);
+		expr->data.size_type = type_pass(walk, expr->data.size_type);
 		type_ast* sizeof_type = pool_request(walk->parse->mem, sizeof(type_ast));
 		sizeof_type->tag = LIT_TYPE;
 		sizeof_type->data.lit = U64_TYPE;
@@ -2976,7 +2975,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type){
 		expr->type = first;
 		return first;
 	case CAST_EXPR:
-		type_pass(walk, expr->data.cast.target);
+		expr->data.cast.target = type_pass(walk, expr->data.cast.target);
 		type_ast* cast_confirm = walk_expr(walk, expr->data.cast.source, NULL);
 		walk_assert(cast_confirm != NULL, nearest_token(expr), "Could not infer source type of cast");
 		if (expected_type == NULL){
@@ -3610,8 +3609,6 @@ check_program(parser* const parse){
 		.local_scope = &local_scope,
 		.next_generic = string_init(parse->mem, "@A")
 	};
-	//TODO pass over all typedef, alias, and term type
-	//TODO pass over all deep copies
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
 		walk_term(&walk, &parse->term_list.buffer[i], NULL);
 		if (parse->err.len != 0){
@@ -3620,33 +3617,35 @@ check_program(parser* const parse){
 	}
 }
 
-void
+type_ast*
 type_pass(walker* const walk, type_ast* const source){
 	token_map relation = token_map_init(walk->parse->mem);
-	type_pass_worker(walk, &relation, source);
+	return type_pass_worker(walk, &relation, source);
 }
 
-void
+type_ast*
 type_pass_worker(walker* const walk, token_map* const relation, type_ast* const source){
+	type_ast* new = pool_request(walk->parse->mem, sizeof(type_ast));
+	*new = *source;
 	switch (source->tag){
 	case DEPENDENCY_TYPE: // TODO ignoring this case until the type checker otherwise works
-		type_pass_worker(walk, relation, source->data.dependency.type);
-		return;
+		new->data.dependency.type = type_pass_worker(walk, relation, source->data.dependency.type);
+		return new;
 	case FUNCTION_TYPE:
-		type_pass_worker(walk, relation, source->data.function.left);
-		type_pass_worker(walk, relation, source->data.function.right);
-		return;
+		new->data.function.left = type_pass_worker(walk, relation, source->data.function.left);
+		new->data.function.right = type_pass_worker(walk, relation, source->data.function.right);
+		return new;
 	case LIT_TYPE:
-		return;
+		return new;
 	case PTR_TYPE:
-		type_pass_worker(walk, relation, source->data.ptr);
-		return;
+		new->data.ptr = type_pass_worker(walk, relation, source->data.ptr);
+		return new;
 	case FAT_PTR_TYPE:
-		type_pass_worker(walk, relation, source->data.fat_ptr.ptr);
-		return;
+		new->data.fat_ptr.ptr = type_pass_worker(walk, relation, source->data.fat_ptr.ptr);
+		return new;
 	case STRUCT_TYPE:
-		type_pass_structure_worker(walk, relation, source->data.structure);
-		return;
+		new->data.structure = type_pass_structure_worker(walk, relation, source->data.structure);
+		return new;
 	case NAMED_TYPE:
 		typedef_ast** type = typedef_ptr_map_access(walk->parse->types, source->data.named.name.data.name);
 		if (type == NULL){
@@ -3654,13 +3653,13 @@ type_pass_worker(walker* const walk, token_map* const relation, type_ast* const 
 			if (alias == NULL){
 				token* exists = token_map_access(relation, source->data.named.name.data.name);
 				if (exists != NULL){
-					source->data.named.name = *exists;
+					new->data.named.name = *exists;
 				}
 				else{
-					token new = source->data.named.name;
-					new.data.name = walk->next_generic;
-					token_map_insert(relation, source->data.named.name.data.name, new);
-					source->data.named.name = new;
+					token new_token = source->data.named.name;
+					new_token.data.name = walk->next_generic;
+					token_map_insert(relation, source->data.named.name.data.name, new_token);
+					new->data.named.name = new_token;
 					string old = walk->next_generic;
 					uint64_t i = 1;
 					for (;i<old.len;++i){ // 1 because 0 is @
@@ -3668,7 +3667,7 @@ type_pass_worker(walker* const walk, token_map* const relation, type_ast* const 
 							break;
 						}
 					}
-					if (i == old.len){
+					if (i < old.len){
 						old = string_copy(walk->parse->mem, &walk->next_generic);
 						old.str[i] += 1;
 					}
@@ -3685,33 +3684,36 @@ type_pass_worker(walker* const walk, token_map* const relation, type_ast* const 
 			}
 		}
 		for (uint64_t i = 0;i<source->data.named.arg_count;++i){
-			type_pass_worker(walk, relation, &source->data.named.args[i]);
+			new->data.named.args[i] = *type_pass_worker(walk, relation, &source->data.named.args[i]);
 		}
-		return;
+		return new;
 	}
+	return new;
 }
 
-void
+structure_ast*
 type_pass_structure_worker(walker* const walk, token_map* const relation, structure_ast* const source){
+	structure_ast* new = pool_request(walk->parse->mem, sizeof(structure_ast));
+	*new = *source;
 	switch (source->tag){
 	case STRUCT_STRUCT:
 		for (uint64_t i = 0;i<source->data.structure.count;++i){
-			type_pass_worker(walk, relation, &source->data.structure.members[i]);
+			new->data.structure.members[i] = *type_pass_worker(walk, relation, &source->data.structure.members[i]);
 		}
-		return;
+		return new;
 	case UNION_STRUCT:
 		for (uint64_t i = 0;i<source->data.union_structure.count;++i){
-			type_pass_worker(walk, relation, &source->data.union_structure.members[i]);
+			new->data.union_structure.members[i] = *type_pass_worker(walk, relation, &source->data.union_structure.members[i]);
 		}
-		return;
+		return new;
 	case ENUM_STRUCT:
-		return;
+		return new;
 	}
+	return new;
 }
 
 
 /* TODO
-	//we still have multiple source of truth for the maps and lists
  * typeclass/implementation member tracking
  * structure/defined type monomorphization
  * lambda capture to arg and lifting

@@ -490,5 +490,6 @@ uint8_t clash_structure_worker(parser* const parse, type_ast_map* relation, stru
 type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type);
 type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected_type);
 type_ast* walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* const expected_type);
+void check_program(parser* const parse);
 
 #endif

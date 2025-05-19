@@ -140,6 +140,11 @@ compile_file(char* input, const char* output){
 		printf("\033[1m[!] Failed to parse, \033[0m");
 		show_error(&parse);
 	}
+	check_program(&parse);
+	if (parse.err.len != 0){
+		printf("\033[1m[!] Failed semantic checks, \033[0m");
+		show_error(&parse);
+	}
 }
 
 void
@@ -3556,6 +3561,26 @@ clash_structure_worker(parser* const parse, type_ast_map* relation, structure_as
 	return 0;
 }
 
+void
+check_program(parser* const parse){
+	scope local_scope = {
+		.mem = parse->mem,
+		.bindings = pool_request(parse->mem, sizeof(binding)*2),
+		.binding_capacity = 2,
+		.binding_count = 0
+	};
+	walker walk = {
+		.parse = parse,
+		.local_scope = &local_scope
+	};
+	for (uint64_t i = 0;i<parse->term_list.count;++i){
+		walk_term(&walk, &parse->term_list.buffer[i], NULL);
+		if (parse->err.len != 0){
+			return;
+		}
+	}
+}
+
 /* TODO
  * typeclass/implementation member tracking
  * scope checking on bindings + enumerated values
@@ -3571,6 +3596,6 @@ clash_structure_worker(parser* const parse, type_ast_map* relation, structure_as
 
 int
 main(int argc, char** argv){
-	compile_file("types.w", "test");
+	compile_file("semantics.w", "test");
 	return 0;
 }

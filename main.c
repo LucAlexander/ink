@@ -1847,7 +1847,7 @@ parse_expr(parser* const parse, TOKEN end){
 			expr_ast* rvalue = parse_expr(parse, end);
 			assert_prop(NULL);
 			*expr = *rvalue;
-			break;
+			return outer;
 		case SHIFT_TOKEN:
 			assert_local(outer->tag == APPL_EXPR, NULL, "Shift expected left value");
 			expr_ast* rside = parse_expr(parse, end);
@@ -3373,7 +3373,11 @@ walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* expected_type
 		};
 		walk_pattern(walk, pat->data.fat_ptr.len, &len_type);
 		walk_assert_prop();
-		walk_pattern(walk, pat->data.fat_ptr.ptr, expected_type->data.fat_ptr.ptr);
+		type_ast inner_ptr = {
+			.tag = PTR_TYPE,
+			.data.ptr = expected_type->data.fat_ptr.ptr
+		};
+		walk_pattern(walk, pat->data.fat_ptr.ptr, &inner_ptr);
 		return expected_type;
 	case HOLE_PATTERN:
 		return expected_type;

@@ -2531,6 +2531,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 					type_ast* obj = walk_expr(walk, expr->data.appl.left->data.appl.right, NULL, outer_type);
 					walk_assert_prop();
 					walk_assert(obj != NULL, nearest_token(expr->data.appl.left->data.appl.right), "Unable to determine left type of either composition or field access");
+					obj = reduce_alias_and_type(walk->parse, obj);
 					if (obj->tag == STRUCT_TYPE){
 						walk_assert(expr->data.appl.right->tag == BINDING_EXPR, nearest_token(expr->data.appl.right), "Expected field for structure access");
 						type_ast* field = is_member(obj, expr->data.appl.right);
@@ -2543,6 +2544,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 					else if (obj->tag == PTR_TYPE){
 						walk_assert(expr->data.appl.right->tag == BINDING_EXPR, nearest_token(expr->data.appl.right), "Expected field for structure access");
 						type_ast* inner = obj->data.ptr;
+						inner = reduce_alias_and_type(walk->parse, inner);
 						walk_assert(inner->tag == STRUCT_TYPE, nearest_token(expr->data.appl.right), "Field access from pointer must be from pointer to structure");
 						type_ast* field = is_member(inner, expr->data.appl.right);
 						walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Expected member of structure in field access");
@@ -3781,6 +3783,7 @@ struct_valid(parser* const parse, structure_ast* const s){
  * expression for break/continue was missed somehow, they are turned into bindings, fix this after the type checker is done, one problem at a time
  * global and local assertions
  * validate cast and sizeof expressionas after monomorphization (because generics are gone) to validate that they are correct types [ type_valid() ]
+ * error reporting as logging rather than single report
  */
 
 int

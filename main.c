@@ -142,11 +142,17 @@ compile_file(char* input, const char* output){
 		show_error(&parse);
 		return;
 	}
+#ifdef DEBUG
+	printf("----------------Parsed------------------\n");
+#endif
 	check_program(&parse);
 	if (parse.err.len != 0){
 		printf("\033[1m[!] Failed semantic checks, \033[0m");
 		show_error(&parse);
 	}
+#ifdef DEBUG
+	printf("----------------Checked-----------------\n");
+#endif
 }
 
 void
@@ -1486,6 +1492,11 @@ show_term(term_ast* term){
 
 void
 show_expression(expr_ast* expr){
+	if (expr->type != 0){
+		printf("\033[2m[");
+		show_type(expr->type);
+		printf("]\033[0m");
+	}
 	switch(expr->tag){
 	case APPL_EXPR:
 		printf("(");
@@ -2518,13 +2529,21 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		}
 	}
 	switch (expr->tag){
-	case APPL_EXPR: // TODO type dependency after initial typechecker works
+	case APPL_EXPR:
 		if (expr->data.appl.right->tag == LIST_EXPR){
 			if (expr->data.appl.right->data.list.line_count == 1){
 				// x[i]
 				type_ast* array = walk_expr(walk, expr->data.appl.left, NULL, outer_type);
 				walk_assert_prop();
 				walk_assert(array != NULL, nearest_token(expr), "Unable to discern type of left expression in list application");
+				type_ast* any = pool_request(walk->parse->mem, sizeof(type_ast));
+				any->tag = PTR_TYPE;
+				any->data.ptr = pool_request(walk->parse->mem, sizeof(type_ast));
+				any->data.ptr->tag = LIT_TYPE;
+				any->data.ptr->data.lit = INT_ANY;
+				type_ast* access = walk_expr(walk, expr->data.appl.right, any, outer_type);
+				walk_assert_prop();
+				walk_assert(access != NULL, nearest_token(expr), "Accessor type should be integer");
 				if (array->tag == FAT_PTR_TYPE){
 					pop_binding(walk->local_scope, scope_pos);
 					expr->type = array->data.fat_ptr.ptr;
@@ -2721,7 +2740,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				expr->type = line_type;
 				return line_type;
 			}
-			walk_expr(walk, &expr->data.block.lines[i], NULL, outer_type); // TODO test what happens for nested returns, do they get validated or are their types ignored, may need an outer expected type to match specificially returns on
+			walk_expr(walk, &expr->data.block.lines[i], NULL, outer_type);
 			walk_assert_prop();
 		}
 		if (expected_type != NULL){
@@ -2929,22 +2948,20 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			expr->type = deref_infer->data.ptr;
 			return deref_infer->data.ptr;
 		}
-		type_ast expected_ptr = {
-			.tag = PTR_TYPE,
-			.data.ptr = expected_type
-		};
-		type_ast* deref_infer = walk_expr(walk, expr->data.deref, &expected_ptr, outer_type);
+		type_ast* expected_ptr = pool_request(walk->parse->mem, sizeof(type_ast));
+		expected_ptr->tag = PTR_TYPE;
+		expected_ptr->data.ptr = expected_type;
+		type_ast* deref_infer = walk_expr(walk, expr->data.deref, expected_ptr, outer_type);
 		walk_assert_prop();
 		walk_assert(deref_infer != NULL, nearest_token(expr), "Expected pointer to dereference");
 		pop_binding(walk->local_scope, scope_pos);
 		expr->type = expected_type;
 		return expected_type;
 	case IF_EXPR:
-		type_ast if_predicate = {
-			.tag = LIT_TYPE,
-			.data.lit = INT_ANY
-		};
-		type_ast* ifpredtype = walk_expr(walk, expr->data.if_statement.pred, &if_predicate, outer_type);
+		type_ast* if_predicate = pool_request(walk->parse->mem, sizeof(type_ast));
+		if_predicate->tag = LIT_TYPE;
+		if_predicate->data.lit = INT_ANY;
+		type_ast* ifpredtype = walk_expr(walk, expr->data.if_statement.pred, if_predicate, outer_type);
 		walk_assert_prop();
 		walk_assert(ifpredtype != NULL, nearest_token(expr->data.if_statement.pred), "If predicate must be integral");
 		if (expected_type != NULL){
@@ -2978,14 +2995,13 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		return cons_type;
 	case FOR_EXPR:
 		walk_assert(expected_type == NULL, nearest_token(expr), "Iterative loops cannot be used as expressions");
-		type_ast for_type = {
-			.tag = LIT_TYPE,
-			.data.lit = INT_ANY
-		};
-		type_ast* forinittype = walk_expr(walk, expr->data.for_statement.initial, &for_type, outer_type);
+		type_ast* for_type = pool_request(walk->parse->mem, sizeof(type_ast));
+		for_type->tag = LIT_TYPE;
+		for_type->data.lit = INT_ANY;
+		type_ast* forinittype = walk_expr(walk, expr->data.for_statement.initial, for_type, outer_type);
 		walk_assert_prop();
 	   	walk_assert(forinittype != NULL, nearest_token(expr->data.for_statement.initial), "For loop range must be integral");
-		type_ast* forlimittype = walk_expr(walk, expr->data.for_statement.limit, &for_type, outer_type);
+		type_ast* forlimittype = walk_expr(walk, expr->data.for_statement.limit, for_type, outer_type);
 		walk_assert_prop();
 	   	walk_assert(forlimittype != NULL, nearest_token(expr->data.for_statement.limit), "For loop range must be integral");
 		walk_expr(walk, expr->data.for_statement.cons, NULL, outer_type);
@@ -2994,11 +3010,10 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		return NULL;
 	case WHILE_EXPR:
 		walk_assert(expected_type == NULL, nearest_token(expr), "Iterative loops cannot be used as expressions");
-		type_ast while_predicate = {
-			.tag = LIT_TYPE,
-			.data.lit = INT_ANY
-		};
-		type_ast* whilepredtype = walk_expr(walk, expr->data.while_statement.pred, &while_predicate, outer_type);
+		type_ast* while_predicate = pool_request(walk->parse->mem, sizeof(type_ast));
+		while_predicate->tag = LIT_TYPE;
+		while_predicate->data.lit = INT_ANY;
+		type_ast* whilepredtype = walk_expr(walk, expr->data.while_statement.pred, while_predicate, outer_type);
 		walk_assert_prop();
 	   	walk_assert(whilepredtype != NULL, nearest_token(expr->data.while_statement.pred), "While predicate must be integral");
 		walk_expr(walk, expr->data.while_statement.cons, NULL, outer_type);
@@ -3106,9 +3121,10 @@ push_binding(parser* const parse, scope* const s, token* const t, type_ast* cons
 		}
 		s->bindings = bindings;
 	}
+	type_ast_map empty = type_ast_map_init(parse->mem);
 	binding b = {
 		.name = t,
-		.type = type
+		.type = deep_copy_type_replace(parse->mem, &empty, type)
 	};
 	s->bindings[s->binding_count] = b;
 	s->binding_count += 1;
@@ -3186,7 +3202,8 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type){
 	}
 	for (uint64_t i = 0;i<walk->local_scope->binding_count;++i){
 		if (string_compare(&bind->data.name, &walk->local_scope->bindings[i].name->data.name) == 0){
-			return walk->local_scope->bindings[i].type;
+			type_ast_map empty = type_ast_map_init(walk->parse->mem);
+			return deep_copy_type_replace(walk->parse->mem, &empty, walk->local_scope->bindings[i].type);
 		}
 	}
 	return NULL;
@@ -3724,6 +3741,9 @@ check_program(parser* const parse){
 		if (parse->err.len != 0){
 			return;
 		}
+#ifdef DEBUG
+		show_term(&parse->term_list.buffer[i]);
+#endif
 	}
 }
 
@@ -3931,6 +3951,7 @@ type_depends(walker* const walk, type_ast* const depends, type_ast* const func, 
  * validate cast and sizeof expressionas after monomorphization (because generics are gone) to validate that they are correct types [ type_valid() ]
  * error reporting as logging rather than single report
  * nearest type token function
+ * TODO add for binding to scope
  */
 
 int

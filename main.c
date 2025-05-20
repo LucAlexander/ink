@@ -2025,8 +2025,9 @@ parse_expr(parser* const parse, TOKEN end){
 				pattern_ast* case_pattern = parse_pattern(parse);
 				assert_prop(NULL);
 				t = &parse->tokens[parse->token_index];
-				assert_local(t->tag == BRACE_OPEN_TOKEN, NULL, "expected { for pattern case in match");
-				expr_ast* case_expr = parse_expr(parse, BRACE_CLOSE_TOKEN);
+				assert_local(t->tag == COLON_TOKEN, NULL, "expected : for pattern case in match");
+				parse->token_index += 1;
+				expr_ast* case_expr = parse_expr(parse, SEMI_TOKEN);
 				assert_prop(NULL);
 				if (expr->data.match.count == match_capacity){
 					match_capacity *= 2;
@@ -2966,10 +2967,13 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				pop_binding(walk->local_scope, scope_pos);
 				continue;
 			}
-			if (walk_expr(walk, &expr->data.match.cases[i], first, outer_type) == NULL){
-				matches = 0;
-			}
+			type_ast* next = walk_expr(walk, &expr->data.match.cases[i], NULL, outer_type);
 			walk_assert_prop();
+			if (matches == 1){
+				if (type_equal(walk->parse, next, first) == 0){
+					matches = 0;
+				}
+			}
 		}
 		if (matches == 0){
 			pop_binding(walk->local_scope, scope_pos);

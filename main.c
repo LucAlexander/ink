@@ -2590,20 +2590,52 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 						expr->type = field;
 						return field;
 					}
-					walk_assert(obj->tag == FUNCTION_TYPE, nearest_token(expr), "Expected either structure access or composition, but left type was neither a function nor a structure");
+					walk_assert(obj->tag == FUNCTION_TYPE || (obj->tag == DEPENDENCY_TYPE && obj->data.dependency.type->tag == FUNCTION_TYPE), nearest_token(expr), "Expected either structure access or composition, but left type was neither a function nor a structure");
 					// f . g
 					type_ast* field = walk_expr(walk, expr->data.appl.right, NULL, outer_type);
 					walk_assert_prop();
 					walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Unable to determine type in composition expression");
-					walk_assert(field->tag == FUNCTION_TYPE, nearest_token(expr->data.appl.right), "Right side of composition must be function");
+					walk_assert(field->tag == FUNCTION_TYPE || (field->tag == DEPENDENCY_TYPE && field->data.dependency.type->tag == FUNCTION_TYPE), nearest_token(expr->data.appl.right), "Right side of composition must be function");
+					if (obj->tag == DEPENDENCY_TYPE){
+						walk_assert(field->tag == DEPENDENCY_TYPE, nearest_token(expr), "Dependencies did not match in composition");
+						type_ast* depends = obj;
+						type_ast* field_depends = field;
+						obj = obj->data.dependency.type;
+						field = field->data.dependency.type;
+						type_ast left_dep = *depends;
+						left_dep.data.dependency.type = obj->data.function.left;
+						type_ast right_dep = *field_depends;
+						right_dep.data.dependency.type = field->data.function.right;
+						walk_assert(type_equal(walk->parse, &left_dep, &right_dep) == 1, nearest_token(expr), "Composition arguments must have types (a -> b) . (c -> a)");
+						type_ast* composed = pool_request(walk->parse->mem, sizeof(type_ast));
+						composed->tag = FUNCTION_TYPE;
+						obj = type_pass(walk, obj);
+						walk_assert_prop();
+						composed->data.function.left = field->data.function.left;
+						composed->data.function.right = obj->data.function.right;
+						type_ast_map* relation = clash_types(walk->parse, obj, field);
+						walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "Composition arguments would not clash");
+						type_ast* generic_comp = deep_copy_type_replace(walk->parse->mem, relation, composed);
+						type_ast* d = pool_request(walk->parse->mem, sizeof(type_ast));
+						*d = *depends;
+						d->data.dependency.type = generic_comp;//composed;
+						pop_binding(walk->local_scope, scope_pos);
+						expr->type = d;
+						return d;
+					}
 					walk_assert(type_equal(walk->parse, obj->data.function.left, field->data.function.right) == 1, nearest_token(expr), "Composition arguments must have types (a -> b) . (c -> a)");
 					type_ast* composed = pool_request(walk->parse->mem, sizeof(type_ast));
 					composed->tag = FUNCTION_TYPE;
+					obj = type_pass(walk, obj);
+					walk_assert_prop();
 					composed->data.function.left = field->data.function.left;
 					composed->data.function.right = obj->data.function.right;
+					type_ast_map* relation = clash_types(walk->parse, obj, field);
+					walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "Composition arguments would not clash");
+					type_ast* generic_comp = deep_copy_type_replace(walk->parse->mem, relation, composed);
 					pop_binding(walk->local_scope, scope_pos);
-					expr->type = composed;
-					return composed;
+					expr->type = generic_comp;//composed;
+					return generic_comp;//composed;
 				}
 			}
 		}

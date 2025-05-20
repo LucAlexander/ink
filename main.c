@@ -140,6 +140,7 @@ compile_file(char* input, const char* output){
 	if (parse.err.len != 0){
 		printf("\033[1m[!] Failed to parse, \033[0m");
 		show_error(&parse);
+		return;
 	}
 	check_program(&parse);
 	if (parse.err.len != 0){
@@ -1535,6 +1536,7 @@ show_expression(expr_ast* expr){
 		break;
 	case STRUCT_EXPR:
 		printf("{");
+		printf("%lu::", expr->data.constructor.member_count);
 		for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
 			if (i != 0){
 				printf(", ");
@@ -1884,20 +1886,19 @@ parse_expr(parser* const parse, TOKEN end){
 					token* eq = &parse->tokens[parse->token_index+1];
 					if (eq->tag == EQUAL_TOKEN && (name->tag == IDENTIFIER_TOKEN || name->tag == SYMBOL_TOKEN)){
 						expr->data.constructor.names[expr->data.constructor.member_count] = *name;
-						save = parse->token_index;
 						parse->token_index += 2;
+						save = parse->token_index;
 						expr_ast* temp = parse_expr(parse, COMMA_TOKEN);
-						assert_prop(NULL);
-						expr->data.constructor.members[expr->data.constructor.member_count] = *temp;
 						if (parse->err.len != 0){
 							parse->token_index = save;
 							parse->err.len = 0;
-							temp = parse_expr(parse, BRACK_CLOSE_TOKEN);
+							temp = parse_expr(parse, BRACE_CLOSE_TOKEN);
 							assert_prop(NULL);
 							expr->data.constructor.members[expr->data.constructor.member_count] = *temp;
 							expr->data.constructor.member_count += 1;
 							break;
 						}
+						expr->data.constructor.members[expr->data.constructor.member_count] = *temp;
 						expr->data.constructor.member_count += 1;
 						continue;
 					}
@@ -1914,6 +1915,7 @@ parse_expr(parser* const parse, TOKEN end){
 						break;
 					}
 					expr->data.constructor.members[expr->data.constructor.member_count] = *temp;
+					expr->data.constructor.member_count += 1;
 				}
 			}
 			break;
@@ -2478,12 +2480,12 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 	structure_ast* inner;
 	type_ast* inner_struct;
 	if (expected_type != NULL){
-		inner_struct = expected_type;
 		if (expr->tag != BINDING_EXPR){
 			expected_type = reduce_alias_and_type(walk->parse, expected_type);
 		}
-		if (inner_struct->tag == STRUCT_TYPE){
-			inner = inner_struct->data.structure;
+		inner_struct = expected_type;
+		if (expected_type->tag == STRUCT_TYPE){
+			inner = expected_type->data.structure;
 			if (inner->tag == UNION_STRUCT){
 				for (uint64_t k = 0;k<inner->data.union_structure.count;++k){
 					type_ast* match_inference = walk_expr(walk, expr, &inner->data.union_structure.members[k], outer_type);
@@ -2748,7 +2750,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				if (expr->data.constructor.names[i].data.name.len != 0){ // not named constructor value
 					uint8_t found = 0;
 					for (uint64_t k = 0;k<inner->data.structure.count;++k){
-						if (string_compare(&inner->data.structure.names[i].data.name, &expr->data.constructor.names[i].data.name) == 0){
+						if (string_compare(&inner->data.structure.names[k].data.name, &expr->data.constructor.names[i].data.name) == 0){
 							type_ast* inferred = walk_expr(walk, &expr->data.constructor.members[i], &inner->data.structure.members[k], outer_type);
 							walk_assert_prop();
 							walk_assert(inferred != NULL, nearest_token(&expr->data.constructor.members[i]), "Unexpected type for structure member");
@@ -2759,7 +2761,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 					walk_assert(found == 1, expr->data.constructor.names[i].index, "Unknown member of structure or union");
 					continue;
 				}
-				walk_assert(current_member >= inner->data.structure.count, expr->data.constructor.names[i].index, "Extra member in constructor");
+				walk_assert(current_member < inner->data.structure.count, expr->data.constructor.names[i].index, "Extra member in constructor");
 				type_ast* inferred = walk_expr(walk, &expr->data.constructor.members[i], &inner->data.structure.members[current_member], outer_type);
 				walk_assert_prop();
 				walk_assert(inferred != NULL, nearest_token(&expr->data.constructor.members[i]), "Unexpected type for structure member");

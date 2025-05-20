@@ -1611,6 +1611,12 @@ show_expression(expr_ast* expr){
 		show_type(expr->data.cast.target);
 		printf(")");
 		break;
+	case BREAK_EXPR:
+		printf("break");
+		break;
+	case CONTINUE_EXPR:
+		printf("continue");
+		break;
 	case NOP_EXPR:
 		printf("nop");
 		break;
@@ -1836,7 +1842,13 @@ parse_expr(parser* const parse, TOKEN end){
 			}
 			break;
 		case BREAK_TOKEN:
+			expr->tag = BREAK_EXPR;
+			expr->data.binding = *t;
+			break;
 		case CONTINUE_TOKEN:
+			expr->tag = CONTINUE_EXPR;
+			expr->data.binding = *t;
+			break;
 		case IDENTIFIER_TOKEN:
 			expr->tag = BINDING_EXPR;
 			expr->data.binding = *t;
@@ -2996,6 +3008,16 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		pop_binding(walk->local_scope, scope_pos);
 		expr->type = expr->data.cast.target;
 		return expr->data.cast.target;
+	case BREAK_EXPR:
+		walk_assert(expected_type == NULL, nearest_token(expr), "Expected type, found break");
+		pop_binding(walk->local_scope, scope_pos);
+		expr->type = NULL;
+		return NULL;
+	case CONTINUE_EXPR:
+		walk_assert(expected_type == NULL, nearest_token(expr), "Expected type, found continue");
+		pop_binding(walk->local_scope, scope_pos);
+		expr->type = NULL;
+		return NULL;
 	case NOP_EXPR:
 		walk_assert(expected_type == NULL, nearest_token(expr), "Expected type, found NOP expression");
 		pop_binding(walk->local_scope, scope_pos);
@@ -3289,6 +3311,8 @@ nearest_token(expr_ast* const e){
 		return nearest_token(e->data.match.pred);
 	case CAST_EXPR:
 		return nearest_token(e->data.cast.source);
+	case BREAK_EXPR:
+	case CONTINUE_EXPR:
 	case NOP_EXPR:
 		return 0;
 	}
@@ -3788,6 +3812,7 @@ struct_valid(parser* const parse, structure_ast* const s){
  * lambda capture to arg and lifting
  * closure capture to arg and lifting
  * function type monomorphization
+ *
  * expression for break/continue was missed somehow, they are turned into bindings, fix this after the type checker is done, one problem at a time
  * global and local assertions
  * validate cast and sizeof expressionas after monomorphization (because generics are gone) to validate that they are correct types [ type_valid() ]

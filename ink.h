@@ -357,6 +357,8 @@ typedef struct expr_ast {
 		WHILE_EXPR,
 		MATCH_EXPR,
 		CAST_EXPR,
+		BREAK_EXPR,
+		CONTINUE_EXPR,
 		NOP_EXPR,
 	} tag;
 } expr_ast;

@@ -1812,6 +1812,7 @@ parse_expr(parser* const parse, TOKEN end){
 				pattern_ast* arg = parse_pattern(parse);
 				assert_prop(NULL);
 				if (expr->data.lambda.arg_count == capacity){
+					capacity *= 2;
 					pattern_ast* args = pool_request(parse->mem, sizeof(pattern_ast)*capacity);
 					for (uint64_t i = 0;i<expr->data.lambda.arg_count;++i){
 						args[i] = expr->data.lambda.args[i];
@@ -1832,7 +1833,7 @@ parse_expr(parser* const parse, TOKEN end){
 				}
 				return outer;
 			}
-			break;
+			return outer;
 		case AS_TOKEN:
 			assert_local(outer->tag == APPL_EXPR, NULL, "Expected expression as source of cast");
 			expr_ast* source = outer->data.appl.left;
@@ -2502,6 +2503,7 @@ lex_err(parser* const parse, uint64_t goal, string filename){
 type_ast*
 walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, type_ast* const outer_type){
 	uint64_t scope_pos = walk->local_scope->binding_count;
+	uint64_t expr_count = walk->outer_exprs->expr_count;
 	structure_ast* inner;
 	type_ast* inner_struct;
 	if (expected_type != NULL){
@@ -2611,12 +2613,12 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 						return field;
 					}
 					walk_assert(obj->tag == FUNCTION_TYPE || (obj->tag == DEPENDENCY_TYPE && obj->data.dependency.type->tag == FUNCTION_TYPE), nearest_token(expr), "Expected either structure access or composition, but left type was neither a function nor a structure");
-					// f . g
+					// f . g TODO this might need to be rewritten
 					type_ast* field = walk_expr(walk, expr->data.appl.right, NULL, outer_type);
 					walk_assert_prop();
 					walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Unable to determine type in composition expression");
 					walk_assert(field->tag == FUNCTION_TYPE || (field->tag == DEPENDENCY_TYPE && field->data.dependency.type->tag == FUNCTION_TYPE), nearest_token(expr->data.appl.right), "Right side of composition must be function");
-					if (obj->tag == DEPENDENCY_TYPE){ // TODO ignoring composition with dependent types for the moment
+					if (obj->tag == DEPENDENCY_TYPE){
 						walk_assert(field->tag == DEPENDENCY_TYPE, nearest_token(expr), "Dependencies did not match in composition");
 						type_ast* depends = type_pass(walk, obj);
 						walk_assert_prop();
@@ -2653,35 +2655,37 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 					walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "Composition arguments would not clash");
 					type_ast* generic_comp = deep_copy_type_replace(walk->parse->mem, relation, composed);
 					pop_binding(walk->local_scope, scope_pos);
-					expr->type = generic_comp;//composed;
-					return generic_comp;//composed;
+					expr->type = generic_comp;
+					return generic_comp;
 				}
 			}
 		}
+		push_expr_stack(walk);
 		type_ast* right = walk_expr(walk, expr->data.appl.right, NULL, outer_type);
+		pop_expr_stack(walk);
 		walk_assert_prop();
 		walk_assert(right != NULL, nearest_token(expr->data.appl.right), "Could not discern type");
 		if (expected_type != NULL){
+			push_expr(walk->outer_exprs, expr->data.appl.right);
 			type_ast* left_real = walk_expr(walk, expr->data.appl.left, NULL, outer_type);
+			pop_expr(walk->outer_exprs, expr_count);
 			walk_assert_prop();
 			walk_assert(left_real != NULL, nearest_token(expr->data.appl.left), "Left type of application expression did not resolve to type");
 			walk_assert(left_real->tag == FUNCTION_TYPE || (left_real->tag == DEPENDENCY_TYPE && left_real->data.dependency.type->tag == FUNCTION_TYPE), nearest_token(expr->data.appl.left), "Left side of application expression was not a function");
 			left_real = type_pass(walk, left_real);
 			walk_assert_prop();
-			{
-				if (left_real->tag == DEPENDENCY_TYPE){
-					type_ast* inner_type = left_real->data.dependency.type;
-					type_depends(walk, left_real, inner_type, right);
-					walk_assert_prop();
-					type_ast_map* relation = clash_types(walk->parse, inner_type->data.function.left, right);
-					walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
-					type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, inner_type->data.function.right);
-					walk_assert(type_equal(walk->parse, expected_type, reduce_alias_and_type(walk->parse, generic_applied_type)), nearest_token(expr), "Applied generic type did not match expected type");
-					left_real->data.dependency.type = generic_applied_type;
-					pop_binding(walk->local_scope, scope_pos);
-					expr->type = left_real;
-					return left_real;
-				}
+			if (left_real->tag == DEPENDENCY_TYPE){
+				type_ast* inner_type = left_real->data.dependency.type;
+				type_depends(walk, left_real, inner_type, right);
+				walk_assert_prop();
+				type_ast_map* relation = clash_types(walk->parse, inner_type->data.function.left, right);
+				walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
+				type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, inner_type->data.function.right);
+				walk_assert(type_equal(walk->parse, expected_type, reduce_alias_and_type(walk->parse, generic_applied_type)), nearest_token(expr), "Applied generic type did not match expected type");
+				left_real->data.dependency.type = generic_applied_type;
+				pop_binding(walk->local_scope, scope_pos);
+				expr->type = left_real;
+				return left_real;
 			}
 			type_ast_map* relation = clash_types(walk->parse, left_real->data.function.left, right);
 			walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
@@ -2691,25 +2695,25 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			expr->type = generic_applied_type;
 			return generic_applied_type;
 		}
+		push_expr(walk->outer_exprs, expr->data.appl.right);
 		type_ast* left = walk_expr(walk, expr->data.appl.left, NULL, outer_type);
+		pop_expr(walk->outer_exprs, expr_count);
 		walk_assert_prop();
 		walk_assert(left != NULL, nearest_token(expr->data.appl.left), "Unable to infer type of left of application");
 		walk_assert(left->tag == FUNCTION_TYPE, nearest_token(expr->data.appl.left), "Left of application type needs to be function");
 		left = type_pass(walk, left);
 		walk_assert_prop();
-		{
-			if (left->tag == DEPENDENCY_TYPE){
-				type_ast* inner_type = left->data.dependency.type;
-				type_depends(walk, left, inner_type, right);
-				walk_assert_prop();
-				type_ast_map* relation = clash_types(walk->parse, inner_type->data.function.left, right);
-				walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
-				type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, inner_type->data.function.right);
-				left->data.dependency.type = generic_applied_type;
-				pop_binding(walk->local_scope, scope_pos);
-				expr->type = generic_applied_type;
-				return generic_applied_type;
-			}
+		if (left->tag == DEPENDENCY_TYPE){
+			type_ast* inner_type = left->data.dependency.type;
+			type_depends(walk, left, inner_type, right);
+			walk_assert_prop();
+			type_ast_map* relation = clash_types(walk->parse, inner_type->data.function.left, right);
+			walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
+			type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, inner_type->data.function.right);
+			left->data.dependency.type = generic_applied_type;
+			pop_binding(walk->local_scope, scope_pos);
+			expr->type = generic_applied_type;
+			return generic_applied_type;
 		}
 		type_ast_map* relation = clash_types(walk->parse, left->data.function.left, right);
 		walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
@@ -2718,7 +2722,41 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		expr->type = generic_applied_type;
 		return generic_applied_type;
 	case LAMBDA_EXPR:
-		walk_assert(expected_type != NULL, nearest_token(expr), "Unable to discern type of lambda term");
+		if (expected_type == NULL){
+			uint64_t arg_pos = walk->outer_exprs->expr_count-1;
+			type_ast* built_type = pool_request(walk->parse->mem, sizeof(type_ast));
+			type_ast* type_focus = built_type;
+			for (uint64_t i = 0;i<expr->data.lambda.arg_count;++i){
+				expr_ast* arg = walk->outer_exprs->exprs[arg_pos];
+				walk_assert(arg->type != NULL, nearest_token(arg), "Type of lambda arg should have been previously inferrable");
+				type_ast* arg_type = arg->type;
+				type_ast* real_type = walk_pattern(walk, &expr->data.lambda.args[i], arg_type);
+				walk_assert_prop();
+				walk_assert(real_type != NULL, nearest_pattern_token(&expr->data.lambda.args[i]), "Lambda term argument did not match expected type from outer arguments");
+				type_focus->tag = FUNCTION_TYPE;
+				type_focus->data.function.left = arg_type;
+				type_focus->data.function.right = pool_request(walk->parse->mem, sizeof(type_ast));
+				type_focus = type_focus->data.function.right;
+				if (arg_pos == 0){
+					walk_assert(i+1 == expr->data.lambda.arg_count, nearest_token(expr), "Types of spare arguments in lambda were not deducible");
+					break;
+				}
+				arg_pos -= 1;
+			}
+			type_ast* eval_type = walk_expr(walk, expr->data.lambda.expression, NULL, outer_type);
+			walk_assert_prop();
+			walk_assert(eval_type != NULL, nearest_token(expr->data.lambda.expression), "Lambda term expression did not have inferrable type");
+			*type_focus = *eval_type;
+			if (expr->data.lambda.alt != NULL){
+				pop_binding(walk->local_scope, scope_pos);
+				type_ast* alt_type = walk_expr(walk, expr->data.lambda.alt, NULL, outer_type);
+				walk_assert_prop();
+				walk_assert(alt_type != NULL, nearest_token(expr->data.lambda.expression), "Lambda term alternate did not have inferrable type");
+			}
+			pop_binding(walk->local_scope, scope_pos);
+			expr->type = built_type;
+			return built_type;
+		}
 		type_ast* expected_view = expected_type;
 		for (uint64_t i = 0;i<expr->data.lambda.arg_count;++i){
 			if (expected_view->tag == DEPENDENCY_TYPE){
@@ -3148,6 +3186,46 @@ push_binding(parser* const parse, scope* const s, token* const t, type_ast* cons
 void
 pop_binding(scope* const s, uint64_t pos){
 	s->binding_count = pos;
+}
+
+uint64_t push_expr(expr_stack* const s, expr_ast* expr){
+	if (s->expr_count == s->expr_capacity){
+		s->expr_capacity *= 2;
+		expr_ast** exprs = pool_request(s->mem, sizeof(expr_ast)*s->expr_capacity);
+		for (uint64_t i = 0;i<s->expr_count;++i){
+			exprs[i] = s->exprs[i];
+		}
+		s->exprs = exprs;
+	}
+	s->exprs[s->expr_count] = expr;
+	s->expr_count += 1;
+	return s->expr_count;
+}
+
+void pop_expr(expr_stack* const s, uint64_t pos){
+	s->expr_count = pos;
+}
+
+void push_expr_stack(walker* const walk){
+	if (walk->outer_exprs->next != NULL){
+		walk->outer_exprs = walk->outer_exprs->next;
+		walk->outer_exprs->expr_count = 0;
+		return;
+	}
+	walk->outer_exprs->next = pool_request(walk->parse->mem, sizeof(expr_stack));
+	walk->outer_exprs->next->prev = walk->outer_exprs;
+	walk->outer_exprs = walk->outer_exprs->next;
+	walk->outer_exprs->next = NULL;
+	walk->outer_exprs->exprs = pool_request(walk->parse->mem, sizeof(expr_ast*));
+	walk->outer_exprs->expr_capacity = 2;
+	walk->outer_exprs->expr_count = 0;
+}
+
+void pop_expr_stack(walker* const walk){
+	if (walk->outer_exprs->prev == NULL){
+		return;
+	}
+	walk->outer_exprs = walk->outer_exprs->prev;
 }
 
 type_ast*
@@ -3754,10 +3832,19 @@ check_program(parser* const parse){
 		.binding_capacity = 2,
 		.binding_count = 0
 	};
+	expr_stack outer_exprs = {
+		.mem = parse->mem,
+		.exprs = pool_request(parse->mem, sizeof(expr_ast*)*2),
+		.expr_capacity = 2,
+		.expr_count = 0,
+		.next = NULL,
+		.prev = NULL
+	};
 	walker walk = {
 		.parse = parse,
 		.local_scope = &local_scope,
-		.next_generic = string_init(parse->mem, "@A")
+		.next_generic = string_init(parse->mem, "@A"),
+		.outer_exprs = &outer_exprs
 	};
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
 		walk_term(&walk, &parse->term_list.buffer[i], NULL);
@@ -3982,6 +4069,9 @@ type_depends(walker* const walk, type_ast* const depends, type_ast* const func, 
  * validate cast and sizeof expressionas after monomorphization (because generics are gone) to validate that they are correct types [ type_valid() ]
  * error reporting as logging rather than single report
  * nearest type token function
+ *
+ * TODO hardcode composition as a function, include it in terms, and on composition replace with a call to that function
+ * test 2 argument lambdas type checking
  */
 
 int

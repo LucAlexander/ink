@@ -482,11 +482,28 @@ typedef struct scope {
 uint64_t push_binding(parser* const parse, scope* const s, token* const t, type_ast* const type);
 void pop_binding(scope* const s, uint64_t pos);
 
+typedef struct expr_stack expr_stack;
+typedef struct expr_stack {
+	pool* mem;
+	expr_ast** exprs;
+	uint64_t expr_capacity;
+	uint64_t expr_count;
+	expr_stack* next;
+	expr_stack* prev;
+} expr_stack;
+
+uint64_t push_expr(expr_stack* const s, expr_ast* expr);
+void pop_expr(expr_stack* const s, uint64_t pos);
+
 typedef struct walker {
 	parser* parse;
 	scope* local_scope;
 	string next_generic;
+	expr_stack* outer_exprs;
 } walker;
+
+void push_expr_stack(walker* const walk);
+void pop_expr_stack(walker* const walk);
 
 type_ast* reduce_alias(parser* const parse, type_ast* start);
 type_ast* reduce_alias_and_type(parser* const parse, type_ast* start);

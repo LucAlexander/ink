@@ -2616,12 +2616,13 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 					walk_assert_prop();
 					walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Unable to determine type in composition expression");
 					walk_assert(field->tag == FUNCTION_TYPE || (field->tag == DEPENDENCY_TYPE && field->data.dependency.type->tag == FUNCTION_TYPE), nearest_token(expr->data.appl.right), "Right side of composition must be function");
-					if (obj->tag == DEPENDENCY_TYPE){
+					if (obj->tag == DEPENDENCY_TYPE){ // TODO ignoring composition with dependent types for the moment
 						walk_assert(field->tag == DEPENDENCY_TYPE, nearest_token(expr), "Dependencies did not match in composition");
-						type_ast* depends = obj;
+						type_ast* depends = type_pass(walk, obj);
+						walk_assert_prop();
 						type_ast* field_depends = field;
-						obj = obj->data.dependency.type;
-						field = field->data.dependency.type;
+						obj = depends->data.dependency.type;
+						field = field_depends->data.dependency.type;
 						type_ast left_dep = *depends;
 						left_dep.data.dependency.type = obj->data.function.left;
 						type_ast right_dep = *field_depends;
@@ -2629,19 +2630,17 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 						walk_assert(type_equal(walk->parse, &left_dep, &right_dep) == 1, nearest_token(expr), "Composition arguments must have types (a -> b) . (c -> a)");
 						type_ast* composed = pool_request(walk->parse->mem, sizeof(type_ast));
 						composed->tag = FUNCTION_TYPE;
-						obj = type_pass(walk, obj);
-						walk_assert_prop();
 						composed->data.function.left = field->data.function.left;
 						composed->data.function.right = obj->data.function.right;
 						type_ast_map* relation = clash_types(walk->parse, obj, field);
 						walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "Composition arguments would not clash");
-						type_ast* generic_comp = deep_copy_type_replace(walk->parse->mem, relation, composed);
 						type_ast* d = pool_request(walk->parse->mem, sizeof(type_ast));
 						*d = *depends;
-						d->data.dependency.type = generic_comp;//composed;
+						d->data.dependency.type = composed;
+						type_ast* generic_comp = deep_copy_type_replace(walk->parse->mem, relation, d);
 						pop_binding(walk->local_scope, scope_pos);
-						expr->type = d;
-						return d;
+						expr->type = generic_comp;
+						return generic_comp;
 					}
 					walk_assert(type_equal(walk->parse, obj->data.function.left, field->data.function.right) == 1, nearest_token(expr), "Composition arguments must have types (a -> b) . (c -> a)");
 					type_ast* composed = pool_request(walk->parse->mem, sizeof(type_ast));
@@ -2671,10 +2670,17 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			walk_assert_prop();
 			{
 				if (left_real->tag == DEPENDENCY_TYPE){
-					type_ast* depends = left_real;
-					left_real = left_real->data.dependency.type;
-					type_depends(walk, depends, left_real, right);
+					type_ast* inner_type = left_real->data.dependency.type;
+					type_depends(walk, left_real, inner_type, right);
 					walk_assert_prop();
+					type_ast_map* relation = clash_types(walk->parse, inner_type->data.function.left, right);
+					walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
+					type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, inner_type->data.function.right);
+					walk_assert(type_equal(walk->parse, expected_type, reduce_alias_and_type(walk->parse, generic_applied_type)), nearest_token(expr), "Applied generic type did not match expected type");
+					left_real->data.dependency.type = generic_applied_type;
+					pop_binding(walk->local_scope, scope_pos);
+					expr->type = left_real;
+					return left_real;
 				}
 			}
 			type_ast_map* relation = clash_types(walk->parse, left_real->data.function.left, right);
@@ -2693,10 +2699,16 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert_prop();
 		{
 			if (left->tag == DEPENDENCY_TYPE){
-				type_ast* depends = left;
-				left = left->data.dependency.type;
-				type_depends(walk, depends, left, right);
+				type_ast* inner_type = left->data.dependency.type;
+				type_depends(walk, left, inner_type, right);
 				walk_assert_prop();
+				type_ast_map* relation = clash_types(walk->parse, inner_type->data.function.left, right);
+				walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
+				type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, inner_type->data.function.right);
+				left->data.dependency.type = generic_applied_type;
+				pop_binding(walk->local_scope, scope_pos);
+				expr->type = generic_applied_type;
+				return generic_applied_type;
 			}
 		}
 		type_ast_map* relation = clash_types(walk->parse, left->data.function.left, right);
@@ -3408,6 +3420,15 @@ deep_copy_type_replace(pool* const mem, type_ast_map* relation, type_ast* const 
 	*dest = *source;
 	switch (source->tag){
 	case DEPENDENCY_TYPE:
+		for (uint64_t i = 0;i<source->data.dependency.dependency_count;++i){
+			type_ast* replacement = type_ast_map_access(relation, source->data.dependency.dependency_typenames[i].data.name);
+			if (replacement != NULL){
+				if (replacement->tag != NAMED_TYPE){
+					continue; // TODO this is testing "what if we just keep dependencies which have been fully disolved"
+				}
+				dest->data.dependency.dependency_typenames[i] = replacement->data.named.name;
+			}
+		}
 		dest->data.dependency.type = deep_copy_type_replace(mem, relation, source->data.dependency.type);
 		return dest;
 	case FUNCTION_TYPE:
@@ -3761,12 +3782,15 @@ type_pass_worker(walker* const walk, token_map* const relation, type_ast* const 
 	*new = *source;
 	switch (source->tag){
 	case DEPENDENCY_TYPE:
+		new->data.dependency.dependency_typenames = pool_request(walk->parse->mem, sizeof(token)*new->data.dependency.dependency_count);
+		new->data.dependency.typeclass_dependencies = pool_request(walk->parse->mem, sizeof(token)*new->data.dependency.dependency_count);
 		for (uint64_t i = 0;i<new->data.dependency.dependency_count;++i){
 			token new_token = source->data.dependency.dependency_typenames[i];
 			new_token.data.name = walk->next_generic;
 			uint8_t dup = token_map_insert(relation, source->data.dependency.dependency_typenames[i].data.name, new_token);
 			walk_assert(dup == 0, 0, "duplicate dependency generic type name");
 			new->data.dependency.dependency_typenames[i] = new_token;
+			new->data.dependency.typeclass_dependencies[i] = source->data.dependency.typeclass_dependencies[i];;
 			generate_new_generic(walk);
 		}
 		new->data.dependency.type = type_pass_worker(walk, relation, source->data.dependency.type);
@@ -3935,6 +3959,11 @@ type_depends(walker* const walk, type_ast* const depends, type_ast* const func, 
 		walk_assert(implementations != NULL, 0, "No implementations found for given argument type");
 		implementation_ast** impl = implementation_ptr_map_access(implementations, depends->data.dependency.typeclass_dependencies[i].data.name);
 		walk_assert(impl != NULL, 0, "No implementation of dependency found for given argument type");
+		depends->data.dependency.dependency_count -= 1;
+		for (uint64_t k = i;k<depends->data.dependency.dependency_count;++k){
+			depends->data.dependency.dependency_typenames[k] = depends->data.dependency.dependency_typenames[k+1];
+			depends->data.dependency.typeclass_dependencies[k] = depends->data.dependency.typeclass_dependencies[k+1];
+		}
 		return *impl;
 	}
 	return NULL;
@@ -3953,7 +3982,6 @@ type_depends(walker* const walk, type_ast* const depends, type_ast* const func, 
  * validate cast and sizeof expressionas after monomorphization (because generics are gone) to validate that they are correct types [ type_valid() ]
  * error reporting as logging rather than single report
  * nearest type token function
- * TODO add for binding to scope
  */
 
 int

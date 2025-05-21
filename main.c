@@ -1085,6 +1085,7 @@ show_type(type_ast* const type){
 		else if (type->data.lit == I16_TYPE) printf("i16");
 		else if (type->data.lit == I32_TYPE) printf("i32");
 		else if (type->data.lit == I64_TYPE) printf("i64");
+		else if (type->data.lit == INT_ANY) printf("int");
 		break;
 	case PTR_TYPE:
 		show_type(type->data.ptr);
@@ -3004,6 +3005,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		type_ast* forlimittype = walk_expr(walk, expr->data.for_statement.limit, for_type, outer_type);
 		walk_assert_prop();
 	   	walk_assert(forlimittype != NULL, nearest_token(expr->data.for_statement.limit), "For loop range must be integral");
+		push_binding(walk->parse, walk->local_scope, &expr->data.for_statement.binding, for_type);
 		walk_expr(walk, expr->data.for_statement.cons, NULL, outer_type);
 		pop_binding(walk->local_scope, scope_pos);
 		expr->type = NULL;

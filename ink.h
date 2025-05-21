@@ -498,12 +498,32 @@ void pop_expr(expr_stack* const s, uint64_t pos);
 typedef struct walker {
 	parser* parse;
 	scope* local_scope;
-	string next_generic;
 	expr_stack* outer_exprs;
 } walker;
 
 void push_expr_stack(walker* const walk);
 void pop_expr_stack(walker* const walk);
+
+typedef struct map_stack map_stack;
+typedef struct map_stack {
+	token_map map;
+	map_stack* next;
+	map_stack* prev;
+} map_stack;
+
+typedef struct realias_walker {
+	parser* parse;
+	map_stack* relations;
+	string next_generic;
+} realias_walker;
+
+void push_map_stack(realias_walker* const walk);
+void pop_map_stack(realias_walker* const walk);
+
+void realias_type_expr(realias_walker* const walk, expr_ast* const expr);
+void realias_type_term(realias_walker* const walk, term_ast* const term);
+void realias_type(realias_walker* const walk, type_ast* const type);
+void realias_type_structure(realias_walker* const walk, structure_ast* const s);
 
 type_ast* reduce_alias(parser* const parse, type_ast* start);
 type_ast* reduce_alias_and_type(parser* const parse, type_ast* start);
@@ -519,13 +539,12 @@ type_ast* is_member(type_ast* const obj, expr_ast* const field);
 type_ast_map* clash_types(parser* const parse, type_ast* const left, type_ast* const right);
 uint8_t clash_types_worker(parser* const parse, type_ast_map* relation, type_ast* const left, type_ast* const right);
 uint8_t clash_structure_worker(parser* const parse, type_ast_map* relation, structure_ast* const left, structure_ast* const right);
-type_ast* type_pass(walker* const walk, type_ast* const source);
-structure_ast* type_pass_structure_worker(walker* const walk, token_map* const relation, structure_ast* const source);
-type_ast* type_pass_worker(walker* const walk, token_map* const relation, type_ast* const source);
+structure_ast* deep_copy_structure(walker* const walk, structure_ast* const source);
+type_ast* deep_copy_type(walker* const walk, type_ast* const source);
 uint8_t type_valid(parser* const parse, type_ast* const type);
 uint8_t struct_valid(parser* const parse, structure_ast* const s);
 implementation_ast* type_depends(walker* const walk, type_ast* const depends, type_ast* const func, type_ast* const arg);
-void generate_new_generic(walker* const walk);
+void generate_new_generic(realias_walker* const walk);
 
 type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, type_ast* const outer_type);
 type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected_type);

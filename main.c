@@ -2613,50 +2613,17 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 						return field;
 					}
 					walk_assert(obj->tag == FUNCTION_TYPE || (obj->tag == DEPENDENCY_TYPE && obj->data.dependency.type->tag == FUNCTION_TYPE), nearest_token(expr), "Expected either structure access or composition, but left type was neither a function nor a structure");
-					// f . g TODO this might need to be rewritten
-					type_ast* field = walk_expr(walk, expr->data.appl.right, NULL, outer_type);
+					// f . g
+					expr_ast* comp = expr->data.appl.left->data.appl.left;
+					comp->tag = BINDING_EXPR;
+					comp->dot = 0;
+					string_set(walk->parse->mem, &comp->data.binding.data.name, "compose");
+					type_ast* mytype = walk_expr(walk, expr, expected_type, outer_type);
 					walk_assert_prop();
-					walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Unable to determine type in composition expression");
-					walk_assert(field->tag == FUNCTION_TYPE || (field->tag == DEPENDENCY_TYPE && field->data.dependency.type->tag == FUNCTION_TYPE), nearest_token(expr->data.appl.right), "Right side of composition must be function");
-					if (obj->tag == DEPENDENCY_TYPE){
-						walk_assert(field->tag == DEPENDENCY_TYPE, nearest_token(expr), "Dependencies did not match in composition");
-						type_ast* depends = type_pass(walk, obj);
-						walk_assert_prop();
-						type_ast* field_depends = field;
-						obj = depends->data.dependency.type;
-						field = field_depends->data.dependency.type;
-						type_ast left_dep = *depends;
-						left_dep.data.dependency.type = obj->data.function.left;
-						type_ast right_dep = *field_depends;
-						right_dep.data.dependency.type = field->data.function.right;
-						walk_assert(type_equal(walk->parse, &left_dep, &right_dep) == 1, nearest_token(expr), "Composition arguments must have types (a -> b) . (c -> a)");
-						type_ast* composed = pool_request(walk->parse->mem, sizeof(type_ast));
-						composed->tag = FUNCTION_TYPE;
-						composed->data.function.left = field->data.function.left;
-						composed->data.function.right = obj->data.function.right;
-						type_ast_map* relation = clash_types(walk->parse, obj, field);
-						walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "Composition arguments would not clash");
-						type_ast* d = pool_request(walk->parse->mem, sizeof(type_ast));
-						*d = *depends;
-						d->data.dependency.type = composed;
-						type_ast* generic_comp = deep_copy_type_replace(walk->parse->mem, relation, d);
-						pop_binding(walk->local_scope, scope_pos);
-						expr->type = generic_comp;
-						return generic_comp;
-					}
-					walk_assert(type_equal(walk->parse, obj->data.function.left, field->data.function.right) == 1, nearest_token(expr), "Composition arguments must have types (a -> b) . (c -> a)");
-					type_ast* composed = pool_request(walk->parse->mem, sizeof(type_ast));
-					composed->tag = FUNCTION_TYPE;
-					obj = type_pass(walk, obj);
-					walk_assert_prop();
-					composed->data.function.left = field->data.function.left;
-					composed->data.function.right = obj->data.function.right;
-					type_ast_map* relation = clash_types(walk->parse, obj, field);
-					walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "Composition arguments would not clash");
-					type_ast* generic_comp = deep_copy_type_replace(walk->parse->mem, relation, composed);
+					walk_assert(mytype != NULL, nearest_token(expr), "Unable to determine type in composition expression");
 					pop_binding(walk->local_scope, scope_pos);
-					expr->type = generic_comp;
-					return generic_comp;
+					expr->type = mytype;
+					return mytype;
 				}
 			}
 		}
@@ -2679,7 +2646,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				type_depends(walk, left_real, inner_type, right);
 				walk_assert_prop();
 				type_ast_map* relation = clash_types(walk->parse, inner_type->data.function.left, right);
-				walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
+				walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of dependent application with known typedid not match right side of application");
 				type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, inner_type->data.function.right);
 				walk_assert(type_equal(walk->parse, expected_type, reduce_alias_and_type(walk->parse, generic_applied_type)), nearest_token(expr), "Applied generic type did not match expected type");
 				left_real->data.dependency.type = generic_applied_type;
@@ -2687,8 +2654,20 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				expr->type = left_real;
 				return left_real;
 			}
+			if (right->tag == DEPENDENCY_TYPE){
+				type_ast* outer = type_pass(walk, right);
+				type_ast* inner_type = outer->data.dependency.type;
+				type_ast_map* relation = clash_types(walk->parse, left_real->data.function.left, inner_type);
+				walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
+				outer->data.dependency.type = left_real->data.function.right;
+				type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, outer);
+				walk_assert(type_equal(walk->parse, expected_type, reduce_alias_and_type(walk->parse, generic_applied_type)), nearest_token(expr), "Applied generic type did not match expected type");
+				pop_binding(walk->local_scope, scope_pos);
+				expr->type = generic_applied_type;
+				return generic_applied_type;
+			}
 			type_ast_map* relation = clash_types(walk->parse, left_real->data.function.left, right);
-			walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
+			walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application with known type did not match right side of application");
 			type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, left_real->data.function.right);
 			walk_assert(type_equal(walk->parse, expected_type, reduce_alias_and_type(walk->parse, generic_applied_type)), nearest_token(expr), "Applied generic type did not match expected type");
 			pop_binding(walk->local_scope, scope_pos);
@@ -2700,7 +2679,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		pop_expr(walk->outer_exprs, expr_count);
 		walk_assert_prop();
 		walk_assert(left != NULL, nearest_token(expr->data.appl.left), "Unable to infer type of left of application");
-		walk_assert(left->tag == FUNCTION_TYPE, nearest_token(expr->data.appl.left), "Left of application type needs to be function");
+		walk_assert(left->tag == FUNCTION_TYPE || (left->tag == DEPENDENCY_TYPE && left->data.dependency.type->tag == FUNCTION_TYPE), nearest_token(expr->data.appl.left), "Left of application type needs to be function");
 		left = type_pass(walk, left);
 		walk_assert_prop();
 		if (left->tag == DEPENDENCY_TYPE){
@@ -2708,9 +2687,20 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			type_depends(walk, left, inner_type, right);
 			walk_assert_prop();
 			type_ast_map* relation = clash_types(walk->parse, inner_type->data.function.left, right);
-			walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
+			walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of dependent application did not match right side of application");
 			type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, inner_type->data.function.right);
-			left->data.dependency.type = generic_applied_type;
+			left->data.dependency.type = generic_applied_type; // TODO creates mismatch ?
+			pop_binding(walk->local_scope, scope_pos);
+			expr->type = generic_applied_type;
+			return generic_applied_type;
+		}
+		if (right->tag == DEPENDENCY_TYPE){
+			type_ast* outer = type_pass(walk, right);
+			type_ast* inner_type = outer->data.dependency.type;
+			type_ast_map* relation = clash_types(walk->parse, left->data.function.left, inner_type);
+			walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
+			outer->data.dependency.type = left->data.function.right;
+			type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, outer);
 			pop_binding(walk->local_scope, scope_pos);
 			expr->type = generic_applied_type;
 			return generic_applied_type;

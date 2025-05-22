@@ -24,6 +24,9 @@ GROWABLE_BUFFER_IMPL(const_ast);
 GROWABLE_BUFFER_IMPL(typeclass_ast);
 GROWABLE_BUFFER_IMPL(implementation_ast);
 GROWABLE_BUFFER_IMPL(term_ast);
+GROWABLE_BUFFER_IMPL(token);
+
+MAP_IMPL(token_buffer);
 
 #define assert_local(c, r, s, ...)\
 	if (!(c)){\
@@ -525,7 +528,7 @@ show_tokens(token* tokens, uint64_t token_count){
 		case BACKTICK_TOKEN:
 			printf("BACKTICK ` ");
 			break;
-		case COMPOSE_TOKEN:
+case COMPOSE_TOKEN:
 			printf("COMPOSE . ");
 			break;
 		case SHIFT_TOKEN:
@@ -2499,7 +2502,7 @@ lex_err(parser* const parse, uint64_t goal, string filename){
 
 //NOTE every return requires a pop of the local scope, except term, because that binding needs to persist
 //NOTE every case reduces both type and alias except binding, which just reduces alias, as strict term typing matters when comparing two strict types
-//NOTE every case uses the outer type from a term or the outer type from a mutation and passes it along, outer_type is never null
+//NOTE every case uses the outer type from a term or the outer type from a mutation and passes it along, outer_type is set to null once, when lambdas dont know their return type
 type_ast*
 walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, type_ast* const outer_type){
 	uint64_t scope_pos = walk->local_scope->binding_count;
@@ -2776,13 +2779,13 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				}
 				arg_pos -= 1;
 			}
-			type_ast* eval_type = walk_expr(walk, expr->data.lambda.expression, NULL, outer_type);
+			type_ast* eval_type = walk_expr(walk, expr->data.lambda.expression, NULL, NULL);
 			walk_assert_prop();
 			walk_assert(eval_type != NULL, nearest_token(expr->data.lambda.expression), "Lambda term expression did not have inferrable type");
 			*type_focus = *eval_type;
 			if (expr->data.lambda.alt != NULL){
 				pop_binding(walk->local_scope, scope_pos);
-				type_ast* alt_type = walk_expr(walk, expr->data.lambda.alt, NULL, outer_type);
+				type_ast* alt_type = walk_expr(walk, expr->data.lambda.alt, NULL, NULL);
 				walk_assert_prop();
 				walk_assert(alt_type != NULL, nearest_token(expr->data.lambda.expression), "Lambda term alternate did not have inferrable type");
 			}
@@ -2802,12 +2805,12 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			walk_assert_prop();
 			walk_assert(real_type != NULL, nearest_pattern_token(&expr->data.lambda.args[i]), "Lambda term argument did not match expected type");
 		}
-		type_ast* eval_type = walk_expr(walk, expr->data.lambda.expression, expected_view, outer_type);
+		type_ast* eval_type = walk_expr(walk, expr->data.lambda.expression, expected_view, expected_view);
 		walk_assert_prop();
 		walk_assert(eval_type != NULL, nearest_token(expr->data.lambda.expression), "Lambda term expression did not match expected type");
 		if (expr->data.lambda.alt != NULL){
 			pop_binding(walk->local_scope, scope_pos);
-			type_ast* alt_type = walk_expr(walk, expr->data.lambda.alt, expected_type, outer_type);
+			type_ast* alt_type = walk_expr(walk, expr->data.lambda.alt, expected_type, expected_view);
 			walk_assert_prop();
 			walk_assert(alt_type != NULL, nearest_token(expr->data.lambda.expression), "Lambda term alternate did not match expected type");
 		}
@@ -3877,7 +3880,8 @@ check_program(parser* const parse){
 	realias_walker realias = {
 		.parse = parse,
 		.relations = NULL,
-		.next_generic = string_init(parse->mem, "@A")
+		.next_generic = string_init(parse->mem, "@A"),
+		.generic_collection_buffer = token_buffer_init(parse->mem)
 	};
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
 		realias_type_term(&realias, &parse->term_list.buffer[i]);
@@ -4078,14 +4082,14 @@ type_depends(walker* const walk, type_ast* const depends, type_ast* const func, 
 		if (arg->tag != NAMED_TYPE){
 			return NULL;
 		}
-		for (uint64_t i = 0;i<depends->data.dependency.dependency_count;++i){
-			if (string_compare(&depends->data.dependency.dependency_typenames[i].data.name, &arg->data.named.name.data.name) != 0){
+		for (uint64_t i = 0;i<arg_outer->data.dependency.dependency_count;++i){
+			if (string_compare(&arg_outer->data.dependency.dependency_typenames[i].data.name, &arg->data.named.name.data.name) != 0){
 				continue;
 			}
-			depends->data.dependency.dependency_count -= 1;
-			for (uint64_t k = i;k<depends->data.dependency.dependency_count;++k){
-				depends->data.dependency.dependency_typenames[k] = depends->data.dependency.dependency_typenames[k+1];
-				depends->data.dependency.typeclass_dependencies[k] = depends->data.dependency.typeclass_dependencies[k+1];
+			arg_outer->data.dependency.dependency_count -= 1;
+			for (uint64_t k = i;k<arg_outer->data.dependency.dependency_count;++k){
+				arg_outer->data.dependency.dependency_typenames[k] = arg_outer->data.dependency.dependency_typenames[k+1];
+				arg_outer->data.dependency.typeclass_dependencies[k] = arg_outer->data.dependency.typeclass_dependencies[k+1];
 			}
 			break;
 		}
@@ -4100,11 +4104,13 @@ push_map_stack(realias_walker* const walk){
 		walk->relations->next = NULL;
 		walk->relations->prev = NULL;
 		walk->relations->map = token_map_init(walk->parse->mem);
+		walk->relations->deps = token_buffer_map_init(walk->parse->mem);
 		return;
 	}
 	if (walk->relations->next != NULL){
 		walk->relations = walk->relations->next;
 		token_map_clear(&walk->relations->map);
+		token_buffer_map_clear(&walk->relations->deps);
 		return;
 	}
 	walk->relations->next = pool_request(walk->parse->mem, sizeof(map_stack));
@@ -4112,6 +4118,7 @@ push_map_stack(realias_walker* const walk){
 	walk->relations = walk->relations->next;
 	walk->relations->next = NULL;
 	walk->relations->map = token_map_init(walk->parse->mem);
+	walk->relations->deps = token_buffer_map_init(walk->parse->mem);
 }
 
 void
@@ -4216,6 +4223,8 @@ realias_type_term(realias_walker* const walk, term_ast* const term){
 	push_map_stack(walk);
 	realias_type(walk, term->type);
 	assert_prop();
+	term->type = sprinkle_deps(walk, term->type);
+	scrape_deps(walk, term->type);
 	realias_type_expr(walk, term->expression);
 	pop_map_stack(walk);
 }
@@ -4309,6 +4318,140 @@ realias_type_structure(realias_walker* const walk, structure_ast* const s){
 	}
 }
 
+type_ast*
+sprinkle_deps(realias_walker* const walk, type_ast* term_type){
+	token_buffer_clear(&walk->generic_collection_buffer);
+	collect_dependencies(walk, term_type);
+	uint64_t capacity = 2;
+	type_ast* outer = NULL;
+	for (uint64_t i = 0;i<walk->generic_collection_buffer.count;++i){
+		token generic = walk->generic_collection_buffer.buffer[i];
+		map_stack* relation = walk->relations;
+		while (relation != NULL){
+			token_buffer* names = token_buffer_map_access(&relation->deps, generic.data.name);
+			relation = relation->prev;
+			if (names == NULL){
+				continue;
+			}
+			if (names->count != 0){
+				if (outer == NULL){
+					outer = term_type;
+					if (term_type->tag != DEPENDENCY_TYPE){
+						outer = pool_request(walk->parse->mem, sizeof(type_ast));
+						outer->tag = DEPENDENCY_TYPE;
+						outer->data.dependency.dependency_count = 0;
+						outer->data.dependency.type = term_type;
+						outer->data.dependency.typeclass_dependencies = pool_request(walk->parse->mem, sizeof(token)*capacity);
+						outer->data.dependency.dependency_typenames = pool_request(walk->parse->mem, sizeof(token)*capacity);
+					}
+					term_type = outer;
+				}
+			}
+			for (uint64_t k = 0;k<names->count;++k){
+				uint8_t found = 0;
+				token classname = names->buffer[k];
+				for (uint64_t t = 0;t<outer->data.dependency.dependency_count;++t){
+					if (string_compare(&outer->data.dependency.typeclass_dependencies[t].data.name, &classname.data.name) == 0){
+						found = 1;
+						break;
+					}
+				}
+				if (found == 1){
+					continue;
+				}
+				if (outer->data.dependency.dependency_count == capacity){
+					capacity *= 2;
+					token* classes = pool_request(walk->parse->mem, sizeof(token)*capacity);
+					token* typenames = pool_request(walk->parse->mem, sizeof(token)*capacity);
+					for (uint64_t j = 0;j<outer->data.dependency.dependency_count;++j){
+						classes[j] = outer->data.dependency.typeclass_dependencies[j];
+						typenames[j] = outer->data.dependency.dependency_typenames[j];
+					}
+					outer->data.dependency.typeclass_dependencies = classes;
+					outer->data.dependency.dependency_typenames = typenames;
+				}
+				outer->data.dependency.typeclass_dependencies[outer->data.dependency.dependency_count] = classname;
+				outer->data.dependency.dependency_typenames[outer->data.dependency.dependency_count] = generic;
+				outer->data.dependency.dependency_count += 1;
+			}
+		}
+	}
+	return term_type;
+}
+
+void
+collect_dependencies(realias_walker* const walk, type_ast* const type){
+	switch (type->tag){
+	case DEPENDENCY_TYPE:
+		collect_dependencies(walk, type->data.dependency.type);
+		return;
+	case FUNCTION_TYPE:
+		collect_dependencies(walk, type->data.function.left);
+		collect_dependencies(walk, type->data.function.right);
+		return;
+	case LIT_TYPE:
+		return;
+	case PTR_TYPE:
+		collect_dependencies(walk, type->data.ptr);
+		return;
+	case FAT_PTR_TYPE:
+		collect_dependencies(walk, type->data.fat_ptr.ptr);
+		return;
+	case STRUCT_TYPE:
+		collect_dependencies_struct(walk, type->data.structure);
+		return;
+	case NAMED_TYPE:
+		typedef_ast** istype = typedef_ptr_map_access(walk->parse->types, type->data.named.name.data.name);
+		if (istype == NULL){
+			alias_ast** alias = alias_ptr_map_access(walk->parse->aliases, type->data.named.name.data.name);
+			if (alias == NULL){
+				token_buffer_insert(&walk->generic_collection_buffer, type->data.named.name);
+			}
+		}
+		for (uint64_t i = 0;i<type->data.named.arg_count;++i){
+			collect_dependencies(walk, &type->data.named.args[i]);
+		}
+		return;
+	}
+}
+
+void
+collect_dependencies_struct(realias_walker* const walk, structure_ast* const s){
+	switch (s->tag){
+	case STRUCT_STRUCT:
+		for (uint64_t i = 0;i<s->data.structure.count;++i){
+			collect_dependencies(walk, &s->data.structure.members[i]);
+		}
+		return;
+	case UNION_STRUCT:
+		for (uint64_t i = 0;i<s->data.union_structure.count;++i){
+			collect_dependencies(walk, &s->data.union_structure.members[i]);
+		}
+		return;
+	case ENUM_STRUCT:
+		return;
+	}
+}
+
+void
+scrape_deps(realias_walker* const walk, type_ast* const term_type){
+	if (term_type->tag != DEPENDENCY_TYPE){
+		return;
+	}
+	for (uint64_t i = 0;i<term_type->data.dependency.dependency_count;++i){
+		token name = term_type->data.dependency.typeclass_dependencies[i];
+		token generic = term_type->data.dependency.dependency_typenames[i];
+		token_buffer* names = token_buffer_map_access(&walk->relations->deps, generic.data.name);
+		if (names == NULL){
+			token_buffer new = token_buffer_init(walk->parse->mem);
+			token_buffer_insert(&new, name);
+			token_buffer_map_insert(&walk->relations->deps, generic.data.name, new);
+			continue;
+		}
+		token_buffer_insert(names, name);
+	}
+}
+
 /* TODO
  * typeclass/implementation member tracking
  * 	based on expectd_type, arg type, and function name, I need to find if that implementation exists, and "use" that one/use its type + monomorphize to it
@@ -4322,6 +4465,10 @@ realias_type_structure(realias_walker* const walk, structure_ast* const s){
  * validate cast and sizeof expressionas after monomorphization (because generics are gone) to validate that they are correct types [ type_valid() ]
  * error reporting as logging rather than single report
  * nearest type token function
+ *
+ * TODO reudce type or alias doesnt reduce or account dependent types
+ * TODO mutation checks mutability lol
+ * TODO anonymous structures?
  */
 
 int

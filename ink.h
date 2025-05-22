@@ -399,7 +399,9 @@ MAP_DECL(token);
 \
 	void type##_buffer_insert(type##_buffer* const buffer, type elem);\
 \
-	type* type##_buffer_top(type##_buffer* const buffer);
+	type* type##_buffer_top(type##_buffer* const buffer);\
+\
+	void type##_buffer_clear(type##_buffer* const buffer);
 
 #define GROWABLE_BUFFER_IMPL(type)\
 	type##_buffer type##_buffer_init(pool* const mem){\
@@ -427,6 +429,10 @@ MAP_DECL(token);
 \
 	type* type##_buffer_top(type##_buffer* const buffer){\
 		return &buffer->buffer[buffer->count-1];\
+	}\
+\
+	void type##_buffer_clear(type##_buffer* const buffer){\
+		buffer->count = 0;\
 	}
 
 GROWABLE_BUFFER_DECL(typedef_ast);
@@ -504,9 +510,13 @@ typedef struct walker {
 void push_expr_stack(walker* const walk);
 void pop_expr_stack(walker* const walk);
 
+GROWABLE_BUFFER_DECL(token);
+MAP_DECL(token_buffer);
+
 typedef struct map_stack map_stack;
 typedef struct map_stack {
 	token_map map;
+	token_buffer_map deps;
 	map_stack* next;
 	map_stack* prev;
 } map_stack;
@@ -515,6 +525,7 @@ typedef struct realias_walker {
 	parser* parse;
 	map_stack* relations;
 	string next_generic;
+	token_buffer generic_collection_buffer;
 } realias_walker;
 
 void push_map_stack(realias_walker* const walk);
@@ -524,6 +535,11 @@ void realias_type_expr(realias_walker* const walk, expr_ast* const expr);
 void realias_type_term(realias_walker* const walk, term_ast* const term);
 void realias_type(realias_walker* const walk, type_ast* const type);
 void realias_type_structure(realias_walker* const walk, structure_ast* const s);
+
+type_ast* sprinkle_deps(realias_walker* const walk, type_ast* term_type);
+void collect_dependencies(realias_walker* const walk, type_ast* const type);
+void collect_dependencies_struct(realias_walker* const walk, structure_ast* const s);
+void scrape_deps(realias_walker* const walk, type_ast* const term_type);
 
 type_ast* reduce_alias(parser* const parse, type_ast* start);
 type_ast* reduce_alias_and_type(parser* const parse, type_ast* start);

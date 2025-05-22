@@ -98,6 +98,12 @@ typedef enum MAP_BUCKET_TAG {
 		else if (hash > bucket->hash){\
 			return type##_map_bucket_insert(map, bucket->right, key, hash, value);\
 		}\
+		if (string_compare(key, &bucket->key) < 0){\
+			return type##_map_bucket_insert(map, bucket->left, key, hash, value);\
+		}\
+		else if (string_compare(key, &bucket->key) > 0){\
+			return type##_map_bucket_insert(map, bucket->left, key, hash, value);\
+		}\
 		bucket->data = value;\
 		return 1;\
 	}\
@@ -110,6 +116,12 @@ typedef enum MAP_BUCKET_TAG {
 			return type##_map_bucket_access(map, bucket->left, key, hash);\
 		}\
 		if (hash > bucket->hash){\
+			return type##_map_bucket_access(map, bucket->right, key, hash);\
+		}\
+		if (string_compare(key, &bucket->key) < 0){\
+			return type##_map_bucket_access(map, bucket->left, key, hash);\
+		}\
+		else if (string_compare(key, &bucket->key) > 0){\
 			return type##_map_bucket_access(map, bucket->right, key, hash);\
 		}\
 		return &bucket->data;\

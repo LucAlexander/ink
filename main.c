@@ -3263,6 +3263,12 @@ void pop_expr_stack(walker* const walk){
 
 type_ast*
 reduce_alias(parser* const parse, type_ast* start_type){
+	type_ast* outer_type = NULL;
+	if (start_type->tag == DEPENDENCY_TYPE){
+		outer_type = pool_request(parse->mem, sizeof(type_ast));
+		*outer_type = *start_type;
+		start_type = start_type->data.dependency.type;
+	}
 	while (start_type->tag == NAMED_TYPE){
 		alias_ast** alias = alias_ptr_map_access(parse->aliases, start_type->data.named.name.data.name);
 		if (alias == NULL){
@@ -3270,11 +3276,21 @@ reduce_alias(parser* const parse, type_ast* start_type){
 		}
 		start_type = (*alias)->type;
 	}
+	if (outer_type != NULL){
+		outer_type->data.dependency.type = start_type;
+		return outer_type;
+	}
 	return start_type;
 }
 
 type_ast*
 reduce_alias_and_type(parser* const parse, type_ast* start_type){
+	type_ast* outer_type = NULL;
+	if (start_type->tag == DEPENDENCY_TYPE){
+		outer_type = pool_request(parse->mem, sizeof(type_ast));
+		*outer_type = *start_type;
+		start_type = start_type->data.dependency.type;
+	}
 	while (start_type->tag == NAMED_TYPE){
 		alias_ast** alias = alias_ptr_map_access(parse->aliases, start_type->data.named.name.data.name);
 		if (alias != NULL){
@@ -3295,7 +3311,15 @@ reduce_alias_and_type(parser* const parse, type_ast* start_type){
 			start_type = (*type)->type;
 			continue;
 		}
+		if (outer_type != NULL){
+			outer_type->data.dependency.type = start_type;
+			return outer_type;
+		}
 		return start_type;
+	}
+	if (outer_type != NULL){
+		outer_type->data.dependency.type = start_type;
+		return outer_type;
 	}
 	return start_type;
 }
@@ -4467,7 +4491,6 @@ scrape_deps(realias_walker* const walk, type_ast* const term_type){
  * error reporting as logging rather than single report
  * nearest type token function
  *
- * TODO reudce type or alias doesnt reduce or account dependent types
  * TODO anonymous structures?
  */
 

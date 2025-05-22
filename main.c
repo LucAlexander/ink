@@ -2509,6 +2509,9 @@ lex_err(parser* const parse, uint64_t goal, string filename){
 //NOTE every case uses the outer type from a term or the outer type from a mutation and passes it along, outer_type is set to null once, when lambdas dont know their return type
 type_ast*
 walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, type_ast* const outer_type){
+	if (expr->type != NULL){
+		return expr->type;
+	}
 	uint64_t scope_pos = walk->local_scope->binding_count;
 	uint64_t expr_count = walk->outer_exprs->expr_count;
 	structure_ast* inner;
@@ -3391,6 +3394,41 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type){
 			return deep_copy_type_replace(walk->parse->mem, &empty, walk->local_scope->bindings[i].type);
 		}
 	}
+	term_ptr_buffer* poly_funcs = term_ptr_buffer_map_access(walk->parse->implemented_terms, bind->data.name);
+	if (poly_funcs != NULL){
+		for (uint64_t i = 0;i<poly_funcs->count;++i){
+			term_ast* term = poly_funcs->buffer[i];
+			type_ast* type = term->type;
+			if (expected_type == NULL){
+				uint64_t index = walk->outer_exprs->expr_count-1;
+				uint8_t broke = 0;
+				while (type->tag == FUNCTION_TYPE){
+					expr_ast* arg = walk->outer_exprs->exprs[index];
+					type_ast* candidate = walk_expr(walk, arg, NULL, NULL);
+					if (candidate == NULL){
+						broke = 1;
+						break;
+					}
+					if (type_equal(walk->parse, candidate, type->data.function.left) == 0){
+						broke = 1;
+						break;
+					}
+					type = type->data.function.right;
+					if (index == 0){
+						break;
+					}
+				}
+				if (broke == 0){
+					return deep_copy_type(walk, term->type);
+				}
+			}
+			else{
+				if (type_equal(walk->parse, expected_type, type) == 1){
+					return expected_type;
+				}
+			}
+		}
+	}
 	return NULL;
 }
 
@@ -4029,12 +4067,16 @@ check_program(parser* const parse){
 	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 		implementation_ast* impl = &parse->implementation_list.buffer[i];
 		for (uint64_t t = 0;t<impl->member_count;++t){
+			uint64_t pos = walk.local_scope->binding_count;
 			walk_term(&walk, &impl->members[t], NULL);
+			pop_binding(walk.local_scope, pos);
 			assert_prop();
 		}
 	}
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
+		uint64_t pos = walk.local_scope->binding_count;
 		walk_term(&walk, &parse->term_list.buffer[i], NULL);
+		pop_binding(walk.local_scope, pos);
 		assert_prop();
 #ifdef DEBUG
 		show_term(&parse->term_list.buffer[i]);

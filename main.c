@@ -2525,7 +2525,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			inner = expected_type->data.structure;
 			if (inner->tag == UNION_STRUCT){
 				for (uint64_t k = 0;k<inner->data.union_structure.count;++k){
-					type_ast* match_inference = walk_expr(walk, expr, &inner->data.union_structure.members[k], outer_type);
+					type_ast* match_inference = walk_expr(walk, expr, &inner->data.union_structure.members[k], &inner->data.union_structure.members[k]);
 					if (match_inference == NULL){
 						walk->parse->err.len = 0;
 						continue;
@@ -2554,7 +2554,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				any->data.ptr = pool_request(walk->parse->mem, sizeof(type_ast));
 				any->data.ptr->tag = LIT_TYPE;
 				any->data.ptr->data.lit = INT_ANY;
-				type_ast* access = walk_expr(walk, expr->data.appl.right, any, outer_type);
+				type_ast* access = walk_expr(walk, expr->data.appl.right, any, any);
 				walk_assert_prop();
 				walk_assert(access != NULL, nearest_token(expr), "Accessor type should be integer");
 				if (array->tag == FAT_PTR_TYPE){
@@ -2628,7 +2628,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 					comp->tag = BINDING_EXPR;
 					comp->dot = 0;
 					string_set(walk->parse->mem, &comp->data.binding.data.name, "compose");
-					type_ast* mytype = walk_expr(walk, expr, expected_type, outer_type);
+					type_ast* mytype = walk_expr(walk, expr, expected_type, expected_type);
 					walk_assert_prop();
 					walk_assert(mytype != NULL, nearest_token(expr), "Unable to determine type in composition expression");
 					pop_binding(walk->local_scope, scope_pos);
@@ -2896,7 +2896,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 					walk_assert(first != NULL, nearest_token(expr), "List element not able to resolve to type");
 					continue;
 				}
-				type_ast* rest = walk_expr(walk, &expr->data.block.lines[i], first, outer_type);
+				type_ast* rest = walk_expr(walk, &expr->data.block.lines[i], first, first);
 				walk_assert_prop();
 				walk_assert(rest != NULL, nearest_token(expr), "List element not able to resolve to type");
 			}
@@ -2907,7 +2907,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert(expected_type->tag == FAT_PTR_TYPE || expected_type->tag == PTR_TYPE, nearest_token(expr), "List assignment to non pointer type");
 		if (expected_type->tag == FAT_PTR_TYPE){
 			for (uint64_t i = 0;i<expr->data.block.line_count;++i){
-				type_ast* rest = walk_expr(walk, &expr->data.block.lines[i], expected_type->data.fat_ptr.ptr, outer_type);
+				type_ast* rest = walk_expr(walk, &expr->data.block.lines[i], expected_type->data.fat_ptr.ptr, expected_type->data.fat_ptr.ptr);
 				walk_assert_prop();
 				walk_assert(rest != NULL, nearest_token(expr), "List element not able to resolve to type");
 			}
@@ -2916,7 +2916,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			return expected_type;
 		}
 		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
-			type_ast* rest = walk_expr(walk, &expr->data.block.lines[i], expected_type->data.ptr, outer_type);
+			type_ast* rest = walk_expr(walk, &expr->data.block.lines[i], expected_type->data.ptr, expected_type->data.ptr);
 			walk_assert_prop();
 			walk_assert(rest != NULL, nearest_token(expr), "List element not able to resolve to type");
 		}
@@ -2964,7 +2964,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 					uint8_t found = 0;
 					for (uint64_t k = 0;k<inner->data.structure.count;++k){
 						if (string_compare(&inner->data.structure.names[k].data.name, &expr->data.constructor.names[i].data.name) == 0){
-							type_ast* inferred = walk_expr(walk, &expr->data.constructor.members[i], &inner->data.structure.members[k], outer_type);
+							type_ast* inferred = walk_expr(walk, &expr->data.constructor.members[i], &inner->data.structure.members[k], &inner->data.structure.members[k]);
 							walk_assert_prop();
 							walk_assert(inferred != NULL, nearest_token(&expr->data.constructor.members[i]), "Unexpected type for structure member");
 							current_member = k+1;
@@ -2975,7 +2975,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 					continue;
 				}
 				walk_assert(current_member < inner->data.structure.count, expr->data.constructor.names[i].index, "Extra member in constructor");
-				type_ast* inferred = walk_expr(walk, &expr->data.constructor.members[i], &inner->data.structure.members[current_member], outer_type);
+				type_ast* inferred = walk_expr(walk, &expr->data.constructor.members[i], &inner->data.structure.members[current_member], &inner->data.structure.members[current_member]);
 				walk_assert_prop();
 				walk_assert(inferred != NULL, nearest_token(&expr->data.constructor.members[i]), "Unexpected type for structure member");
 				current_member += 1;
@@ -2986,7 +2986,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		}
 		walk_assert(inner->tag == ENUM_STRUCT, nearest_token(expr), "Expected enumerator value");
 		walk_assert(expr->data.constructor.member_count == 1, nearest_token(expr), "Constructed enumerator requires 1 and only 1 value");
-		type_ast* enum_type = walk_expr(walk, &expr->data.constructor.members[0], inner_struct, outer_type);
+		type_ast* enum_type = walk_expr(walk, &expr->data.constructor.members[0], inner_struct, inner_struct);
 		pop_binding(walk->local_scope, scope_pos);
 		expr->type = enum_type;
 		return enum_type;
@@ -3052,7 +3052,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		else{
 			ref_inner = expected_type->data.ptr;
 		}
-		type_ast* ref_infer = walk_expr(walk, expr->data.ref, ref_inner, outer_type);
+		type_ast* ref_infer = walk_expr(walk, expr->data.ref, ref_inner, ref_inner);
 		walk_assert_prop();
 		walk_assert(ref_infer != NULL, nearest_token(expr), "Reference to type did not match expected type reference");
 		pop_binding(walk->local_scope, scope_pos);
@@ -3076,7 +3076,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		type_ast* expected_ptr = pool_request(walk->parse->mem, sizeof(type_ast));
 		expected_ptr->tag = PTR_TYPE;
 		expected_ptr->data.ptr = expected_type;
-		type_ast* deref_infer = walk_expr(walk, expr->data.deref, expected_ptr, outer_type);
+		type_ast* deref_infer = walk_expr(walk, expr->data.deref, expected_ptr, expected_ptr);
 		walk_assert_prop();
 		walk_assert(deref_infer != NULL, nearest_token(expr), "Expected pointer to dereference");
 		pop_binding(walk->local_scope, scope_pos);
@@ -3086,7 +3086,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		type_ast* if_predicate = pool_request(walk->parse->mem, sizeof(type_ast));
 		if_predicate->tag = LIT_TYPE;
 		if_predicate->data.lit = INT_ANY;
-		type_ast* ifpredtype = walk_expr(walk, expr->data.if_statement.pred, if_predicate, outer_type);
+		type_ast* ifpredtype = walk_expr(walk, expr->data.if_statement.pred, if_predicate, if_predicate);
 		walk_assert_prop();
 		walk_assert(ifpredtype != NULL, nearest_token(expr->data.if_statement.pred), "If predicate must be integral");
 		if (expected_type != NULL){
@@ -3123,10 +3123,10 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		type_ast* for_type = pool_request(walk->parse->mem, sizeof(type_ast));
 		for_type->tag = LIT_TYPE;
 		for_type->data.lit = INT_ANY;
-		type_ast* forinittype = walk_expr(walk, expr->data.for_statement.initial, for_type, outer_type);
+		type_ast* forinittype = walk_expr(walk, expr->data.for_statement.initial, for_type, for_type);
 		walk_assert_prop();
 	   	walk_assert(forinittype != NULL, nearest_token(expr->data.for_statement.initial), "For loop range must be integral");
-		type_ast* forlimittype = walk_expr(walk, expr->data.for_statement.limit, for_type, outer_type);
+		type_ast* forlimittype = walk_expr(walk, expr->data.for_statement.limit, for_type, for_type);
 		walk_assert_prop();
 	   	walk_assert(forlimittype != NULL, nearest_token(expr->data.for_statement.limit), "For loop range must be integral");
 		push_binding(walk->parse, walk->local_scope, &expr->data.for_statement.binding, for_type);
@@ -3139,7 +3139,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		type_ast* while_predicate = pool_request(walk->parse->mem, sizeof(type_ast));
 		while_predicate->tag = LIT_TYPE;
 		while_predicate->data.lit = INT_ANY;
-		type_ast* whilepredtype = walk_expr(walk, expr->data.while_statement.pred, while_predicate, outer_type);
+		type_ast* whilepredtype = walk_expr(walk, expr->data.while_statement.pred, while_predicate, while_predicate);
 		walk_assert_prop();
 	   	walk_assert(whilepredtype != NULL, nearest_token(expr->data.while_statement.pred), "While predicate must be integral");
 		walk_expr(walk, expr->data.while_statement.cons, NULL, outer_type);
@@ -4813,9 +4813,6 @@ struct_equiv_worker(parser* const parse, token_map* const generics,  type_ast_ma
 }
 
 /* TODO
- * typeclass/implementation member tracking
- * 	based on expectd_type, arg type, and function name, I need to find if that implementation exists, and "use" that one/use its type + monomorphize to it
- * 	I basically just did that function to check dependencies, it just needs a new flavor for binding checking
  * structure/defined type monomorphization
  * lambda capture to arg and lifting
  * closure capture to arg and lifting

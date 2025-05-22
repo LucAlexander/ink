@@ -2640,30 +2640,47 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			walk_assert(left_real != NULL, nearest_token(expr->data.appl.left), "Left type of application expression did not resolve to type");
 			walk_assert(left_real->tag == FUNCTION_TYPE || (left_real->tag == DEPENDENCY_TYPE && left_real->data.dependency.type->tag == FUNCTION_TYPE), nearest_token(expr->data.appl.left), "Left side of application expression was not a function");
 			left_real = deep_copy_type(walk, left_real);
+			type_ast* left_outer = NULL;
 			if (left_real->tag == DEPENDENCY_TYPE){
-				type_ast* inner_type = left_real->data.dependency.type;
-				type_depends(walk, left_real, inner_type, right);
-				walk_assert_prop();
-				type_ast_map* relation = clash_types(walk->parse, inner_type->data.function.left, right);
-				walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of dependent application with known typedid not match right side of application");
-				type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, inner_type->data.function.right);
-				walk_assert(type_equal(walk->parse, expected_type, reduce_alias_and_type(walk->parse, generic_applied_type)), nearest_token(expr), "Applied generic type did not match expected type");
-				left_real->data.dependency.type = generic_applied_type;
-				pop_binding(walk->local_scope, scope_pos);
-				expr->type = left_real;
-				return left_real;
+				left_outer = left_real;
+				left_real = left_real->data.dependency.type;
 			}
+			type_ast* right_outer = NULL;
 			if (right->tag == DEPENDENCY_TYPE){
-				type_ast* outer = deep_copy_type(walk, right);
-				type_ast* inner_type = outer->data.dependency.type;
-				type_ast_map* relation = clash_types(walk->parse, left_real->data.function.left, inner_type);
-				walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
-				outer->data.dependency.type = left_real->data.function.right;
-				type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, outer);
-				walk_assert(type_equal(walk->parse, expected_type, reduce_alias_and_type(walk->parse, generic_applied_type)), nearest_token(expr), "Applied generic type did not match expected type");
-				pop_binding(walk->local_scope, scope_pos);
-				expr->type = generic_applied_type;
-				return generic_applied_type;
+				right_outer = right;
+				right = right->data.dependency.type;
+			}
+			uint64_t dep_count = 0;
+			type_depends(walk, left_outer, left_real, right_outer, right);
+			walk_assert_prop();
+			if (left_outer != NULL){
+				dep_count += left_outer->data.dependency.dependency_count;
+			}
+			if (right_outer != NULL){
+				dep_count += right_outer->data.dependency.dependency_count;
+			}
+			type_ast* outer_depends = NULL;
+			if (left_outer != NULL || right_outer != NULL){
+				outer_depends = pool_request(walk->parse->mem, sizeof(type_ast));
+				outer_depends->tag = DEPENDENCY_TYPE;
+				outer_depends->data.dependency.dependency_count = dep_count;
+				outer_depends->data.dependency.dependency_typenames = pool_request(walk->parse->mem, sizeof(token)*dep_count);
+				outer_depends->data.dependency.typeclass_dependencies = pool_request(walk->parse->mem, sizeof(token)*dep_count);
+				uint64_t dpos = 0;
+				if (left_outer != NULL){
+					for (;dpos<left_outer->data.dependency.dependency_count;++dpos){
+						outer_depends->data.dependency.dependency_typenames[dpos] = left_outer->data.dependency.dependency_typenames[dpos];
+						outer_depends->data.dependency.typeclass_dependencies[dpos] = left_outer->data.dependency.typeclass_dependencies[dpos];
+					}
+				}
+				if (right_outer != NULL){
+					uint64_t i = 0;
+					for (;dpos<dep_count;++dpos){
+						i += 1;
+						outer_depends->data.dependency.dependency_typenames[dpos] = right_outer->data.dependency.dependency_typenames[i];
+						outer_depends->data.dependency.typeclass_dependencies[dpos] = right_outer->data.dependency.typeclass_dependencies[i];
+					}
+				}
 			}
 			type_ast_map* relation = clash_types(walk->parse, left_real->data.function.left, right);
 			walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application with known type did not match right side of application");
@@ -2680,32 +2697,58 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert(left != NULL, nearest_token(expr->data.appl.left), "Unable to infer type of left of application");
 		walk_assert(left->tag == FUNCTION_TYPE || (left->tag == DEPENDENCY_TYPE && left->data.dependency.type->tag == FUNCTION_TYPE), nearest_token(expr->data.appl.left), "Left of application type needs to be function");
 		left = deep_copy_type(walk, left);
+		type_ast* left_outer = NULL;
 		if (left->tag == DEPENDENCY_TYPE){
-			type_ast* inner_type = left->data.dependency.type;
-			type_depends(walk, left, inner_type, right);
-			walk_assert_prop();
-			type_ast_map* relation = clash_types(walk->parse, inner_type->data.function.left, right);
-			walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of dependent application did not match right side of application");
-			type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, inner_type->data.function.right);
-			left->data.dependency.type = generic_applied_type; // TODO creates mismatch ?
-			pop_binding(walk->local_scope, scope_pos);
-			expr->type = generic_applied_type;
-			return generic_applied_type;
+			left_outer = left;
+			left = left->data.dependency.type;
 		}
+		type_ast* right_outer = NULL;
 		if (right->tag == DEPENDENCY_TYPE){
-			type_ast* outer = deep_copy_type(walk, right);
-			type_ast* inner_type = outer->data.dependency.type;
-			type_ast_map* relation = clash_types(walk->parse, left->data.function.left, inner_type);
-			walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
-			outer->data.dependency.type = left->data.function.right;
-			type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, outer);
-			pop_binding(walk->local_scope, scope_pos);
-			expr->type = generic_applied_type;
-			return generic_applied_type;
+			right_outer = right;
+			right = right->data.dependency.type;
+		}
+		uint64_t dep_count = 0;
+		type_depends(walk, left_outer, left, right_outer, right);
+		walk_assert_prop();
+		if (left_outer != NULL){
+			dep_count += left_outer->data.dependency.dependency_count;
+		}
+		if (right_outer != NULL){
+			dep_count += right_outer->data.dependency.dependency_count;
+		}
+		type_ast* outer_depends = NULL;
+		if (left_outer != NULL || right_outer != NULL){
+			outer_depends = pool_request(walk->parse->mem, sizeof(type_ast));
+			outer_depends->tag = DEPENDENCY_TYPE;
+			outer_depends->data.dependency.dependency_count = dep_count;
+			outer_depends->data.dependency.dependency_typenames = pool_request(walk->parse->mem, sizeof(token)*dep_count);
+			outer_depends->data.dependency.typeclass_dependencies = pool_request(walk->parse->mem, sizeof(token)*dep_count);
+			uint64_t dpos = 0;
+			if (left_outer != NULL){
+				for (;dpos<left_outer->data.dependency.dependency_count;++dpos){
+					outer_depends->data.dependency.dependency_typenames[dpos] = left_outer->data.dependency.dependency_typenames[dpos];
+					outer_depends->data.dependency.typeclass_dependencies[dpos] = left_outer->data.dependency.typeclass_dependencies[dpos];
+				}
+			}
+			if (right_outer != NULL){
+				uint64_t i = 0;
+				for (;dpos<dep_count;++dpos){
+					i += 1;
+					outer_depends->data.dependency.dependency_typenames[dpos] = right_outer->data.dependency.dependency_typenames[i];
+					outer_depends->data.dependency.typeclass_dependencies[dpos] = right_outer->data.dependency.typeclass_dependencies[i];
+				}
+			}
 		}
 		type_ast_map* relation = clash_types(walk->parse, left->data.function.left, right);
 		walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
-		type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, left->data.function.right);
+		type_ast* generic_applied_type;
+	   	if (outer_depends == NULL){
+			generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, left->data.function.right);
+		}
+		else{
+			outer_depends->data.dependency.type = left->data.function.right;
+			generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, outer_depends);
+		}
 		pop_binding(walk->local_scope, scope_pos);
 		expr->type = generic_applied_type;
 		return generic_applied_type;
@@ -3987,25 +4030,55 @@ struct_valid(parser* const parse, structure_ast* const s){
 
 //NOTE the return of this function should be largely ignored for now
 implementation_ast*
-type_depends(walker* const walk, type_ast* const depends, type_ast* const func, type_ast* const arg){
-	if (func->data.function.left->tag != NAMED_TYPE){
-		return NULL;
+type_depends(walker* const walk, type_ast* const depends, type_ast* const func, type_ast* arg_outer, type_ast* const arg){
+	if (depends != NULL){
+		if (func->data.function.left->tag != NAMED_TYPE){
+			return NULL;
+		}
+		for (uint64_t i = 0;i<depends->data.dependency.dependency_count;++i){
+			if (string_compare(&depends->data.dependency.dependency_typenames[i].data.name, &func->data.function.left->data.named.name.data.name) != 0){
+				continue;
+			}
+			walk_assert(arg->tag == NAMED_TYPE, 0, "Dependent argument must be a named type");
+			implementation_ptr_map* implementations = implementation_ptr_map_map_access(walk->parse->implementations, arg->data.named.name.data.name); // TODO what if arg is generic
+			if (implementations == NULL){
+				walk_assert(arg_outer != NULL, 0, "Generic argument did not have dependency to match function applied to it");
+				uint8_t found = 0;
+				for (uint64_t k = 0;k<arg_outer->data.dependency.dependency_count;++k){
+					if (string_compare(&depends->data.dependency.dependency_typenames[i].data.name, &arg->data.named.name.data.name) != 0){
+						continue;
+					}
+					found = 1;
+					break;
+				}
+				walk_assert(found == 1, 0, "Generic argument did not match dependency of the function applied to it");
+			}
+			else{
+				walk_assert(implementations != NULL, 0, "No implementations found for given argument type");
+				implementation_ast** impl = implementation_ptr_map_access(implementations, depends->data.dependency.typeclass_dependencies[i].data.name);
+				walk_assert(impl != NULL, 0, "No implementation of dependency found for given argument type");
+				depends->data.dependency.dependency_count -= 1;
+				for (uint64_t k = i;k<depends->data.dependency.dependency_count;++k){
+					depends->data.dependency.dependency_typenames[k] = depends->data.dependency.dependency_typenames[k+1];
+					depends->data.dependency.typeclass_dependencies[k] = depends->data.dependency.typeclass_dependencies[k+1];
+				}
+			}
+		}
 	}
-	for (uint64_t i = 0;i<depends->data.dependency.dependency_count;++i){
-		if (string_compare(&depends->data.dependency.dependency_typenames[i].data.name, &func->data.function.left->data.named.name.data.name) != 0){
-			continue;
+	if (arg_outer != NULL){
+		if (arg->tag != NAMED_TYPE){
+			return NULL;
 		}
-		walk_assert(arg->tag == NAMED_TYPE, 0, "Dependent argument must be a named type");
-		implementation_ptr_map* implementations = implementation_ptr_map_map_access(walk->parse->implementations, arg->data.named.name.data.name);
-		walk_assert(implementations != NULL, 0, "No implementations found for given argument type");
-		implementation_ast** impl = implementation_ptr_map_access(implementations, depends->data.dependency.typeclass_dependencies[i].data.name);
-		walk_assert(impl != NULL, 0, "No implementation of dependency found for given argument type");
-		depends->data.dependency.dependency_count -= 1;
-		for (uint64_t k = i;k<depends->data.dependency.dependency_count;++k){
-			depends->data.dependency.dependency_typenames[k] = depends->data.dependency.dependency_typenames[k+1];
-			depends->data.dependency.typeclass_dependencies[k] = depends->data.dependency.typeclass_dependencies[k+1];
+		for (uint64_t i = 0;i<depends->data.dependency.dependency_count;++i){
+			if (string_compare(&depends->data.dependency.dependency_typenames[i].data.name, &arg->data.named.name.data.name) != 0){
+				continue;
+			}
+			depends->data.dependency.dependency_count -= 1;
+			for (uint64_t k = i;k<depends->data.dependency.dependency_count;++k){
+				depends->data.dependency.dependency_typenames[k] = depends->data.dependency.dependency_typenames[k+1];
+				depends->data.dependency.typeclass_dependencies[k] = depends->data.dependency.typeclass_dependencies[k+1];
+			}
 		}
-		return *impl;
 	}
 	return NULL;
 }
@@ -4239,6 +4312,8 @@ realias_type_structure(realias_walker* const walk, structure_ast* const s){
  * error reporting as logging rather than single report
  * nearest type token function
  */
+
+//TODO we deep copy the target type (left), check type depends, deep copy right, check type depends inverted, dissolve any types which depend
 
 int
 main(int argc, char** argv){

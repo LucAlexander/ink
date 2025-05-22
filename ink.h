@@ -543,7 +543,7 @@ structure_ast* deep_copy_structure(walker* const walk, structure_ast* const sour
 type_ast* deep_copy_type(walker* const walk, type_ast* const source);
 uint8_t type_valid(parser* const parse, type_ast* const type);
 uint8_t struct_valid(parser* const parse, structure_ast* const s);
-implementation_ast* type_depends(walker* const walk, type_ast* const depends, type_ast* const func, type_ast* const arg);
+implementation_ast* type_depends(walker* const walk, type_ast* const depends, type_ast* const func, type_ast* const arg_outer, type_ast* const arg);
 void generate_new_generic(realias_walker* const walk);
 
 type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, type_ast* const outer_type);

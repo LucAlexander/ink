@@ -2968,6 +2968,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		type_ast* mut_left = walk_expr(walk, expr->data.mutation.left, NULL, outer_type);
 		walk_assert_prop();
 		walk_assert(mut_left != NULL, nearest_token(expr->data.mutation.left), "Left side of mutation did not resolve to a type");
+		walk_assert(mut_left->variable == 1, nearest_token(expr->data.mutation.left), "Left side of mutation must be a variable");
 		type_ast* mut_right = walk_expr(walk, expr->data.mutation.right, mut_left, mut_left);
 		walk_assert_prop();
 		walk_assert(mut_right != NULL, nearest_token(expr->data.mutation.right), "Left side of mutation did not match type of right side");
@@ -4467,7 +4468,6 @@ scrape_deps(realias_walker* const walk, type_ast* const term_type){
  * nearest type token function
  *
  * TODO reudce type or alias doesnt reduce or account dependent types
- * TODO mutation checks mutability lol
  * TODO anonymous structures?
  */
 

@@ -441,6 +441,9 @@ GROWABLE_BUFFER_DECL(const_ast);
 GROWABLE_BUFFER_DECL(typeclass_ast);
 GROWABLE_BUFFER_DECL(implementation_ast);
 GROWABLE_BUFFER_DECL(term_ast);
+GROWABLE_BUFFER_DECL(term_ptr);
+
+MAP_DECL(term_ptr_buffer);
 
 typedef struct parser {
 	pool* mem;
@@ -471,6 +474,7 @@ typedef struct parser {
 	uint64_t file_offset_capacity;
 	string mainfile;
 	uint64_t_map* enumerated_values;
+	term_ptr_buffer_map* implemented_terms;
 } parser;
 
 typedef struct binding {
@@ -561,6 +565,9 @@ uint8_t type_valid(parser* const parse, type_ast* const type);
 uint8_t struct_valid(parser* const parse, structure_ast* const s);
 implementation_ast* type_depends(walker* const walk, type_ast* const depends, type_ast* const func, type_ast* const arg_outer, type_ast* const arg);
 void generate_new_generic(realias_walker* const walk);
+uint8_t type_equiv(parser* const parse, type_ast* const left, type_ast* const right);
+uint8_t type_equiv_worker(parser* const parse, token_map* const generics, type_ast_map* const relation, type_ast* const left, type_ast* const right);
+uint8_t struct_equiv_worker(parser* const parse, token_map* const generics,  type_ast_map* const relation, structure_ast* const left, structure_ast* const right);
 
 type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, type_ast* const outer_type);
 type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected_type);

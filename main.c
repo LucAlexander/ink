@@ -25,8 +25,10 @@ GROWABLE_BUFFER_IMPL(typeclass_ast);
 GROWABLE_BUFFER_IMPL(implementation_ast);
 GROWABLE_BUFFER_IMPL(term_ast);
 GROWABLE_BUFFER_IMPL(token);
+GROWABLE_BUFFER_IMPL(term_ptr);
 
 MAP_IMPL(token_buffer);
+MAP_IMPL(term_ptr_buffer);
 
 #define assert_local(c, r, s, ...)\
 	if (!(c)){\
@@ -96,6 +98,7 @@ compile_file(char* input, const char* output){
 	term_ptr_map terms = term_ptr_map_init(&mem);
 	uint64_t_map imported = uint64_t_map_init(&mem);
 	uint64_t_map enum_vals = uint64_t_map_init(&mem);
+	term_ptr_buffer_map impl_terms = term_ptr_buffer_map_init(&mem);
 	parser parse = {
 		.mem = &mem,
 		.token_mem = &token_mem,
@@ -126,7 +129,8 @@ compile_file(char* input, const char* output){
 		.file_offset_count=0,
 		.mainfile.str = input,
 		.mainfile.len = strnlen(input, ERROR_STRING_MAX),
-		.enumerated_values = &enum_vals
+		.enumerated_values = &enum_vals,
+		.implemented_terms = &impl_terms
 	};
 	parse.tokens = pool_request(parse.token_mem, sizeof(token));
 	lex_string(&parse);
@@ -3649,7 +3653,9 @@ deep_copy_structure_replace(pool* const mem, type_ast_map* relation, structure_a
 
 type_ast*
 walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* expected_type){
-	expected_type = reduce_alias_and_type(walk->parse, expected_type);
+	if (pat->tag != BINDING_PATTERN){
+		expected_type = reduce_alias_and_type(walk->parse, expected_type);
+	}
 	switch (pat->tag){
 	case NAMED_PATTERN:
 		push_binding(walk->parse, walk->local_scope, &pat->data.named.name, expected_type);
@@ -3942,15 +3948,94 @@ check_program(parser* const parse){
 	};
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
 		realias_type_term(&realias, &parse->term_list.buffer[i]);
-		if (parse->err.len != 0){
-			return;
+		assert_prop();
+	}
+	for (uint64_t i = 0;i<parse->typeclass_list.count;++i){
+		typeclass_ast* class = &parse->typeclass_list.buffer[i];
+		push_map_stack(&realias);
+		token name = class->name;
+		token generic = class->param;
+		for (uint64_t t = 0;t<class->member_count;++t){
+			type_ast* type = class->members[t].type;
+			if (type->tag == DEPENDENCY_TYPE){
+				uint8_t found = 0;
+				for (uint64_t k = 0;k<type->data.dependency.dependency_count;++k){
+					if (string_compare(&type->data.dependency.typeclass_dependencies[k].data.name, &name.data.name) == 0){
+						if (string_compare(&type->data.dependency.dependency_typenames[k].data.name, &generic.data.name) == 0){
+							found = 1;
+							break;
+						}
+					}
+				}
+				if (found == 0){
+					uint64_t new_count = type->data.dependency.dependency_count+1;
+					token* typeclass_dependencies = pool_request(parse->mem, sizeof(token)*new_count);
+					token* dependency_typenames = pool_request(parse->mem, sizeof(token)*new_count);
+					for (uint64_t k = 0;k<new_count-1;++k){
+						typeclass_dependencies[k] = type->data.dependency.typeclass_dependencies[k];
+						dependency_typenames[k] = type->data.dependency.dependency_typenames[k];
+					}
+					type->data.dependency.typeclass_dependencies = typeclass_dependencies;
+					type->data.dependency.dependency_typenames = dependency_typenames;
+					type->data.dependency.typeclass_dependencies[new_count-1] = name;
+					type->data.dependency.dependency_typenames[new_count-1] = generic;
+					type->data.dependency.dependency_count = new_count;
+				}
+			}
+			else {
+				type_ast* outer = pool_request(parse->mem, sizeof(type_ast));
+				outer->tag = DEPENDENCY_TYPE;
+				outer->data.dependency.type = type;
+				outer->data.dependency.dependency_count = 1;
+				outer->data.dependency.typeclass_dependencies = pool_request(parse->mem, sizeof(token));
+				outer->data.dependency.dependency_typenames = pool_request(parse->mem, sizeof(token));
+				outer->data.dependency.typeclass_dependencies[0] = name;
+				outer->data.dependency.dependency_typenames[0] = generic;
+				class->members[i].type = outer;
+			}
+			realias_type_term(&realias, &class->members[i]);
+		}
+		pop_map_stack(&realias);
+	}
+	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
+		implementation_ast* impl = &parse->implementation_list.buffer[i];
+		typeclass_ast** isclass = typeclass_ptr_map_access(parse->typeclasses, impl->typeclass.data.name);
+		assert_local(isclass != NULL, , "Unable to find source typeclass for implementation attempt");
+		typeclass_ast* class = *isclass;
+		assert_local(impl->member_count == class->member_count, , "Implementation did not have the same number of functions as the typeclass its implementing");
+		for (uint64_t t = 0;t<impl->member_count;++t){
+			realias_type_term(&realias, &impl->members[t]);
+			uint8_t found = 0;
+			for (uint64_t k = 0;k<class->member_count;++k){
+				if (string_compare(&impl->members[t].name.data.name, &class->members[k].name.data.name)){
+					continue;
+				}
+				found = 1;
+				assert_local(class->members[k].type->tag == DEPENDENCY_TYPE, , "class definition functions should have had dependencies distributed over them by now...");
+				assert_local(type_equiv(parse, impl->members[t].type, class->members[k].type->data.dependency.type) == 1, , "Type of implemented typeclass function did not match definition in typeclass");
+			}
+			assert_local(found == 1, , "Unable to find implementated function in source typeclass");
+			term_ptr_buffer* impls = term_ptr_buffer_map_access(parse->implemented_terms, impl->members[t].name.data.name);
+			if (impls == NULL){
+				term_ptr_buffer new = term_ptr_buffer_init(parse->mem);
+				term_ptr_buffer_insert(&new, &impl->members[t]);
+				term_ptr_buffer_map_insert(parse->implemented_terms, impl->members[t].name.data.name, new);
+			}
+			else{
+				term_ptr_buffer_insert(impls, &impl->members[t]);
+			}
+		}
+	}
+	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
+		implementation_ast* impl = &parse->implementation_list.buffer[i];
+		for (uint64_t t = 0;t<impl->member_count;++t){
+			walk_term(&walk, &impl->members[t], NULL);
+			assert_prop();
 		}
 	}
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
 		walk_term(&walk, &parse->term_list.buffer[i], NULL);
-		if (parse->err.len != 0){
-			return;
-		}
+		assert_prop();
 #ifdef DEBUG
 		show_term(&parse->term_list.buffer[i]);
 #endif
@@ -4282,7 +4367,9 @@ realias_type_term(realias_walker* const walk, term_ast* const term){
 	assert_prop();
 	term->type = sprinkle_deps(walk, term->type);
 	scrape_deps(walk, term->type);
-	realias_type_expr(walk, term->expression);
+	if (term->expression != NULL){
+		realias_type_expr(walk, term->expression);
+	}
 	pop_map_stack(walk);
 }
 
@@ -4401,6 +4488,9 @@ sprinkle_deps(realias_walker* const walk, type_ast* term_type){
 						outer->data.dependency.typeclass_dependencies = pool_request(walk->parse->mem, sizeof(token)*capacity);
 						outer->data.dependency.dependency_typenames = pool_request(walk->parse->mem, sizeof(token)*capacity);
 					}
+					else {
+						capacity = outer->data.dependency.dependency_count;
+					}
 					term_type = outer;
 				}
 			}
@@ -4409,8 +4499,10 @@ sprinkle_deps(realias_walker* const walk, type_ast* term_type){
 				token classname = names->buffer[k];
 				for (uint64_t t = 0;t<outer->data.dependency.dependency_count;++t){
 					if (string_compare(&outer->data.dependency.typeclass_dependencies[t].data.name, &classname.data.name) == 0){
-						found = 1;
-						break;
+						if (string_compare(&outer->data.dependency.dependency_typenames[t].data.name, &generic.data.name) == 0){
+							found = 1;
+							break;
+						}
 					}
 				}
 				if (found == 1){
@@ -4509,6 +4601,175 @@ scrape_deps(realias_walker* const walk, type_ast* const term_type){
 	}
 }
 
+//NOTE left has generics, right has applied types
+uint8_t
+type_equiv(parser* const parse, type_ast* const left, type_ast* const right){
+	type_ast_map relation = type_ast_map_init(parse->mem);
+	token_map generics = token_map_init(parse->mem);
+	return type_equiv_worker(parse, &generics, &relation, left, right);
+}
+
+uint8_t
+type_equiv_worker(parser* const parse, token_map* const generics, type_ast_map* const relation, type_ast* const left, type_ast* const right){
+	if (left->tag != right->tag){
+		if (left->tag != NAMED_TYPE){
+			return 0;
+		}
+	}
+	switch(left->tag){
+	case DEPENDENCY_TYPE:
+		if (left->data.dependency.dependency_count != right->data.dependency.dependency_count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.dependency.dependency_count;++i){
+			if (string_compare(&left->data.dependency.typeclass_dependencies[i].data.name, &right->data.dependency.typeclass_dependencies[i].data.name) != 0){
+				return 0;
+			}
+			token_map_insert(generics, left->data.dependency.dependency_typenames[i].data.name, right->data.dependency.dependency_typenames[i]);
+		}
+		return type_equiv_worker(parse, generics, relation, left->data.dependency.type, right->data.dependency.type);
+	case FUNCTION_TYPE:
+		return type_equiv_worker(parse, generics, relation, left->data.function.left, right->data.function.left)
+		     & type_equiv_worker(parse, generics, relation, left->data.function.right, right->data.function.right);
+	case LIT_TYPE:
+		if (left->data.lit == INT_ANY || right->data.lit == INT_ANY){
+			return 1;
+		}
+		return left->data.lit == right->data.lit;
+		//TODO coersion? we'll experiment without for now, you can always explicit cast
+	case PTR_TYPE:
+		return type_equiv_worker(parse, generics, relation, left->data.ptr, right->data.ptr);
+	case FAT_PTR_TYPE:
+		return type_equiv_worker(parse, generics, relation, left->data.fat_ptr.ptr, right->data.fat_ptr.ptr);
+	case STRUCT_TYPE:
+		return struct_equiv_worker(parse, generics, relation, left->data.structure, right->data.structure);
+	case NAMED_TYPE:
+		if (right->tag == NAMED_TYPE){
+			token* isgeneric = token_map_access(generics, left->data.named.name.data.name);
+			if (isgeneric != NULL){
+				if (string_compare(&isgeneric->data.name, &right->data.named.name.data.name) != 0){
+					return 0;
+				}
+			}
+			else {
+				typedef_ast** isrighttypedef = typedef_ptr_map_access(parse->types, right->data.named.name.data.name);
+				if (isrighttypedef != NULL){
+					typedef_ast** istypedef = typedef_ptr_map_access(parse->types, left->data.named.name.data.name);
+					if (istypedef == NULL){
+						type_ast* exists = type_ast_map_access(relation, left->data.named.name.data.name);
+						if (exists == NULL){
+							type_ast_map_insert(relation, left->data.named.name.data.name, *right);
+						}
+						else{
+							if (type_equal(parse, exists, right) == 0){
+								return 0;
+							}
+						}
+						return 1;
+					}
+					if ((*istypedef) != (*isrighttypedef)){
+						return 0;
+					}
+				}
+				else {
+					alias_ast** isrightalias = alias_ptr_map_access(parse->aliases, right->data.named.name.data.name);
+					if (isrightalias != NULL){
+						alias_ast** isalias = alias_ptr_map_access(parse->aliases, left->data.named.name.data.name);
+						if (isalias == NULL){
+							type_ast* exists = type_ast_map_access(relation, left->data.named.name.data.name);
+							if (exists == NULL){
+								type_ast_map_insert(relation, left->data.named.name.data.name, *right);
+							}
+							else{
+								if (type_equal(parse, exists, right) == 0){
+									return 0;
+								}
+							}
+							return 1;
+						}
+						if ((*isalias) != (*isrightalias)){
+							return 0;
+						}
+					}
+					else {
+						typedef_ast** istypedef = typedef_ptr_map_access(parse->types, right->data.named.name.data.name);
+						alias_ast** isalias = alias_ptr_map_access(parse->aliases, right->data.named.name.data.name);
+						if (isalias != NULL || istypedef != NULL){
+							return 0;
+						}
+						token_map_insert(generics, left->data.named.name.data.name, right->data.named.name);
+					}
+				}
+			}
+			if (left->data.named.arg_count != right->data.named.arg_count){
+				return 0;
+			}
+			for (uint64_t i = 0;i<left->data.named.arg_count;++i){
+				if (type_equiv_worker(parse, generics, relation, &left->data.named.args[i], &right->data.named.args[i]) == 0){
+					return 0;
+				}
+			}
+		}
+		else{
+			type_ast* exists = type_ast_map_access(relation, left->data.named.name.data.name);
+			if (exists == NULL){
+				type_ast_map_insert(relation, left->data.named.name.data.name, *right);
+			}
+			else{
+				if (type_equal(parse, exists, right) == 0){
+					return 0;
+				}
+			}
+		}
+		return 1;
+	}
+	return 0;
+}
+
+uint8_t
+struct_equiv_worker(parser* const parse, token_map* const generics,  type_ast_map* const relation, structure_ast* const left, structure_ast* const right){
+	if (left->tag != right->tag){
+		return 0;
+	}
+	switch (left->tag){
+	case STRUCT_STRUCT:
+		if (left->data.structure.count != right->data.structure.count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.structure.count;++i){
+			if (type_equiv_worker(parse, generics, relation, &left->data.structure.members[i], &right->data.structure.members[i]) == 0){
+				return 0;
+			}
+		}
+		return 1;
+	case UNION_STRUCT:
+		if (left->data.union_structure.count != right->data.union_structure.count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.union_structure.count;++i){
+			if (type_equiv_worker(parse, generics, relation, &left->data.union_structure.members[i], &right->data.union_structure.members[i]) == 0){
+				return 0;
+			}
+		}
+		return 1;
+	case ENUM_STRUCT:
+		if (left->data.enumeration.count != right->data.enumeration.count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.enumeration.count;++i){
+			if (string_compare(&left->data.enumeration.names[i].data.name, &right->data.enumeration.names[i].data.name) != 0){
+				return 0;
+			}
+			if (left->data.enumeration.values[i] != right->data.enumeration.values[i]){
+				return 0;
+			}
+		}
+		return 1;
+	}
+	return 0;
+
+}
+
 /* TODO
  * typeclass/implementation member tracking
  * 	based on expectd_type, arg type, and function name, I need to find if that implementation exists, and "use" that one/use its type + monomorphize to it
@@ -4523,7 +4784,7 @@ scrape_deps(realias_walker* const walk, type_ast* const term_type){
  * error reporting as logging rather than single report
  * nearest type token function
  *
- * TODO anonymous structures?
+ * TODO should refocus the return outer_type in different expressions, the only ones it really shouldnt refocus in is scope, if, while, for, the rest should refocus
  */
 
 int

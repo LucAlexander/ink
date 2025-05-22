@@ -2640,6 +2640,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			walk_assert(left_real != NULL, nearest_token(expr->data.appl.left), "Left type of application expression did not resolve to type");
 			walk_assert(left_real->tag == FUNCTION_TYPE || (left_real->tag == DEPENDENCY_TYPE && left_real->data.dependency.type->tag == FUNCTION_TYPE), nearest_token(expr->data.appl.left), "Left side of application expression was not a function");
 			left_real = deep_copy_type(walk, left_real);
+			right = deep_copy_type(walk, right);
 			type_ast* left_outer = NULL;
 			if (left_real->tag == DEPENDENCY_TYPE){
 				left_outer = left_real;
@@ -2697,6 +2698,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert(left != NULL, nearest_token(expr->data.appl.left), "Unable to infer type of left of application");
 		walk_assert(left->tag == FUNCTION_TYPE || (left->tag == DEPENDENCY_TYPE && left->data.dependency.type->tag == FUNCTION_TYPE), nearest_token(expr->data.appl.left), "Left of application type needs to be function");
 		left = deep_copy_type(walk, left);
+		right = deep_copy_type(walk, right);
 		type_ast* left_outer = NULL;
 		if (left->tag == DEPENDENCY_TYPE){
 			left_outer = left;
@@ -2733,9 +2735,9 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			if (right_outer != NULL){
 				uint64_t i = 0;
 				for (;dpos<dep_count;++dpos){
-					i += 1;
 					outer_depends->data.dependency.dependency_typenames[dpos] = right_outer->data.dependency.dependency_typenames[i];
 					outer_depends->data.dependency.typeclass_dependencies[dpos] = right_outer->data.dependency.typeclass_dependencies[i];
+					i += 1;
 				}
 			}
 		}
@@ -3901,6 +3903,12 @@ deep_copy_type(walker* const walk, type_ast* const source){
 	switch (source->tag){
 	case DEPENDENCY_TYPE:
 		new->data.dependency.type = deep_copy_type(walk, source->data.dependency.type);
+		new->data.dependency.typeclass_dependencies = pool_request(walk->parse->mem, sizeof(token)*new->data.dependency.dependency_count);
+		new->data.dependency.dependency_typenames = pool_request(walk->parse->mem, sizeof(token)*new->data.dependency.dependency_count);
+		for (uint64_t i = 0;i<new->data.dependency.dependency_count;++i){
+			new->data.dependency.typeclass_dependencies[i] = source->data.dependency.typeclass_dependencies[i];
+			new->data.dependency.dependency_typenames[i] = source->data.dependency.dependency_typenames[i];
+		}
 		return new;
 	case FUNCTION_TYPE:
 		new->data.function.left = deep_copy_type(walk, source->data.function.left);
@@ -4062,6 +4070,7 @@ type_depends(walker* const walk, type_ast* const depends, type_ast* const func, 
 					depends->data.dependency.dependency_typenames[k] = depends->data.dependency.dependency_typenames[k+1];
 					depends->data.dependency.typeclass_dependencies[k] = depends->data.dependency.typeclass_dependencies[k+1];
 				}
+				break;
 			}
 		}
 	}
@@ -4078,6 +4087,7 @@ type_depends(walker* const walk, type_ast* const depends, type_ast* const func, 
 				depends->data.dependency.dependency_typenames[k] = depends->data.dependency.dependency_typenames[k+1];
 				depends->data.dependency.typeclass_dependencies[k] = depends->data.dependency.typeclass_dependencies[k+1];
 			}
+			break;
 		}
 	}
 	return NULL;
@@ -4135,6 +4145,7 @@ realias_type_expr(realias_walker* const walk, expr_ast* const expr){
 		return;
 	case TERM_EXPR:
 		realias_type_term(walk, expr->data.term);
+		return;
 	case STRING_EXPR:
 		return;
 	case LIST_EXPR:
@@ -4312,8 +4323,6 @@ realias_type_structure(realias_walker* const walk, structure_ast* const s){
  * error reporting as logging rather than single report
  * nearest type token function
  */
-
-//TODO we deep copy the target type (left), check type depends, deep copy right, check type depends inverted, dissolve any types which depend
 
 int
 main(int argc, char** argv){

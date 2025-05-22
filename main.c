@@ -2917,7 +2917,39 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		expr->type = expected_type;
 		return expected_type;
 	case STRUCT_EXPR:
-		walk_assert(expected_type != NULL, nearest_token(expr), "Unable to infer type of structure");
+		if (expected_type == NULL){
+			type_ast* struct_type = pool_request(walk->parse->mem, sizeof(type_ast));
+			struct_type->tag = STRUCT_TYPE;
+			struct_type->data.structure = pool_request(walk->parse->mem, sizeof(structure_ast));
+			structure_ast* s = struct_type->data.structure;
+			s->tag = STRUCT_STRUCT;
+			uint64_t capacity = 2;
+			s->data.structure.members = pool_request(walk->parse->mem, sizeof(type_ast)*capacity);
+			s->data.structure.names = pool_request(walk->parse->mem, sizeof(token)*capacity);
+			for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
+				if (s->data.structure.count == capacity){
+					capacity *= 2;
+					type_ast* members = pool_request(walk->parse->mem, sizeof(type_ast)*capacity);
+					token* names = pool_request(walk->parse->mem, sizeof(token)*capacity);
+					for (uint64_t k = 0;k<s->data.structure.count;++k){
+						members[k] = s->data.structure.members[k];
+						names[k] = s->data.structure.names[k];
+					}
+					s->data.structure.members = members;
+					s->data.structure.names = names;
+				}
+				walk_assert(expr->data.constructor.names[i].data.name.len != 0, nearest_token(expr), "Anonymous structure members must be named");
+				type_ast* member_type = walk_expr(walk, &expr->data.constructor.members[i], NULL, outer_type);
+				walk_assert_prop();
+				walk_assert(member_type != NULL, nearest_token(expr), "Unable to determine type of anonymous structure member");
+				s->data.structure.members[s->data.structure.count] = *member_type;
+				s->data.structure.names[s->data.structure.count] = expr->data.constructor.names[i];
+				s->data.structure.count += 1;
+			}
+			pop_binding(walk->local_scope, scope_pos);
+			expr->type = struct_type;
+			return struct_type;
+		}
 		if (inner->tag == STRUCT_STRUCT){
 			uint64_t current_member = 0;
 			for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){

@@ -3990,7 +3990,7 @@ check_program(parser* const parse){
 		.parse = parse,
 		.relations = NULL,
 		.next_generic = string_init(parse->mem, "@A"),
-		.generic_collection_buffer = token_buffer_init(parse->temp_mem)
+		.generic_collection_buffer = token_buffer_init(parse->mem)
 	};
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
 		pool_empty(parse->temp_mem);

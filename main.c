@@ -3997,8 +3997,9 @@ check_program(parser* const parse){
 		realias_type_term(&realias, &parse->term_list.buffer[i]);
 		assert_prop();
 	}
+	assert(realias.relations == NULL);
+	pool_empty(parse->temp_mem);
 	for (uint64_t i = 0;i<parse->typeclass_list.count;++i){
-		pool_empty(parse->temp_mem);
 		typeclass_ast* class = &parse->typeclass_list.buffer[i];
 		push_map_stack(&realias);
 		token name = class->name;
@@ -4045,6 +4046,8 @@ check_program(parser* const parse){
 		}
 		pop_map_stack(&realias);
 	}
+	assert(realias.relations == NULL);
+	pool_empty(parse->temp_mem);
 	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 		implementation_ast* impl = &parse->implementation_list.buffer[i];
 		typeclass_ast** isclass = typeclass_ptr_map_access(parse->typeclasses, impl->typeclass.data.name);
@@ -4052,7 +4055,6 @@ check_program(parser* const parse){
 		typeclass_ast* class = *isclass;
 		assert_local(impl->member_count == class->member_count, , "Implementation did not have the same number of functions as the typeclass its implementing");
 		for (uint64_t t = 0;t<impl->member_count;++t){
-			pool_empty(parse->temp_mem);
 			realias_type_term(&realias, &impl->members[t]);
 			uint8_t found = 0;
 			for (uint64_t k = 0;k<class->member_count;++k){
@@ -4075,6 +4077,8 @@ check_program(parser* const parse){
 			}
 		}
 	}
+	assert(realias.relations == NULL);
+	pool_empty(parse->temp_mem);
 	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 		implementation_ast* impl = &parse->implementation_list.buffer[i];
 		for (uint64_t t = 0;t<impl->member_count;++t){
@@ -4298,8 +4302,8 @@ push_map_stack(realias_walker* const walk){
 		walk->relations = pool_request(walk->parse->mem, sizeof(map_stack));
 		walk->relations->next = NULL;
 		walk->relations->prev = NULL;
-		walk->relations->map = token_map_init(walk->parse->mem);
-		walk->relations->deps = token_buffer_map_init(walk->parse->mem);
+		walk->relations->map = token_map_init(walk->parse->temp_mem);
+		walk->relations->deps = token_buffer_map_init(walk->parse->temp_mem);
 		return;
 	}
 	if (walk->relations->next != NULL){
@@ -4312,8 +4316,8 @@ push_map_stack(realias_walker* const walk){
 	walk->relations->next->prev = walk->relations;
 	walk->relations = walk->relations->next;
 	walk->relations->next = NULL;
-	walk->relations->map = token_map_init(walk->parse->mem);
-	walk->relations->deps = token_buffer_map_init(walk->parse->mem);
+	walk->relations->map = token_map_init(walk->parse->temp_mem);
+	walk->relations->deps = token_buffer_map_init(walk->parse->temp_mem);
 }
 
 void

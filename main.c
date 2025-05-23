@@ -2519,6 +2519,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 	if (expected_type != NULL){
 		if (expr->tag != BINDING_EXPR){
 			expected_type = reduce_alias_and_type(walk->parse, expected_type);
+			walk_assert_prop();
 		}
 		inner_struct = expected_type;
 		if (expected_type->tag == STRUCT_TYPE){
@@ -2577,6 +2578,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 					walk_assert_prop();
 					walk_assert(obj != NULL, nearest_token(expr->data.appl.left->data.appl.right), "Unable to determine left type of either composition or field access");
 					obj = reduce_alias_and_type(walk->parse, obj);
+					walk_assert_prop();
 					if (obj->tag == STRUCT_TYPE){
 						walk_assert(expr->data.appl.right->tag == BINDING_EXPR, nearest_token(expr->data.appl.right), "Expected field for structure access");
 						type_ast* field = is_member(obj, expr->data.appl.right);
@@ -2590,6 +2592,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 						walk_assert(expr->data.appl.right->tag == BINDING_EXPR, nearest_token(expr->data.appl.right), "Expected field for structure access");
 						type_ast* inner = obj->data.ptr;
 						inner = reduce_alias_and_type(walk->parse, inner);
+						walk_assert_prop();
 						walk_assert(inner->tag == STRUCT_TYPE, nearest_token(expr->data.appl.right), "Field access from pointer must be from pointer to structure");
 						type_ast* field = is_member(inner, expr->data.appl.right);
 						walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Expected member of structure in field access");
@@ -2697,6 +2700,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application with known type did not match right side of application");
 			type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, left_real->data.function.right);
 			walk_assert(type_equal(walk->parse, expected_type, reduce_alias_and_type(walk->parse, generic_applied_type)), nearest_token(expr), "Applied generic type did not match expected type");
+			walk_assert_prop();
 			pop_binding(walk->local_scope, scope_pos);
 			expr->type = generic_applied_type;
 			return generic_applied_type;
@@ -2957,6 +2961,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			expr->type = struct_type;
 			return struct_type;
 		}
+		walk_assert(expected_type->tag == STRUCT_TYPE, nearest_token(expr), "Structure was found where non structure was expected");
 		if (inner->tag == STRUCT_STRUCT){
 			uint64_t current_member = 0;
 			for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
@@ -3693,6 +3698,7 @@ type_ast*
 walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* expected_type){
 	if (pat->tag != BINDING_PATTERN){
 		expected_type = reduce_alias_and_type(walk->parse, expected_type);
+		walk_assert_prop();
 	}
 	switch (pat->tag){
 	case NAMED_PATTERN:
@@ -4809,7 +4815,6 @@ struct_equiv_worker(parser* const parse, token_map* const generics,  type_ast_ma
 		return 1;
 	}
 	return 0;
-
 }
 
 /* TODO
@@ -4823,7 +4828,6 @@ struct_equiv_worker(parser* const parse, token_map* const generics,  type_ast_ma
  * error reporting as logging rather than single report
  * nearest type token function
  *
- * TODO should refocus the return outer_type in different expressions, the only ones it really shouldnt refocus in is scope, if, while, for, the rest should refocus
  */
 
 int

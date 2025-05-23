@@ -507,14 +507,32 @@ typedef struct expr_stack {
 uint64_t push_expr(expr_stack* const s, expr_ast* expr);
 void pop_expr(expr_stack* const s, uint64_t pos);
 
+GROWABLE_BUFFER_DECL(binding);
+
+typedef struct scope_ptr_stack {
+	pool* mem;
+	uint64_t capacity;
+	uint64_t count;
+	uint64_t* ptrs;
+	binding_buffer* scraped_bindings;
+} scope_ptr_stack;
+
 typedef struct walker {
 	parser* parse;
 	scope* local_scope;
+	scope_ptr_stack* scope_ptrs;
 	expr_stack* outer_exprs;
+	string next_lambda;
 } walker;
 
 void push_expr_stack(walker* const walk);
 void pop_expr_stack(walker* const walk);
+
+uint64_t push_scope_ptr(walker* const walk);
+void pop_scope_ptr(walker* const walk, uint64_t pos);
+void scrape_binding(walker* const walk, binding* bind);
+void generate_new_lambda(walker* const walk);
+void lift_lambda(walker* const walk, expr_ast* const expr, type_ast* const type, token newname);
 
 GROWABLE_BUFFER_DECL(token);
 MAP_DECL(token_buffer);
@@ -571,8 +589,8 @@ uint8_t type_equiv(parser* const parse, type_ast* const left, type_ast* const ri
 uint8_t type_equiv_worker(parser* const parse, token_map* const generics, type_ast_map* const relation, type_ast* const left, type_ast* const right);
 uint8_t struct_equiv_worker(parser* const parse, token_map* const generics,  type_ast_map* const relation, structure_ast* const left, structure_ast* const right);
 
-type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, type_ast* const outer_type);
-type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected_type);
+type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, type_ast* const outer_type, uint8_t is_outer);
+type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected_type, uint8_t is_outer);
 type_ast* walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* const expected_type);
 void check_program(parser* const parse);
 

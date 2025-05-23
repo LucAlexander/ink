@@ -90,6 +90,7 @@ compile_file(char* input, const char* output){
 	TOKEN_map keymap = TOKEN_map_init(&mem);
 	keymap_fill(&keymap);
 	pool token_mem = pool_alloc(TOKEN_ARENA_SIZE, POOL_STATIC);
+	pool temp_mem = pool_alloc(TEMP_ARENA_SIZE, POOL_STATIC);
 	typedef_ptr_map types = typedef_ptr_map_init(&mem);
 	alias_ptr_map aliases = alias_ptr_map_init(&mem);
 	const_ptr_map constants = const_ptr_map_init(&mem);
@@ -101,6 +102,7 @@ compile_file(char* input, const char* output){
 	term_ptr_buffer_map impl_terms = term_ptr_buffer_map_init(&mem);
 	parser parse = {
 		.mem = &mem,
+		.temp_mem = &temp_mem,
 		.token_mem = &token_mem,
 		.keymap = &keymap,
 		.tokens = NULL,
@@ -3988,13 +3990,15 @@ check_program(parser* const parse){
 		.parse = parse,
 		.relations = NULL,
 		.next_generic = string_init(parse->mem, "@A"),
-		.generic_collection_buffer = token_buffer_init(parse->mem)
+		.generic_collection_buffer = token_buffer_init(parse->temp_mem)
 	};
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
+		pool_empty(parse->temp_mem);
 		realias_type_term(&realias, &parse->term_list.buffer[i]);
 		assert_prop();
 	}
 	for (uint64_t i = 0;i<parse->typeclass_list.count;++i){
+		pool_empty(parse->temp_mem);
 		typeclass_ast* class = &parse->typeclass_list.buffer[i];
 		push_map_stack(&realias);
 		token name = class->name;
@@ -4048,6 +4052,7 @@ check_program(parser* const parse){
 		typeclass_ast* class = *isclass;
 		assert_local(impl->member_count == class->member_count, , "Implementation did not have the same number of functions as the typeclass its implementing");
 		for (uint64_t t = 0;t<impl->member_count;++t){
+			pool_empty(parse->temp_mem);
 			realias_type_term(&realias, &impl->members[t]);
 			uint8_t found = 0;
 			for (uint64_t k = 0;k<class->member_count;++k){
@@ -4242,7 +4247,7 @@ type_depends(walker* const walk, type_ast* const depends, type_ast* const func, 
 				continue;
 			}
 			walk_assert(arg->tag == NAMED_TYPE, 0, "Dependent argument must be a named type");
-			implementation_ptr_map* implementations = implementation_ptr_map_map_access(walk->parse->implementations, arg->data.named.name.data.name); // TODO what if arg is generic
+			implementation_ptr_map* implementations = implementation_ptr_map_map_access(walk->parse->implementations, arg->data.named.name.data.name);
 			if (implementations == NULL){
 				walk_assert(arg_outer != NULL, 0, "Generic argument did not have dependency to match function applied to it");
 				uint8_t found = 0;
@@ -4314,6 +4319,7 @@ push_map_stack(realias_walker* const walk){
 void
 pop_map_stack(realias_walker* const walk){
 	if (walk->relations->prev == NULL){
+		walk->relations = NULL;
 		return;
 	}
 	walk->relations = walk->relations->prev;
@@ -4819,15 +4825,19 @@ struct_equiv_worker(parser* const parse, token_map* const generics,  type_ast_ma
 
 /* TODO
  * structure/defined type monomorphization
+ 	* only monomorph full defined parametric non generic types
  * lambda capture to arg and lifting
- * closure capture to arg and lifting
+	* lift all of them, terms become pointer bindings to lifted lambda functions which have been partially applied by raised arg bindings
  * function type monomorphization
+	 * closure capture to arg and lifting
+	 * only lift closures with a function term
  *
  * global and local assertions, probably with other system calls and C level invocations
  * validate cast and sizeof expressionas after monomorphization (because generics are gone) to validate that they are correct types [ type_valid() ]
  * error reporting as logging rather than single report
  * nearest type token function
  *
+ * TODO memory optimization
  */
 
 int

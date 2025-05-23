@@ -6,6 +6,7 @@
 
 #define ARENA_SIZE 0x100000000
 #define TOKEN_ARENA_SIZE 0x10000
+#define TEMP_ARENA_SIZE 0x10000
 #define ERROR_STRING_MAX 0x100
 
 #define DEBUG
@@ -447,6 +448,7 @@ MAP_DECL(term_ptr_buffer);
 
 typedef struct parser {
 	pool* mem;
+	pool* temp_mem;
 	pool* token_mem;
 	TOKEN_map* keymap;
 	token* tokens;

@@ -517,12 +517,24 @@ typedef struct scope_ptr_stack {
 	binding_buffer* scraped_bindings;
 } scope_ptr_stack;
 
+typedef struct token_stack {
+	pool* mem;
+	token* tokens;
+	uint64_t count;
+	uint64_t capacity;
+} token_stack;
+
+uint64_t token_stack_push(token_stack* const stack, token t);
+void token_stack_pop(token_stack* const stack, uint64_t pos);
+token token_stack_top(token_stack* const stack);
+
 typedef struct walker {
 	parser* parse;
 	scope* local_scope;
 	scope_ptr_stack* scope_ptrs;
 	expr_stack* outer_exprs;
 	string next_lambda;
+	token_stack* term_stack;
 } walker;
 
 void push_expr_stack(walker* const walk);

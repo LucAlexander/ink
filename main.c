@@ -3260,7 +3260,9 @@ type_ast*
 walk_term(walker* const walk, term_ast* const term, type_ast* expected_type, uint8_t is_outer){
 	uint64_t pos = push_binding(walk->parse, walk->local_scope, &term->name, term->type);
 	walk_assert_prop();
+	uint64_t token_pos = token_stack_push(walk->term_stack, term->name);
 	type_ast* real_type = walk_expr(walk, term->expression, term->type, term->type, is_outer);
+	token_stack_pop(walk->term_stack, token_pos);
 	pop_binding(walk->local_scope, pos);
 	walk_assert_prop();
 	walk_assert(real_type != NULL, nearest_token(term->expression), "Term type did not match declared type");
@@ -4025,12 +4027,19 @@ check_program(parser* const parse){
 		.next = NULL,
 		.prev = NULL
 	};
+	token_stack term_stack = {
+		.mem = parse->mem,
+		.count = 0,
+		.capacity = 2,
+		.tokens = pool_request(parse->mem, sizeof(token)*2)
+	};
 	walker walk = {
 		.parse = parse,
 		.local_scope = &local_scope,
 		.scope_ptrs = &ptrs,
 		.outer_exprs = &outer_exprs,
-		.next_lambda = string_init(parse->mem, "#A")
+		.next_lambda = string_init(parse->mem, "#A"),
+		.term_stack = &term_stack
 	};
 	realias_walker realias = {
 		.parse = parse,
@@ -4981,6 +4990,7 @@ lift_lambda(walker* const walk, expr_ast* const expr, type_ast* const type, toke
 	type_ast* type_view = newtype;
 	expr->tag = BINDING_EXPR;
 	expr->data.binding = newname;
+	token top_level = token_stack_top(walk->term_stack);
 	for (uint64_t i = 0;i<scrapes->count;++i){
 		expr_ast* func = pool_request(walk->parse->mem, sizeof(expr_ast));
 		*func = *expr;
@@ -4990,27 +5000,54 @@ lift_lambda(walker* const walk, expr_ast* const expr, type_ast* const type, toke
 		binding* bind = &scrapes->buffer[i];
 		expr_ast* binding = pool_request(walk->parse->mem, sizeof(expr_ast));
 		binding->tag = BINDING_EXPR;
-		binding->data.binding = *bind->name;
+		if (string_compare(&top_level.data.name, &bind->name->data.name) == 0){
+			binding->data.binding = newname;
+		}
+		else{
+			binding->data.binding = *bind->name;
+		}
 		binding->type = type_view->data.function.left;
 		expr->data.appl.right = binding;
 		type_view = type_view->data.function.right;
 	}
 }
 
+uint64_t
+token_stack_push(token_stack* const stack, token t){
+	if (stack->count == stack->capacity){
+		stack->capacity *= 2;
+		token* tokens = pool_request(stack->mem, sizeof(token)*stack->capacity);
+		for (uint64_t i = 0;i<stack->count;++i){
+			tokens[i] = stack->tokens[i];
+		}
+		stack->tokens = tokens;
+	}
+	stack->tokens[stack->count] = t;
+	stack->count += 1;
+	return stack->count - 1;
+}
+
+void
+token_stack_pop(token_stack* const stack, uint64_t pos){
+	stack->count = pos;
+}
+
+token
+token_stack_top(token_stack* const stack){
+	assert(stack->count != 0);
+	return stack->tokens[stack->count-1];
+}
+
 /* TODO
  * structure/defined type monomorphization
  	* only monomorph full defined parametric non generic types
  * function type monomorphization
-	 * closure capture to arg and lifting
-	 * only lift closures with a function term
  *
  * global and local assertions, probably with other system calls and C level invocations
  * validate cast and sizeof expressionas after monomorphization (because generics are gone) to validate that they are correct types [ type_valid() ]
  * error reporting as logging rather than single report
  * nearest type token function
  *
- * TODO it doesnt scrape properly
- * TODO realias lifted lambda type?
  */
 
 int

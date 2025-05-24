@@ -607,4 +607,7 @@ type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected
 type_ast* walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* const expected_type);
 void check_program(parser* const parse);
 
+void transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer);
+void transform_term(walker* const walk, term_ast* const term, uint8_t is_outer);
+
 #endif

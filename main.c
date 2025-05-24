@@ -4199,12 +4199,38 @@ check_program(parser* const parse){
 			walk_term(&walk, &impl->members[t], NULL, 1);
 			pop_binding(walk.local_scope, pos);
 			assert_prop();
+#ifdef DEBUG
+			show_term(&impl->members[t]);
+			printf("\n");
+#endif
 		}
 	}
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
 		uint64_t pos = walk.local_scope->binding_count;
 		walk_term(&walk, &parse->term_list.buffer[i], NULL, 1);
 		pop_binding(walk.local_scope, pos);
+		assert_prop();
+#ifdef DEBUG
+		show_term(&parse->term_list.buffer[i]);
+		printf("\n");
+#endif
+	}
+#ifdef DEBUG
+	printf("Transformations:\n");
+#endif
+	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
+		implementation_ast* impl = &parse->implementation_list.buffer[i];
+		for (uint64_t t = 0;t<impl->member_count;++t){
+			transform_term(&walk, &impl->members[t], 1);
+			assert_prop();
+#ifdef DEBUG
+			show_term(&impl->members[t]);
+			printf("\n");
+#endif
+		}
+	}
+	for (uint64_t i = 0;i<parse->term_list.count;++i){
+		transform_term(&walk, &parse->term_list.buffer[i], 1);
 		assert_prop();
 #ifdef DEBUG
 		show_term(&parse->term_list.buffer[i]);
@@ -5113,7 +5139,67 @@ token_stack_top(token_stack* const stack){
 	return stack->tokens[stack->count-1];
 }
 
+//NOTE lambdas only exist at the top level at this point
+void
+transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer){
+	switch (expr->tag){
+	case APPL_EXPR:
+	case LAMBDA_EXPR:
+		if (expr->data.lambda.expression->tag != BLOCK_EXPR){
+			expr_ast* block = pool_request(walk->parse->mem, sizeof(expr_ast));
+			block->tag = BLOCK_EXPR;
+			block->type = expr->data.lambda.expression->type;
+			block->data.block.line_count = 1;
+			if (expr->data.lambda.expression->tag == RETURN_EXPR){
+				block->data.block.lines = expr->data.lambda.expression;
+			}
+			else{
+				block->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast));
+				block->data.block.lines[0].tag = RETURN_EXPR;
+				block->data.block.lines[0].data.ret = expr->data.lambda.expression;
+			}
+			expr->data.lambda.expression = block;
+		}
+		transform_expr(walk, expr->data.lambda.expression, 0);
+		if (expr->data.lambda.alt != NULL){
+			transform_expr(walk, expr->data.lambda.alt, 0);
+		}
+		return;
+	case BLOCK_EXPR:
+	case LIT_EXPR:
+	case TERM_EXPR:
+	case STRING_EXPR:
+	case LIST_EXPR:
+	case STRUCT_EXPR:
+	case BINDING_EXPR:
+	case MUTATION_EXPR:
+	case RETURN_EXPR:
+	case SIZEOF_EXPR:
+	case REF_EXPR:
+	case DEREF_EXPR:
+	case IF_EXPR:
+	case FOR_EXPR:
+	case WHILE_EXPR:
+	case MATCH_EXPR:
+	case CAST_EXPR:
+	case BREAK_EXPR:
+	case CONTINUE_EXPR:
+	case NOP_EXPR:
+	}
+}
+
+void
+transform_term(walker* const walk, term_ast* const term, uint8_t is_outer){
+	transform_expr(walk, term->expression, is_outer);
+}
+
 /* TODO
+ * more mem optimizations on the normal walk pass since its basically done for now
+ * Transformation pass
+ 	* every lambda must contain a block, which then returns the initial expression that was in the lambda
+ 	* functions to structures
+ 		* all function application checks must have already happened, we make a new rolling scope with structure types instead of funtion types knowing that the function types have already been checked, turning applications into mutations of structure.arg_n = arg_val
+ * 	
  * structure/defined type monomorphization
  	* only monomorph full defined parametric non generic types
  * function type monomorphization

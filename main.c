@@ -4990,6 +4990,7 @@ lift_lambda(walker* const walk, expr_ast* const expr, type_ast* const type, toke
 	type_ast* type_view = newtype;
 	expr->tag = BINDING_EXPR;
 	expr->data.binding = newname;
+	expr->type = type;
 	token top_level = token_stack_top(walk->term_stack);
 	for (uint64_t i = 0;i<scrapes->count;++i){
 		expr_ast* func = pool_request(walk->parse->mem, sizeof(expr_ast));

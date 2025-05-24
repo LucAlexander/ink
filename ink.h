@@ -543,6 +543,7 @@ void pop_expr_stack(walker* const walk);
 uint64_t push_scope_ptr(walker* const walk);
 void pop_scope_ptr(walker* const walk, uint64_t pos);
 void scrape_binding(walker* const walk, binding* bind);
+void scrape_lower_binding(walker* const walk, binding* bind);
 void generate_new_lambda(walker* const walk);
 void lift_lambda(walker* const walk, expr_ast* const expr, type_ast* const type, token newname);
 

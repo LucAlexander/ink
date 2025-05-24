@@ -2516,6 +2516,13 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 	if (expr->type != NULL){
 		return expr->type;
 	}
+	uint64_t token_pos = walk->term_stack->count;
+	if (expr->tag != LAMBDA_EXPR && expr->tag != TERM_EXPR){
+		token nulltoken = {
+			.data.name.len=0
+		};
+		token_pos = token_stack_push(walk->term_stack, nulltoken);
+	}
 	uint64_t scope_pos = walk->local_scope->binding_count;
 	uint64_t expr_count = walk->outer_exprs->expr_count;
 	structure_ast* inner;
@@ -2537,10 +2544,12 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 					}
 					expr->type = expected_type;
 					pop_binding(walk->local_scope, scope_pos);
+					token_stack_pop(walk->term_stack, token_pos);
 					expr->type = expected_type;
 					return expected_type;
 				}
 				pop_binding(walk->local_scope, scope_pos);
+				token_stack_pop(walk->term_stack, token_pos);
 				expr->type = NULL;
 				return NULL;
 			}
@@ -2564,11 +2573,13 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				walk_assert(access != NULL, nearest_token(expr), "Accessor type should be integer");
 				if (array->tag == FAT_PTR_TYPE){
 					pop_binding(walk->local_scope, scope_pos);
+					token_stack_pop(walk->term_stack, token_pos);
 					expr->type = array->data.fat_ptr.ptr;
 					return array->data.fat_ptr.ptr;
 				}
 				else if (array->tag == PTR_TYPE){
 					pop_binding(walk->local_scope, scope_pos);
+					token_stack_pop(walk->term_stack, token_pos);
 					expr->type = array->data.ptr;
 					return array->data.ptr;
 				}
@@ -2589,6 +2600,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 						walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Expected member of structure in field access");
 						expr->data.appl.right->type = field;
 						pop_binding(walk->local_scope, scope_pos);
+						token_stack_pop(walk->term_stack, token_pos);
 						expr->type = field;
 						return field;
 					}
@@ -2602,6 +2614,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 						walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Expected member of structure in field access");
 						expr->data.appl.right->type = field;
 						pop_binding(walk->local_scope, scope_pos);
+						token_stack_pop(walk->term_stack, token_pos);
 						expr->type = field;
 						return field;
 					}
@@ -2609,6 +2622,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 						walk_assert(expr->data.appl.right->tag == BINDING_EXPR, nearest_token(expr->data.appl.right), "Expected field for structure access");
 						if (cstring_compare(&expr->data.appl.right->data.binding.data.name, "ptr")){
 							pop_binding(walk->local_scope, scope_pos);
+							token_stack_pop(walk->term_stack, token_pos);
 							expr->type = obj->data.fat_ptr.ptr;
 							return obj->data.fat_ptr.ptr;
 						}
@@ -2617,6 +2631,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 							lenlit->tag = LIT_TYPE;
 							lenlit->data.lit = U64_TYPE;
 							pop_binding(walk->local_scope, scope_pos);
+							token_stack_pop(walk->term_stack, token_pos);
 							expr->type = lenlit;
 							return lenlit;
 						}
@@ -2626,6 +2641,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 						walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Expected member of structure in field access");
 						expr->data.appl.right->type = field;
 						pop_binding(walk->local_scope, scope_pos);
+						token_stack_pop(walk->term_stack, token_pos);
 						expr->type = field;
 						return field;
 					}
@@ -2639,6 +2655,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 					walk_assert_prop();
 					walk_assert(mytype != NULL, nearest_token(expr), "Unable to determine type in composition expression");
 					pop_binding(walk->local_scope, scope_pos);
+					token_stack_pop(walk->term_stack, token_pos);
 					expr->type = mytype;
 					return mytype;
 				}
@@ -2694,9 +2711,9 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				if (right_outer != NULL){
 					uint64_t i = 0;
 					for (;dpos<dep_count;++dpos){
-						i += 1;
 						outer_depends->data.dependency.dependency_typenames[dpos] = right_outer->data.dependency.dependency_typenames[i];
 						outer_depends->data.dependency.typeclass_dependencies[dpos] = right_outer->data.dependency.typeclass_dependencies[i];
+						i += 1;
 					}
 				}
 			}
@@ -2706,6 +2723,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			walk_assert(type_equal(walk->parse, expected_type, reduce_alias_and_type(walk->parse, generic_applied_type)), nearest_token(expr), "Applied generic type did not match expected type");
 			walk_assert_prop();
 			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = generic_applied_type;
 			return generic_applied_type;
 		}
@@ -2770,6 +2788,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, outer_depends);
 		}
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = generic_applied_type;
 		return generic_applied_type;
 	case LAMBDA_EXPR:
@@ -2865,6 +2884,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				walk_assert_prop();
 				walk_assert(line_type != NULL, nearest_token(&expr->data.block.lines[i]), "Return expression did not resolve to any type");
 				pop_binding(walk->local_scope, scope_pos);
+				token_stack_pop(walk->term_stack, token_pos);
 				expr->type = line_type;
 				return line_type;
 			}
@@ -2875,6 +2895,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			walk_assert(expr->data.block.lines[expr->data.block.line_count-1].tag == RETURN_EXPR, nearest_token(expr), "Expected last expression in block to return");
 		}
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = expected_type;
 		return expected_type;
 	case LIT_EXPR:
@@ -2885,6 +2906,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			};
 			walk_assert(type_equal(walk->parse, expected_type, &lit_type), nearest_token(expr), "Literal integer type assigned to non matching type");
 			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = expected_type;
 			return expected_type;
 		}
@@ -2892,6 +2914,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		lit_type->tag = LIT_TYPE;
 		lit_type->data.lit = INT_ANY;
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = lit_type;
 		return lit_type;
 	case TERM_EXPR:
@@ -2906,6 +2929,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			string_type->data.ptr->tag = LIT_TYPE;
 			string_type->data.ptr->data.lit = I8_TYPE;
 			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = string_type;
 			return string_type;
 		}
@@ -2913,11 +2937,13 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		if (expected_type->tag == FAT_PTR_TYPE){
 			walk_assert(expected_type->data.fat_ptr.ptr->tag == LIT_TYPE && expected_type->data.fat_ptr.ptr->data.lit == I8_TYPE, nearest_token(expr), "String must be assigned to [i8] or i8^");
 			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = expected_type;
 			return expected_type;
 		}
 		walk_assert(expected_type->data.ptr->tag == LIT_TYPE && expected_type->data.ptr->data.lit == I8_TYPE, nearest_token(expr), "String must be assigned to [i8] or i8^");
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = expected_type;
 		return expected_type;
 	case LIST_EXPR:
@@ -2935,6 +2961,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				walk_assert(rest != NULL, nearest_token(expr), "List element not able to resolve to type");
 			}
 			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = first;
 			return first;
 		}
@@ -2946,6 +2973,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				walk_assert(rest != NULL, nearest_token(expr), "List element not able to resolve to type");
 			}
 			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = expected_type;
 			return expected_type;
 		}
@@ -2955,6 +2983,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			walk_assert(rest != NULL, nearest_token(expr), "List element not able to resolve to type");
 		}
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = expected_type;
 		return expected_type;
 	case STRUCT_EXPR:
@@ -2988,6 +3017,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				s->data.structure.count += 1;
 			}
 			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = struct_type;
 			return struct_type;
 		}
@@ -3016,6 +3046,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				current_member += 1;
 			}
 			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = expected_type;
 			return expected_type;
 		}
@@ -3023,6 +3054,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert(expr->data.constructor.member_count == 1, nearest_token(expr), "Constructed enumerator requires 1 and only 1 value");
 		type_ast* enum_type = walk_expr(walk, &expr->data.constructor.members[0], inner_struct, inner_struct, 0);
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = enum_type;
 		return enum_type;
 	case BINDING_EXPR:
@@ -3030,11 +3062,13 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert(actual != NULL, nearest_token(expr), "Binding not found in scope");
 		if (expected_type == NULL){
 			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = actual;
 			return actual;
 		}
 		walk_assert(type_equal(walk->parse, actual, expected_type), nearest_token(expr), "Binding was not the expected type");
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = actual;
 		return actual;
 	case MUTATION_EXPR:
@@ -3047,11 +3081,13 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert_prop();
 		walk_assert(mut_right != NULL, nearest_token(expr->data.mutation.right), "Left side of mutation did not match type of right side");
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = NULL;
 		return NULL;
 	case RETURN_EXPR:
 		type_ast* ret_type = walk_expr(walk, expr->data.ret, outer_type, outer_type, 0);
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = ret_type;
 		return ret_type;
 	case SIZEOF_EXPR:
@@ -3060,11 +3096,13 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		sizeof_type->data.lit = U64_TYPE;
 		if (expected_type == NULL){
 			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = sizeof_type;
 			return sizeof_type;
 		}
 		walk_assert(type_equal(walk->parse, sizeof_type, expected_type), nearest_token(expr), "Expected type did not match type of sizeof expression (u64 or int_any)");
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = sizeof_type;
 		return sizeof_type;
 	case REF_EXPR:
@@ -3076,6 +3114,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			ref->tag = PTR_TYPE;
 			ref->data.ptr = ref_infer;
 			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = ref;
 			return ref;
 		}
@@ -3091,6 +3130,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert_prop();
 		walk_assert(ref_infer != NULL, nearest_token(expr), "Reference to type did not match expected type reference");
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = expected_type;
 		return expected_type;
 	case DEREF_EXPR:
@@ -3101,10 +3141,12 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			walk_assert(deref_infer->tag == PTR_TYPE || deref_infer->tag == FAT_PTR_TYPE, nearest_token(expr), "Expected pointer to dereference");
 			if (deref_infer->tag == FAT_PTR_TYPE){
 				pop_binding(walk->local_scope, scope_pos);
+				token_stack_pop(walk->term_stack, token_pos);
 				expr->type = deref_infer->data.fat_ptr.ptr;
 				return deref_infer->data.fat_ptr.ptr;
 			}
 			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = deref_infer->data.ptr;
 			return deref_infer->data.ptr;
 		}
@@ -3115,6 +3157,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert_prop();
 		walk_assert(deref_infer != NULL, nearest_token(expr), "Expected pointer to dereference");
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = expected_type;
 		return expected_type;
 	case IF_EXPR:
@@ -3134,6 +3177,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				walk_assert(alt_type != NULL, nearest_token(expr->data.if_statement.alt), "If alternate must be same type as cons when if statement is used as expression");
 			}
 			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = cons_type;
 			return cons_type;
 		}
@@ -3143,14 +3187,17 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			type_ast* alt_type = walk_expr(walk, expr->data.if_statement.alt, NULL, outer_type, 0);
 			if (type_equal(walk->parse, cons_type, alt_type) == 1){
 				pop_binding(walk->local_scope, scope_pos);
+				token_stack_pop(walk->term_stack, token_pos);
 				expr->type = cons_type;
 				return cons_type;
 			}
 			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = NULL;
 			return NULL;
 		}
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = cons_type;
 		return cons_type;
 	case FOR_EXPR:
@@ -3167,6 +3214,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		push_binding(walk->parse, walk->local_scope, &expr->data.for_statement.binding, for_type);
 		walk_expr(walk, expr->data.for_statement.cons, NULL, outer_type, 0);
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = NULL;
 		return NULL;
 	case WHILE_EXPR:
@@ -3179,6 +3227,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 	   	walk_assert(whilepredtype != NULL, nearest_token(expr->data.while_statement.pred), "While predicate must be integral");
 		walk_expr(walk, expr->data.while_statement.cons, NULL, outer_type, 0);
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = NULL;
 		return NULL;
 	case MATCH_EXPR:
@@ -3194,6 +3243,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				walk_assert(confirm != NULL, nearest_token(&expr->data.match.cases[i]), "Match case did not resolve to expected type");
 			}
 			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = expected_type;
 			return expected_type;
 		}
@@ -3207,6 +3257,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				first = walk_expr(walk, &expr->data.match.cases[i], NULL, outer_type, 0);
 				walk_assert_prop();
 				pop_binding(walk->local_scope, scope_pos);
+				token_stack_pop(walk->term_stack, token_pos);
 				continue;
 			}
 			type_ast* next = walk_expr(walk, &expr->data.match.cases[i], NULL, outer_type, 0);
@@ -3219,10 +3270,12 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		}
 		if (matches == 0){
 			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = NULL;
 			return NULL;
 		}
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = first;
 		return first;
 	case CAST_EXPR:
@@ -3230,26 +3283,31 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert(cast_confirm != NULL, nearest_token(expr), "Could not infer source type of cast");
 		if (expected_type == NULL){
 			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = expr->data.cast.target;
 			return expr->data.cast.target;
 		}
 		walk_assert(type_equal(walk->parse, expected_type, expr->data.cast.target), nearest_token(expr), "Expected type did not match target type of cast");
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = expr->data.cast.target;
 		return expr->data.cast.target;
 	case BREAK_EXPR:
 		walk_assert(expected_type == NULL, nearest_token(expr), "Expected type, found break");
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = NULL;
 		return NULL;
 	case CONTINUE_EXPR:
 		walk_assert(expected_type == NULL, nearest_token(expr), "Expected type, found continue");
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = NULL;
 		return NULL;
 	case NOP_EXPR:
 		walk_assert(expected_type == NULL, nearest_token(expr), "Expected type, found NOP expression");
 		pop_binding(walk->local_scope, scope_pos);
+		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = NULL;
 		return NULL;
 	}
@@ -4952,6 +5010,21 @@ scrape_binding(walker* const walk, binding* bind){
 }
 
 void
+scrape_lower_binding(walker* const walk, binding* bind){
+	if (walk->scope_ptrs->count == 0 || walk->scope_ptrs->count-1 == 0){
+		return;
+	}
+	binding_buffer* scrape = &walk->scope_ptrs->scraped_bindings[walk->scope_ptrs->count-2];
+	for (uint64_t i = 0;i<scrape->count;++i){
+		binding* candidate = &scrape->buffer[i];
+		if (string_compare(&candidate->name->data.name, &bind->name->data.name) == 0){
+			return;
+		}
+	}
+	binding_buffer_insert(scrape, *bind);
+}
+
+void
 lift_lambda(walker* const walk, expr_ast* const expr, type_ast* const type, token newname){
 	type_ast* newtype = deep_copy_type(walk, type);
 	binding_buffer* scrapes = &walk->scope_ptrs->scraped_bindings[walk->scope_ptrs->count-1];
@@ -5001,7 +5074,7 @@ lift_lambda(walker* const walk, expr_ast* const expr, type_ast* const type, toke
 		binding* bind = &scrapes->buffer[i];
 		expr_ast* binding = pool_request(walk->parse->mem, sizeof(expr_ast));
 		binding->tag = BINDING_EXPR;
-		if (string_compare(&top_level.data.name, &bind->name->data.name) == 0){
+		if ((top_level.data.name.len != 0) && (string_compare(&top_level.data.name, &bind->name->data.name) == 0)){
 			binding->data.binding = newname;
 		}
 		else{
@@ -5010,6 +5083,7 @@ lift_lambda(walker* const walk, expr_ast* const expr, type_ast* const type, toke
 		binding->type = type_view->data.function.left;
 		expr->data.appl.right = binding;
 		type_view = type_view->data.function.right;
+		scrape_lower_binding(walk, bind);
 	}
 }
 

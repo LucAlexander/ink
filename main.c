@@ -4221,6 +4221,15 @@ check_program(parser* const parse){
 	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 		implementation_ast* impl = &parse->implementation_list.buffer[i];
 		for (uint64_t t = 0;t<impl->member_count;++t){
+			function_to_structure_type(&walk, &impl->members[t]);
+		}
+	}
+	for (uint64_t i = 0;i<parse->term_list.count;++i){
+		function_to_structure_type(&walk, &parse->term_list.buffer[i]);
+	}
+	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
+		implementation_ast* impl = &parse->implementation_list.buffer[i];
+		for (uint64_t t = 0;t<impl->member_count;++t){
 			transform_term(&walk, &impl->members[t], 1);
 			assert_prop();
 #ifdef DEBUG
@@ -5193,14 +5202,74 @@ transform_term(walker* const walk, term_ast* const term, uint8_t is_outer){
 	transform_expr(walk, term->expression, is_outer);
 }
 
+//NOTE we begin dissolving dependencies here
+void
+function_to_structure_type(walker* const walk, term_ast* const term){
+	if (term->type->tag != FUNCTION_TYPE && term->type->tag != DEPENDENCY_TYPE){
+		return;
+	}
+	type_ast* focus = term->type;
+	if (term->type->tag == DEPENDENCY_TYPE){
+		term->type = focus->data.dependency.type;
+	}
+	if (term->expression->tag == LAMBDA_EXPR){
+		uint64_t arg_c = term->expression->data.lambda.arg_count;
+		while (arg_c > 0){
+			focus = focus->data.function.right;
+			arg_c -= 1;
+		}
+	}
+	if (focus->tag != FUNCTION_TYPE){
+		return;
+	}
+	type_ast old = *focus;
+	type_ast* counter = focus;
+	uint64_t member_count = 2;
+	while (counter->tag == FUNCTION_TYPE){
+		counter = counter->data.function.right;
+		member_count += 1;
+	}
+	counter = &old;
+	focus->tag = STRUCT_TYPE;
+	focus->data.structure = pool_request(walk->parse->mem, sizeof(structure_ast));
+	structure_ast* s = focus->data.structure;
+	s->tag = STRUCT_STRUCT;
+	s->data.structure.names = pool_request(walk->parse->mem, sizeof(token)*member_count);
+	s->data.structure.members = pool_request(walk->parse->mem, sizeof(type_ast)*member_count);
+	s->data.structure.count = member_count;
+	uint64_t member_index = 0;
+	while (counter->tag == FUNCTION_TYPE){
+		s->data.structure.members[member_index] = *counter->data.function.left;
+		s->data.structure.names[member_index].data.name = string_init(walk->parse->mem, "arg_n");
+		s->data.structure.names[member_index].data.name.str[4] = ((member_count-3)-member_index)+48;
+		member_index += 1;
+		counter = counter->data.function.right;
+	}
+	assert(member_index == member_count-2);
+	type_ast* func_type = &s->data.structure.members[member_index];
+	s->data.structure.names[member_index].data.name = string_init(walk->parse->mem, "func");
+	member_index += 1;
+	type_ast* size_type = &s->data.structure.members[member_index];
+	s->data.structure.names[member_index].data.name = string_init(walk->parse->mem, "size");
+	member_index += 1;
+	func_type->tag = FUNCTION_TYPE;
+	type_ast* u8ptr = pool_request(walk->parse->mem, sizeof(type_ast));
+	u8ptr->tag = PTR_TYPE;
+	u8ptr->data.ptr = pool_request(walk->parse->mem, sizeof(type_ast));
+	u8ptr->data.ptr->tag = LIT_TYPE;
+	u8ptr->data.ptr->data.lit = U8_TYPE;
+	func_type->data.function.left = u8ptr;
+	func_type->data.function.right = counter;
+	size_type->tag = LIT_TYPE;
+	size_type->data.lit = U64_TYPE;
+}
+
 /* TODO
  * more mem optimizations on the normal walk pass since its basically done for now
  * Transformation pass
- 	* every lambda must contain a block, which then returns the initial expression that was in the lambda
- 	* functions to structures
- 		* all function application checks must have already happened, we make a new rolling scope with structure types instead of funtion types knowing that the function types have already been checked, turning applications into mutations of structure.arg_n = arg_val
- * 	
- * structure/defined type monomorphization
+ 	* expression block flattening? might be a code generation thing
+		* u8 x = {u8 y = 7; return y;} -> u8 x; {u8 y = 7; x = y};
+ 	 * structure/defined type monomorphization
  	* only monomorph full defined parametric non generic types
  * function type monomorphization
  *

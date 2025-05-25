@@ -5288,7 +5288,7 @@ sizeof_type(parser* const parse, type_ast* const type){
 	case STRUCT_TYPE:
 		return sizeof_struct(parse, type->data.structure);
 	case NAMED_TYPE:
-		return sizeof_type(reduce_alias_and_type(parse, type));
+		return sizeof_type(parse, reduce_alias_and_type(parse, type));
 	}
 	return 0;
 }
@@ -5299,13 +5299,13 @@ sizeof_struct(parser* const parse, structure_ast* const s){
 	case STRUCT_STRUCT:
 		uint64_t sum = 0;
 		for (uint64_t i = 0;i<s->data.structure.count;++i){
-			sum += sizeof_type(&s->data.structure.members[i]);
+			sum += sizeof_type(parse, &s->data.structure.members[i]);
 		}
 		return sum;
 	case UNION_STRUCT:
 		uint64_t largest = 0;
 		for (uint64_t i = 0;i<s->data.union_structure.count;++i){
-			uint64_t size = sizeof_type(&s->data.union_structure.members[i]);
+			uint64_t size = sizeof_type(parse, &s->data.union_structure.members[i]);
 			if (size > largest){
 				largest = size;
 			}
@@ -5314,7 +5314,7 @@ sizeof_struct(parser* const parse, structure_ast* const s){
 	case ENUM_STRUCT:
 		if (s->data.enumeration.count < (1<<7)) return 1;
 		if (s->data.enumeration.count < (1<<15)) return 2;
-		if (s->data.enumeration.count < (1<<32)) return 4;
+		if (s->data.enumeration.count < (1<<31)) return 4;
 		return 8;
 	}
 	return 0;
@@ -5324,7 +5324,7 @@ uint8_t
 type_recursive(parser* const parse, token name, type_ast* const type){
 	switch (type->tag){
 	case DEPENDENCY_TYPE:
-		return type_recursive_worker(parse, relay, type->data.dependency.type);
+		return type_recursive(parse, name, type->data.dependency.type);
 	case FUNCTION_TYPE:
 	case LIT_TYPE:
 	case PTR_TYPE:
@@ -5333,11 +5333,11 @@ type_recursive(parser* const parse, token name, type_ast* const type){
 	case STRUCT_TYPE:
 		return type_recursive_struct(parse, name, type->data.structure);
 	case NAMED_TYPE:
-		if (string_compare(&name.data.name, type->data.named.name.data.name) == 0){
+		if (string_compare(&name.data.name, &type->data.named.name.data.name) == 0){
 			return 1;
 		}
 		type_ast* reduced = reduce_alias_and_type(parse, type);
-		return type_recursive(pars, name, reduced);
+		return type_recursive(parse, name, reduced);
 	}
 	return 0;
 }
@@ -5359,15 +5359,14 @@ type_recursive_struct(parser* const parse, token name, structure_ast* const s){
 			}
 		}
 		return 0;
-
-	case ENUM_TYPE:
+	case ENUM_STRUCT:
 		return 0;
 	}
 	return 0;
 }
 
 /* TODO
- * assert that structures are nonrecursive
+ * assert that structures are nonrecursive, must be done after monomorph
  * more mem optimizations on the normal walk pass since its basically done for now
  * Transformation pass
  	* expression block flattening? might be a code generation thing

@@ -608,6 +608,7 @@ type_ast* walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* con
 void check_program(parser* const parse);
 
 uint8_t type_recursive(parser* const parse, token name, type_ast* const type);
+uint8_t type_recursive_struct(parser* const parse, token name, structure_ast* const s);
 uint64_t sizeof_type(parser* const parse, type_ast* const type);
 uint64_t sizeof_struct(parser* const parse, structure_ast* const s);
 void function_to_structure_type(walker* const walk, term_ast* const term);

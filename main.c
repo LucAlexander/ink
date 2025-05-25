@@ -5264,7 +5264,110 @@ function_to_structure_type(walker* const walk, term_ast* const term){
 	size_type->data.lit = U64_TYPE;
 }
 
+uint64_t
+sizeof_type(parser* const parse, type_ast* const type){
+	switch (type->tag){
+	case DEPENDENCY_TYPE:
+		return sizeof_type(parse, type->data.dependency.type);
+	case FUNCTION_TYPE:
+		return 8;
+	case LIT_TYPE:
+		if (type->data.lit == U8_TYPE) return 1;
+		if (type->data.lit == U16_TYPE) return 2;
+		if (type->data.lit == U32_TYPE) return 4;
+		if (type->data.lit == U64_TYPE) return 8;
+		if (type->data.lit == I8_TYPE) return 1;
+		if (type->data.lit == I16_TYPE) return 2;
+		if (type->data.lit == I32_TYPE) return 4;
+		if (type->data.lit == I64_TYPE) return 8;
+		return 8;
+	case PTR_TYPE:
+		return 8;
+	case FAT_PTR_TYPE:
+		return 16;
+	case STRUCT_TYPE:
+		return sizeof_struct(parse, type->data.structure);
+	case NAMED_TYPE:
+		return sizeof_type(reduce_alias_and_type(parse, type));
+	}
+	return 0;
+}
+
+uint64_t
+sizeof_struct(parser* const parse, structure_ast* const s){
+	switch (s->tag){
+	case STRUCT_STRUCT:
+		uint64_t sum = 0;
+		for (uint64_t i = 0;i<s->data.structure.count;++i){
+			sum += sizeof_type(&s->data.structure.members[i]);
+		}
+		return sum;
+	case UNION_STRUCT:
+		uint64_t largest = 0;
+		for (uint64_t i = 0;i<s->data.union_structure.count;++i){
+			uint64_t size = sizeof_type(&s->data.union_structure.members[i]);
+			if (size > largest){
+				largest = size;
+			}
+		}
+		return largest;
+	case ENUM_STRUCT:
+		if (s->data.enumeration.count < (1<<7)) return 1;
+		if (s->data.enumeration.count < (1<<15)) return 2;
+		if (s->data.enumeration.count < (1<<32)) return 4;
+		return 8;
+	}
+	return 0;
+}
+
+uint8_t
+type_recursive(parser* const parse, token name, type_ast* const type){
+	switch (type->tag){
+	case DEPENDENCY_TYPE:
+		return type_recursive_worker(parse, relay, type->data.dependency.type);
+	case FUNCTION_TYPE:
+	case LIT_TYPE:
+	case PTR_TYPE:
+	case FAT_PTR_TYPE:
+		return 0;
+	case STRUCT_TYPE:
+		return type_recursive_struct(parse, name, type->data.structure);
+	case NAMED_TYPE:
+		if (string_compare(&name.data.name, type->data.named.name.data.name) == 0){
+			return 1;
+		}
+		type_ast* reduced = reduce_alias_and_type(parse, type);
+		return type_recursive(pars, name, reduced);
+	}
+	return 0;
+}
+
+uint8_t
+type_recursive_struct(parser* const parse, token name, structure_ast* const s){
+	switch (s->tag){
+	case STRUCT_STRUCT:
+		for (uint64_t i = 0;i<s->data.structure.count;++i){
+			if (type_recursive(parse, name, &s->data.structure.members[i]) == 1){
+				return 1;
+			}
+		}
+		return 0;
+	case UNION_STRUCT:
+		for (uint64_t i = 0;i<s->data.union_structure.count;++i){
+			if (type_recursive(parse, name, &s->data.union_structure.members[i]) == 1){
+				return 1;
+			}
+		}
+		return 0;
+
+	case ENUM_TYPE:
+		return 0;
+	}
+	return 0;
+}
+
 /* TODO
+ * assert that structures are nonrecursive
  * more mem optimizations on the normal walk pass since its basically done for now
  * Transformation pass
  	* expression block flattening? might be a code generation thing

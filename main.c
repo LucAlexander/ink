@@ -26,6 +26,7 @@ GROWABLE_BUFFER_IMPL(implementation_ast);
 GROWABLE_BUFFER_IMPL(term_ast);
 GROWABLE_BUFFER_IMPL(token);
 GROWABLE_BUFFER_IMPL(term_ptr);
+GROWABLE_BUFFER_IMPL(expr_ast);
 
 MAP_IMPL(token_buffer);
 MAP_IMPL(term_ptr_buffer);
@@ -4227,9 +4228,11 @@ check_program(parser* const parse){
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
 		function_to_structure_type(&walk, &parse->term_list.buffer[i]);
 	}
+	pool_empty(parse->temp_mem);
 	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 		implementation_ast* impl = &parse->implementation_list.buffer[i];
 		for (uint64_t t = 0;t<impl->member_count;++t){
+			pool_empty(parse->temp_mem);
 			transform_term(&walk, &impl->members[t], 1);
 			assert_prop();
 #ifdef DEBUG
@@ -4239,6 +4242,7 @@ check_program(parser* const parse){
 		}
 	}
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
+		pool_empty(parse->temp_mem);
 		transform_term(&walk, &parse->term_list.buffer[i], 1);
 		assert_prop();
 #ifdef DEBUG
@@ -5149,10 +5153,11 @@ token_stack_top(token_stack* const stack){
 }
 
 //NOTE lambdas only exist at the top level at this point
-void
-transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer){
+expr_ast*
+transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_relay* const newlines){
 	switch (expr->tag){
 	case APPL_EXPR:
+		//TODO
 	case LAMBDA_EXPR:
 		if (expr->data.lambda.expression->tag != BLOCK_EXPR){
 			expr_ast* block = pool_request(walk->parse->mem, sizeof(expr_ast));
@@ -5169,37 +5174,75 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer){
 			}
 			expr->data.lambda.expression = block;
 		}
-		transform_expr(walk, expr->data.lambda.expression, 0);
+		transform_expr(walk, expr->data.lambda.expression, 0, NULL);
 		if (expr->data.lambda.alt != NULL){
-			transform_expr(walk, expr->data.lambda.alt, 0);
+			transform_expr(walk, expr->data.lambda.alt, 0, NULL);
 		}
-		return;
+		return expr;
 	case BLOCK_EXPR:
+		line_relay outer_lines = line_relay_init(walk->parse->temp_mem);
+		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
+			line_relay linelines = line_relay_init(walk->parse->temp_mem);
+			expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, &linelines);
+			line_relay_append(&linelines, line);
+			line_relay_concat(&outer_lines, &linelines);
+		}
+		expr_ast* lines = pool_request(walk->parse->mem, sizeof(expr_ast)*outer_lines.len);
+		line_relay_node* first = outer_lines.first;
+		uint64_t index = 0;
+		while (first != NULL){
+			lines[index] = *first->line;
+			index += 1;
+			first = first->next;
+		}
+		expr->data.block.line_count = outer_lines.len;
+		expr->data.block.lines = lines;
+		return expr;
 	case LIT_EXPR:
+		return expr;
 	case TERM_EXPR:
+		//TODO
 	case STRING_EXPR:
+		return expr;
 	case LIST_EXPR:
+		return expr;
 	case STRUCT_EXPR:
+		return expr;
 	case BINDING_EXPR:
+		return expr;
 	case MUTATION_EXPR:
+		//TODO
 	case RETURN_EXPR:
+		//TODO
 	case SIZEOF_EXPR:
+		//TODO
 	case REF_EXPR:
+		//TODO
 	case DEREF_EXPR:
+		//TODO
 	case IF_EXPR:
+		//TODO
 	case FOR_EXPR:
+		//TODO
 	case WHILE_EXPR:
+		//TODO
 	case MATCH_EXPR:
+		//TODO
 	case CAST_EXPR:
+		//TODO
 	case BREAK_EXPR:
+		return expr;
 	case CONTINUE_EXPR:
+		return expr;
 	case NOP_EXPR:
+		return expr;
 	}
+	return expr;
 }
 
 void
 transform_term(walker* const walk, term_ast* const term, uint8_t is_outer){
-	transform_expr(walk, term->expression, is_outer);
+	transform_expr(walk, term->expression, is_outer, NULL);
 }
 
 //NOTE we begin dissolving dependencies here
@@ -5365,8 +5408,51 @@ type_recursive_struct(parser* const parse, token name, structure_ast* const s){
 	return 0;
 }
 
+line_relay
+line_relay_init(pool* const mem){
+	line_relay r = {
+		.mem = mem,
+		.first = NULL,
+		.last = NULL,
+		.len = 0
+	};
+	return r;
+}
+
+void
+line_relay_append(line_relay* const lines, expr_ast* const line){
+	line_relay_node* node = pool_request(lines->mem, sizeof(line_relay_node));
+	node->line = line;
+	node->next = NULL;
+	if (lines->first == NULL){
+		lines->first = node;
+		lines->last = node;
+		lines->len += 1;
+		return;
+	}
+	line_relay_node* last = lines->last;
+	lines->last = node;
+	last->next = node;
+	lines->len += 1;
+}
+
+void
+line_relay_concat(line_relay* const left, line_relay* const right){
+	if (left->first == NULL){
+		*left = *right;
+		return;
+	}
+	if (right->first == NULL){
+		return;
+	}
+	left->last->next = right->first;
+	left->last = right->last;
+	left->len += right->len;
+}
+
 /* TODO
  * assert that structures are nonrecursive, must be done after monomorph
+	 * then you can validate sizeof, evaluate the closure offsets with sizeof_type
  * more mem optimizations on the normal walk pass since its basically done for now
  * Transformation pass
  	* expression block flattening? might be a code generation thing

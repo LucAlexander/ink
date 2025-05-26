@@ -4,9 +4,9 @@
 #include <inttypes.h>
 #include "kickstart.h"
 
-#define ARENA_SIZE 0x100000000
+#define ARENA_SIZE 0x50000000
 #define TOKEN_ARENA_SIZE 0x10000
-#define TEMP_ARENA_SIZE 0x10000
+#define TEMP_ARENA_SIZE 0x50000000
 #define ERROR_STRING_MAX 0x100
 
 #define DEBUG
@@ -443,6 +443,7 @@ GROWABLE_BUFFER_DECL(typeclass_ast);
 GROWABLE_BUFFER_DECL(implementation_ast);
 GROWABLE_BUFFER_DECL(term_ast);
 GROWABLE_BUFFER_DECL(term_ptr);
+GROWABLE_BUFFER_DECL(expr_ast);
 
 MAP_DECL(term_ptr_buffer);
 
@@ -607,12 +608,30 @@ type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected
 type_ast* walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* const expected_type);
 void check_program(parser* const parse);
 
+typedef struct line_relay_node line_relay_node;
+typedef struct line_relay_node {
+	line_relay_node* next;
+	expr_ast* line;
+} line_relay_node;
+
+typedef struct line_relay {
+	pool* mem;
+	line_relay_node* first;
+	line_relay_node* last;
+	uint64_t len;
+} line_relay;
+
+line_relay line_relay_init(pool* const mem);
+void line_relay_append(line_relay* const lines, expr_ast* const line);
+void line_relay_concat(line_relay* const left, line_relay* const right);
+void line_relay_concat_prepend(line_relay* const left, line_relay* const right);
+
 uint8_t type_recursive(parser* const parse, token name, type_ast* const type);
 uint8_t type_recursive_struct(parser* const parse, token name, structure_ast* const s);
 uint64_t sizeof_type(parser* const parse, type_ast* const type);
 uint64_t sizeof_struct(parser* const parse, structure_ast* const s);
 void function_to_structure_type(walker* const walk, term_ast* const term);
-void transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer);
+expr_ast* transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_relay* const newlines);
 void transform_term(walker* const walk, term_ast* const term, uint8_t is_outer);
 
 #endif

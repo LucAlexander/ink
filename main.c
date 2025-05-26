@@ -5225,8 +5225,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			return expr;
 		}
 		//TODO this is a u8 x = {} or g {} b case,
-		//turns into expr->type A; { ... A = (unwrapped from return)};, A // thats for all returns in the block too..... nested in blocks and statements
-		//
+		//turns into expr->type A; { ... A = (unwrapped from return)};, A // thats for all returns in the block too..... nested in blocks and statements, we also have to ensure the block is escaped from on return and doesnt continue computation
 		return expr;
 	case LIT_EXPR:
 		return expr;
@@ -5240,7 +5239,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			expr->data.list.lines[i] = *transform_expr(walk, &expr->data.list.lines[i], 0, newlines);
 		}
 		return expr;
-	case STRUCT_EXPR:
+	case STRUCT_EXPR: // TODO optimization for term = {}, can remain the same, theres also one where a mutation decomposes to a.x = ...; a.y = ....; etc
 		for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
 			expr->data.constructor.members[i] = *transform_expr(walk, &expr->data.constructor.members[i], 0, newlines);
 		}
@@ -5427,8 +5426,23 @@ sizeof_struct(parser* const parse, structure_ast* const s){
 	switch (s->tag){
 	case STRUCT_STRUCT:
 		uint64_t sum = 0;
+		uint64_t padding = 0;
 		for (uint64_t i = 0;i<s->data.structure.count;++i){
-			sum += sizeof_type(parse, &s->data.structure.members[i]);
+			uint64_t size = sizeof_type(parse, &s->data.structure.members[i]);
+			if (padding == 0){
+				padding = size;
+				sum += size;
+				continue;
+			}
+			if (sum % padding != 0){
+				if (size >= padding){
+					sum += padding - (sum % padding);
+				}
+			}
+			if (size > padding){
+				padding = size;
+			}
+			sum += size;
 		}
 		return sum;
 	case UNION_STRUCT:
@@ -5441,9 +5455,15 @@ sizeof_struct(parser* const parse, structure_ast* const s){
 		}
 		return largest;
 	case ENUM_STRUCT:
-		if (s->data.enumeration.count < (1<<7)) return 1;
-		if (s->data.enumeration.count < (1<<15)) return 2;
-		if (s->data.enumeration.count < (1<<31)) return 4;
+		uint64_t highest_val = 0;
+		for (uint64_t i = 0;i<s->data.enumeration.count;++i){
+			if (s->data.enumeration.values[i] > highest_val){
+				highest_val = s->data.enumeration.values[i];
+			}
+		}
+		if (highest_val <= (1<<7)) return 1;
+		if (highest_val <= (1<<15)) return 2;
+		if (highest_val <= (1<<31)) return 4;
 		return 8;
 	}
 	return 0;

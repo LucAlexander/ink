@@ -624,12 +624,13 @@ typedef struct line_relay {
 line_relay line_relay_init(pool* const mem);
 void line_relay_append(line_relay* const lines, expr_ast* const line);
 void line_relay_concat(line_relay* const left, line_relay* const right);
-void line_relay_concat_prepend(line_relay* const left, line_relay* const right);
 
 uint8_t type_recursive(parser* const parse, token name, type_ast* const type);
 uint8_t type_recursive_struct(parser* const parse, token name, structure_ast* const s);
 uint64_t sizeof_type(parser* const parse, type_ast* const type);
 uint64_t sizeof_struct(parser* const parse, structure_ast* const s);
+expr_ast* new_term(walker* const walk, type_ast* const type, expr_ast* const expression);
+expr_ast* term_name(walker* const walk, term_ast* const term);
 void function_to_structure_type(walker* const walk, term_ast* const term);
 expr_ast* transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_relay* const newlines);
 void transform_term(walker* const walk, term_ast* const term, uint8_t is_outer);

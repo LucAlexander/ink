@@ -1499,8 +1499,12 @@ show_term(term_ast* term){
 	show_type(term->type);
 	printf(" ");
 	string_print(&term->name.data.name);
-	printf(" = ");
-	show_expression(term->expression);
+	if (term->expression != NULL){
+		printf(" = ");
+		show_expression(term->expression);
+		return;
+	}
+	printf("; ");
 }
 
 void
@@ -5153,11 +5157,27 @@ token_stack_top(token_stack* const stack){
 }
 
 //NOTE lambdas only exist at the top level at this point
+//NOTE Terms encountered during this function are not the same as top level terms anymore because they will basically always be applications or simple values
+//NOTE Blocks should. in the general case, be entered with newlines set to NULL, unless they are in the middle of an expression
+//NOTE This function generates uninitialized expressions in the form T f;
 expr_ast*
 transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_relay* const newlines){
 	switch (expr->tag){
 	case APPL_EXPR:
-		//TODO
+		expr_ast* root = expr;
+		expr_ast* prev = root;
+		uint64_t arg_count = 0;
+		while (root->tag == APPL_EXPR){
+			root->data.appl.right = transform_expr(walk, root->data.appl.right, 0, newlines);
+			arg_count += 1;
+			prev = root;
+			root = root->data.appl.left;
+		}
+		//TODO access with .
+		//TODO can skip if the args match on top level binding, it can just be function call
+		//TODO here is where we need to do all the closure cases, you can get the result type with from expr->type
+		prev->data.appl.left = transform_expr(walk, prev->data.appl.left, 0, newlines);
+		return expr;
 	case LAMBDA_EXPR:
 		if (expr->data.lambda.expression->tag != BLOCK_EXPR){
 			expr_ast* block = pool_request(walk->parse->mem, sizeof(expr_ast));
@@ -5180,56 +5200,95 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		}
 		return expr;
 	case BLOCK_EXPR:
-		line_relay outer_lines = line_relay_init(walk->parse->temp_mem);
-		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
-			line_relay linelines = line_relay_init(walk->parse->temp_mem);
-			expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, &linelines);
-			line_relay_append(&linelines, line);
-			line_relay_concat(&outer_lines, &linelines);
+		if (newlines == NULL){
+			line_relay outer_lines = line_relay_init(walk->parse->temp_mem);
+			for (uint64_t i = 0;i<expr->data.block.line_count;++i){
+				line_relay linelines = line_relay_init(walk->parse->temp_mem);
+				if (expr->data.block.lines[i].tag == BLOCK_EXPR){
+					expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, NULL);
+					line_relay_append(&outer_lines, line);
+				}
+				expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, &linelines);
+				line_relay_append(&linelines, line);
+				line_relay_concat(&outer_lines, &linelines);
+			}
+			expr_ast* lines = pool_request(walk->parse->mem, sizeof(expr_ast)*outer_lines.len);
+			line_relay_node* first = outer_lines.first;
+			uint64_t index = 0;
+			while (first != NULL){
+				lines[index] = *first->line;
+				index += 1;
+				first = first->next;
+			}
+			expr->data.block.line_count = outer_lines.len;
+			expr->data.block.lines = lines;
+			return expr;
 		}
-		expr_ast* lines = pool_request(walk->parse->mem, sizeof(expr_ast)*outer_lines.len);
-		line_relay_node* first = outer_lines.first;
-		uint64_t index = 0;
-		while (first != NULL){
-			lines[index] = *first->line;
-			index += 1;
-			first = first->next;
-		}
-		expr->data.block.line_count = outer_lines.len;
-		expr->data.block.lines = lines;
+		//TODO this is a u8 x = {} or g {} b case,
+		//turns into expr->type A; { ... A = (unwrapped from return)};, A // thats for all returns in the block too..... nested in blocks and statements
+		//
 		return expr;
 	case LIT_EXPR:
 		return expr;
 	case TERM_EXPR:
-		//TODO
+		expr->data.term->expression = transform_expr(walk, expr->data.term->expression, 0, newlines);
+		return expr;
 	case STRING_EXPR:
 		return expr;
 	case LIST_EXPR:
+		for (uint64_t i = 0;i<expr->data.list.line_count;++i){
+			expr->data.list.lines[i] = *transform_expr(walk, &expr->data.list.lines[i], 0, newlines);
+		}
 		return expr;
 	case STRUCT_EXPR:
-		return expr;
+		for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
+			expr->data.constructor.members[i] = *transform_expr(walk, &expr->data.constructor.members[i], 0, newlines);
+		}
+		expr_ast* struct_wrapper = new_term(walk, expr->type, expr);
+		line_relay_append(newlines, struct_wrapper);
+		return term_name(walk, struct_wrapper->data.term);
 	case BINDING_EXPR:
+		//TODO
 		return expr;
 	case MUTATION_EXPR:
-		//TODO
+		expr->data.mutation.right = transform_expr(walk, expr->data.mutation.right, 0, newlines);
+		return expr;
 	case RETURN_EXPR:
-		//TODO
+		expr->data.ret = transform_expr(walk, expr->data.ret, 0, newlines);
+		return expr;
 	case SIZEOF_EXPR:
-		//TODO
+		return expr;
 	case REF_EXPR:
-		//TODO
+		expr->data.ref = transform_expr(walk, expr->data.ref, 0, newlines);
+		return expr;
 	case DEREF_EXPR:
-		//TODO
+		expr->data.deref = transform_expr(walk, expr->data.deref, 0, newlines);
+		return expr;
 	case IF_EXPR:
-		//TODO
+		expr->data.if_statement.pred = transform_expr(walk, expr->data.if_statement.pred, 0, newlines);
+		expr->data.if_statement.cons = transform_expr(walk, expr->data.if_statement.cons, 0, NULL);
+		if (expr->data.if_statement.alt != NULL){
+			expr->data.if_statement.alt = transform_expr(walk, expr->data.if_statement.alt, 0, NULL);
+		}
+		return expr;
 	case FOR_EXPR:
-		//TODO
+		expr->data.for_statement.initial = transform_expr(walk, expr->data.for_statement.initial, 0, newlines);
+		expr->data.for_statement.limit = transform_expr(walk, expr->data.for_statement.limit, 0, newlines);
+		expr->data.for_statement.cons = transform_expr(walk, expr->data.for_statement.cons, 0, NULL);
+		return expr;
 	case WHILE_EXPR:
-		//TODO
+		expr->data.while_statement.pred = transform_expr(walk, expr->data.while_statement.pred, 0, newlines);
+		expr->data.while_statement.cons = transform_expr(walk, expr->data.while_statement.cons, 0, NULL);
+		return expr;
 	case MATCH_EXPR:
-		//TODO
+		expr->data.match.pred = transform_expr(walk, expr->data.match.pred, 0, newlines);
+		for (uint64_t i = 0;i<expr->data.match.count;++i){
+			expr->data.match.cases[i] = *transform_expr(walk, &expr->data.match.cases[i], 0, NULL);
+		}
+		return expr;
 	case CAST_EXPR:
-		//TODO
+		expr->data.cast.source = transform_expr(walk, expr->data.cast.source, 0, newlines);
+		return expr;
 	case BREAK_EXPR:
 		return expr;
 	case CONTINUE_EXPR:
@@ -5243,6 +5302,33 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 void
 transform_term(walker* const walk, term_ast* const term, uint8_t is_outer){
 	transform_expr(walk, term->expression, is_outer, NULL);
+}
+
+expr_ast*
+new_term(walker* const walk, type_ast* const type, expr_ast* const expression){
+	term_ast* term = pool_request(walk->parse->mem, sizeof(term_ast));
+	term->type = type;
+	term->expression = expression;
+	token newname = {
+		.content_tag = STRING_TOKEN_TYPE,
+		.tag = IDENTIFIER_TOKEN,
+		.index = 0,
+		.data.name = walk->next_lambda
+	};
+	generate_new_lambda(walk);
+	term->name = newname;
+	expr_ast* wrapper = pool_request(walk->parse->mem, sizeof(expr_ast));
+	wrapper->tag = TERM_EXPR;
+	wrapper->data.term = term;
+	return wrapper;
+}
+
+expr_ast*
+term_name(walker* const walk, term_ast* const term){
+	expr_ast* bind = pool_request(walk->parse->mem, sizeof(expr_ast));
+	bind->tag = BINDING_EXPR;
+	bind->data.binding = term->name;
+	return bind;
 }
 
 //NOTE we begin dissolving dependencies here

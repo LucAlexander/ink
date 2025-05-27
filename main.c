@@ -1675,6 +1675,7 @@ parse_pattern(parser* const parse){
 		assert_local(outer->tag == IDENTIFIER_TOKEN, NULL, "expected identifier for named structure tag");
 		pattern_ast* named = pool_request(parse->mem, sizeof(pattern_ast));
 		named->tag = NAMED_PATTERN;
+		named->type = NULL;
 		named->data.named.name = *outer;
 		parse->token_index += 1;
 		named->data.named.inner = parse_pattern(parse);
@@ -1684,12 +1685,14 @@ parse_pattern(parser* const parse){
 		assert_local(outer->tag == IDENTIFIER_TOKEN, NULL, "expected identifier for union selector name");
 		pattern_ast* union_select = pool_request(parse->mem, sizeof(pattern_ast));
 		union_select->tag = UNION_SELECTOR_PATTERN;
+		union_select->type = NULL;
 		union_select->data.union_selector.member = *outer;
 		parse->token_index += 1;
 		union_select->data.union_selector.nest = parse_pattern(parse);
 		return union_select;
 	}
 	pattern_ast* pat = pool_request(parse->mem, sizeof(pattern_ast));
+	pat->type = NULL;
 	switch (outer->tag){
 	case STRING_TOKEN:
 		pat->tag = STRING_PATTERN;
@@ -3848,6 +3851,7 @@ walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* expected_type
 		expected_type = reduce_alias_and_type(walk->parse, expected_type);
 		walk_assert_prop();
 	}
+	pat->type = expected_type;
 	switch (pat->tag){
 	case NAMED_PATTERN:
 		push_binding(walk->parse, walk->local_scope, &pat->data.named.name, expected_type);
@@ -3864,17 +3868,15 @@ walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* expected_type
 		return expected_type;
 	case FAT_PTR_PATTERN:
 		walk_assert(expected_type->tag == FAT_PTR_TYPE, nearest_pattern_token(pat), "Expected fat pointer to destructure pattern");
-		type_ast len_type = {
-			.tag = LIT_TYPE,
-			.data.lit = INT_ANY
-		};
-		walk_pattern(walk, pat->data.fat_ptr.len, &len_type);
+		type_ast* len_type = pool_request(walk->parse->mem, sizeof(type_ast));
+		len_type->tag = LIT_TYPE;
+		len_type->data.lit = INT_ANY;
+		walk_pattern(walk, pat->data.fat_ptr.len, len_type);
 		walk_assert_prop();
-		type_ast inner_ptr = {
-			.tag = PTR_TYPE,
-			.data.ptr = expected_type->data.fat_ptr.ptr
-		};
-		walk_pattern(walk, pat->data.fat_ptr.ptr, &inner_ptr);
+		type_ast* inner_ptr = pool_request(walk->parse->mem, sizeof(type_ast));
+		inner_ptr->tag = PTR_TYPE;
+		inner_ptr->data.ptr = expected_type->data.fat_ptr.ptr;
+		walk_pattern(walk, pat->data.fat_ptr.ptr, inner_ptr);
 		return expected_type;
 	case HOLE_PATTERN:
 		return expected_type;
@@ -5208,6 +5210,7 @@ token_stack_top(token_stack* const stack){
 	return stack->tokens[stack->count-1];
 }
 
+//NOTE this function should never return NULL
 //NOTE lambdas only exist at the top level at this point
 //NOTE Terms encountered during this function are not the same as top level terms anymore because they will basically always be applications or simple values
 //NOTE Blocks should. in the general case, be entered with newlines set to NULL, unless they are in the middle of an expression
@@ -5225,17 +5228,16 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			prev = root;
 			root = root->data.appl.left;
 		}
-		//TODO access with .
-		//TODO access with []
 		//TODO can skip if the args match on top level binding, it can just be function call
 		//TODO here is where we need to do all the closure cases, you can get the result type with from expr->type
 		prev->data.appl.left = transform_expr(walk, prev->data.appl.left, 0, newlines);
 		return expr;
 	case STRUCT_ACCESS_EXPR:
-		//TODO
+		expr->data.access.left = transform_expr(walk, expr->data.access.left, 0, newlines);
 		return expr;
 	case ARRAY_ACCESS_EXPR:
-		//TODO
+		expr->data.access.left = transform_expr(walk, expr->data.access.left, 0, newlines);
+		expr->data.access.right->data.list.lines[0] = *transform_expr(walk, &expr->data.access.right->data.list.lines[0], 0, newlines);
 		return expr;
 	case LAMBDA_EXPR:
 		if (expr->data.lambda.expression->tag != BLOCK_EXPR){
@@ -5253,7 +5255,12 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			}
 			expr->data.lambda.expression = block;
 		}
+		uint64_t scope_pos = walk->local_scope->binding_count;
+		for (uint64_t i = 0;i<expr->data.lambda.arg_count;++i){
+			transform_pattern(walk, &expr->data.lambda.args[i], NULL);
+		}
 		transform_expr(walk, expr->data.lambda.expression, 0, NULL);
+		pop_binding(walk->local_scope, scope_pos);
 		if (expr->data.lambda.alt != NULL){
 			transform_expr(walk, expr->data.lambda.alt, 0, NULL);
 		}
@@ -5289,7 +5296,9 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 	case LIT_EXPR:
 		return expr;
 	case TERM_EXPR:
+		uint64_t pos = push_binding(walk->parse, walk->local_scope, &expr->data.term->name, expr->data.term->type);
 		expr->data.term->expression = transform_expr(walk, expr->data.term->expression, 0, newlines);
+		pop_binding(walk->local_scope, pos);
 		return expr;
 	case STRING_EXPR:
 		return expr;
@@ -5331,8 +5340,10 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		return expr;
 	case FOR_EXPR:
 		expr->data.for_statement.initial = transform_expr(walk, expr->data.for_statement.initial, 0, newlines);
+		uint64_t for_scope_pos = push_binding(walk->parse, walk->local_scope, &expr->data.for_statement.initial->data.binding, expr->data.for_statement.initial->type);
 		expr->data.for_statement.limit = transform_expr(walk, expr->data.for_statement.limit, 0, newlines);
 		expr->data.for_statement.cons = transform_expr(walk, expr->data.for_statement.cons, 0, NULL);
+		pop_binding(walk->local_scope, for_scope_pos-1);
 		return expr;
 	case WHILE_EXPR:
 		expr->data.while_statement.pred = transform_expr(walk, expr->data.while_statement.pred, 0, newlines);
@@ -5341,7 +5352,10 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 	case MATCH_EXPR:
 		expr->data.match.pred = transform_expr(walk, expr->data.match.pred, 0, newlines);
 		for (uint64_t i = 0;i<expr->data.match.count;++i){
+			uint64_t match_scope_pos = walk->local_scope->binding_count;
+			transform_pattern(walk, &expr->data.match.patterns[i], NULL);
 			expr->data.match.cases[i] = *transform_expr(walk, &expr->data.match.cases[i], 0, NULL);
+			pop_binding(walk->local_scope, match_scope_pos);
 		}
 		return expr;
 	case CAST_EXPR:
@@ -5359,7 +5373,40 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 
 void
 transform_term(walker* const walk, term_ast* const term, uint8_t is_outer){
+	uint64_t scope_pos = walk->local_scope->binding_count;
 	transform_expr(walk, term->expression, is_outer, NULL);
+	pop_binding(walk->local_scope, scope_pos);
+}
+
+void
+transform_pattern(walker* const walk, pattern_ast* const pat, line_relay* const newlines){
+	switch (pat->tag){
+	case NAMED_PATTERN:
+		push_binding(walk->parse, walk->local_scope, &pat->data.named.name, pat->type);
+		transform_pattern(walk, pat->data.named.inner, newlines);
+		return;
+	case STRUCT_PATTERN:
+		for (uint64_t i = 0;i<pat->data.structure.count;++i){
+			transform_pattern(walk, &pat->data.structure.members[i], newlines);
+		}
+		return;
+	case FAT_PTR_PATTERN:
+		transform_pattern(walk, pat->data.fat_ptr.ptr, newlines);
+		transform_pattern(walk, pat->data.fat_ptr.len, newlines);
+		return;
+	case HOLE_PATTERN:
+		return;
+	case BINDING_PATTERN:
+		push_binding(walk->parse, walk->local_scope, &pat->data.binding, pat->type);
+		return;
+	case LITERAL_PATTERN:
+		return;
+	case STRING_PATTERN:
+		return;
+	case UNION_SELECTOR_PATTERN:
+		transform_pattern(walk, pat->data.union_selector.nest, newlines);
+		return;
+	}
 }
 
 expr_ast*
@@ -5616,6 +5663,7 @@ line_relay_concat(line_relay* const left, line_relay* const right){
 }
 
 /* TODO
+ * transform patterns into checks
  * assert that structures are nonrecursive, must be done after monomorph
 	 * then you can validate sizeof, evaluate the closure offsets with sizeof_type
  * more mem optimizations on the normal walk pass since its basically done for now

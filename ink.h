@@ -201,6 +201,7 @@ typedef struct literal_ast {
 } literal_ast;
 
 typedef struct pattern_ast {
+	type_ast* type;
 	union {
 		struct {
 			token name;
@@ -637,5 +638,6 @@ expr_ast* term_name(walker* const walk, term_ast* const term);
 void function_to_structure_type(walker* const walk, term_ast* const term);
 expr_ast* transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_relay* const newlines);
 void transform_term(walker* const walk, term_ast* const term, uint8_t is_outer);
+void transform_pattern(walker* const walk, pattern_ast* const pat, line_relay* const newlines);
 
 #endif

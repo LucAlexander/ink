@@ -288,7 +288,7 @@ typedef struct expr_ast {
 		struct {
 			expr_ast* left;
 			expr_ast* right;
-		} appl, mutation;
+		} appl, mutation, access;
 		struct {
 			pattern_ast* args;
 			expr_ast* expression;
@@ -361,6 +361,9 @@ typedef struct expr_ast {
 		BREAK_EXPR,
 		CONTINUE_EXPR,
 		NOP_EXPR,
+		//for use after walk
+		STRUCT_ACCESS_EXPR,
+		ARRAY_ACCESS_EXPR
 	} tag;
 } expr_ast;
 

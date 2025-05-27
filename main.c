@@ -1522,6 +1522,20 @@ show_expression(expr_ast* expr){
 		show_expression(expr->data.appl.right);
 		printf(")");
 		break;
+	case STRUCT_ACCESS_EXPR:
+		printf("(");
+		show_expression(expr->data.access.left);
+		printf(".");
+		show_expression(expr->data.access.right);
+		printf(")");
+		break;
+	case ARRAY_ACCESS_EXPR:
+		printf("(");
+		show_expression(expr->data.access.left);
+		printf(" ");
+		show_expression(expr->data.access.right);
+		printf(")");
+		break;
 	case LAMBDA_EXPR:
 		printf("\\");
 		for (uint64_t i = 0;i<expr->data.lambda.arg_count;++i){
@@ -2576,6 +2590,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				type_ast* access = walk_expr(walk, expr->data.appl.right, any, any, 0);
 				walk_assert_prop();
 				walk_assert(access != NULL, nearest_token(expr), "Accessor type should be integer");
+				expr->tag = ARRAY_ACCESS_EXPR;
 				if (array->tag == FAT_PTR_TYPE){
 					pop_binding(walk->local_scope, scope_pos);
 					token_stack_pop(walk->term_stack, token_pos);
@@ -2604,6 +2619,11 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 						type_ast* field = is_member(obj, expr->data.appl.right);
 						walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Expected member of structure in field access");
 						expr->data.appl.right->type = field;
+						expr->tag = STRUCT_ACCESS_EXPR;
+						expr_ast* struct_expr = expr->data.appl.left->data.appl.right;
+						expr_ast* field_expr = expr->data.appl.right;
+						expr->data.access.left = struct_expr;
+						expr->data.access.right = field_expr;
 						pop_binding(walk->local_scope, scope_pos);
 						token_stack_pop(walk->term_stack, token_pos);
 						expr->type = field;
@@ -2618,6 +2638,11 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 						type_ast* field = is_member(inner, expr->data.appl.right);
 						walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Expected member of structure in field access");
 						expr->data.appl.right->type = field;
+						expr->tag = STRUCT_ACCESS_EXPR;
+						expr_ast* struct_expr = expr->data.appl.left->data.appl.right;
+						expr_ast* field_expr = expr->data.appl.right;
+						expr->data.access.left = struct_expr;
+						expr->data.access.right = field_expr;
 						pop_binding(walk->local_scope, scope_pos);
 						token_stack_pop(walk->term_stack, token_pos);
 						expr->type = field;
@@ -2626,6 +2651,11 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 					else if (obj->tag == FAT_PTR_TYPE){
 						walk_assert(expr->data.appl.right->tag == BINDING_EXPR, nearest_token(expr->data.appl.right), "Expected field for structure access");
 						if (cstring_compare(&expr->data.appl.right->data.binding.data.name, "ptr")){
+							expr->tag = STRUCT_ACCESS_EXPR;
+							expr_ast* struct_expr = expr->data.appl.left->data.appl.right;
+							expr_ast* field_expr = expr->data.appl.right;
+							expr->data.access.left = struct_expr;
+							expr->data.access.right = field_expr;
 							pop_binding(walk->local_scope, scope_pos);
 							token_stack_pop(walk->term_stack, token_pos);
 							expr->type = obj->data.fat_ptr.ptr;
@@ -2635,6 +2665,11 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 							type_ast* lenlit = pool_request(walk->parse->mem, sizeof(type_ast));
 							lenlit->tag = LIT_TYPE;
 							lenlit->data.lit = U64_TYPE;
+							expr->tag = STRUCT_ACCESS_EXPR;
+							expr_ast* struct_expr = expr->data.appl.left->data.appl.right;
+							expr_ast* field_expr = expr->data.appl.right;
+							expr->data.access.left = struct_expr;
+							expr->data.access.right = field_expr;
 							pop_binding(walk->local_scope, scope_pos);
 							token_stack_pop(walk->term_stack, token_pos);
 							expr->type = lenlit;
@@ -2645,6 +2680,11 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 						type_ast* field = is_member(inner, expr->data.appl.right);
 						walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Expected member of structure in field access");
 						expr->data.appl.right->type = field;
+						expr->tag = STRUCT_ACCESS_EXPR;
+						expr_ast* struct_expr = expr->data.appl.left->data.appl.right;
+						expr_ast* field_expr = expr->data.appl.right;
+						expr->data.access.left = struct_expr;
+						expr->data.access.right = field_expr;
 						pop_binding(walk->local_scope, scope_pos);
 						token_stack_pop(walk->term_stack, token_pos);
 						expr->type = field;
@@ -3315,6 +3355,10 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = NULL;
 		return NULL;
+	case STRUCT_ACCESS_EXPR:
+	case ARRAY_ACCESS_EXPR:
+		walk_assert(expr->type != NULL, nearest_token(expr), "Type should already have been evaluated for this access");
+		return expr->type;
 	}
 	return NULL;
 }
@@ -3676,6 +3720,9 @@ nearest_token(expr_ast* const e){
 	switch (e->tag){
 	case APPL_EXPR:
 		return nearest_token(e->data.appl.left);
+	case STRUCT_ACCESS_EXPR:
+	case ARRAY_ACCESS_EXPR:
+		return nearest_token(e->data.access.left);
 	case LAMBDA_EXPR:
 		return nearest_token(e->data.lambda.expression);
 	case BLOCK_EXPR:
@@ -4518,6 +4565,11 @@ realias_type_expr(realias_walker* const walk, expr_ast* const expr){
 		realias_type_expr(walk, expr->data.appl.left);
 		realias_type_expr(walk, expr->data.appl.right);
 		return;
+	case STRUCT_ACCESS_EXPR:
+	case ARRAY_ACCESS_EXPR:
+		realias_type_expr(walk, expr->data.access.left);
+		realias_type_expr(walk, expr->data.access.right);
+		return;
 	case LAMBDA_EXPR:
 		realias_type_expr(walk, expr->data.lambda.expression);
 		if (expr->data.lambda.alt != NULL){
@@ -5174,9 +5226,16 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			root = root->data.appl.left;
 		}
 		//TODO access with .
+		//TODO access with []
 		//TODO can skip if the args match on top level binding, it can just be function call
 		//TODO here is where we need to do all the closure cases, you can get the result type with from expr->type
 		prev->data.appl.left = transform_expr(walk, prev->data.appl.left, 0, newlines);
+		return expr;
+	case STRUCT_ACCESS_EXPR:
+		//TODO
+		return expr;
+	case ARRAY_ACCESS_EXPR:
+		//TODO
 		return expr;
 	case LAMBDA_EXPR:
 		if (expr->data.lambda.expression->tag != BLOCK_EXPR){

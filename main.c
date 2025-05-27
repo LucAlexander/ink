@@ -2798,9 +2798,9 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 					}
 				}
 			}
-			type_ast_map* relation = clash_types(walk->parse, left_real->data.function.left, right);
-			walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application with known type did not match right side of application");
-			type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, left_real->data.function.right);
+			clash_relation relation = clash_types(walk->parse, left_real->data.function.left, right);
+			walk_assert(relation.relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application with known type did not match right side of application");
+			type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, &relation, left_real->data.function.right);
 			walk_assert(type_equal(walk->parse, expected_type, reduce_alias_and_type(walk->parse, generic_applied_type)), nearest_token(expr), "Applied generic type did not match expected type");
 			walk_assert_prop();
 			pop_binding(walk->local_scope, scope_pos);
@@ -2858,15 +2858,15 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				}
 			}
 		}
-		type_ast_map* relation = clash_types(walk->parse, left->data.function.left, right);
-		walk_assert(relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
+		clash_relation relation = clash_types(walk->parse, left->data.function.left, right);
+		walk_assert(relation.relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application did not match right side of application");
 		type_ast* generic_applied_type;
 	   	if (outer_depends == NULL){
-			generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, left->data.function.right);
+			generic_applied_type = deep_copy_type_replace(walk->parse->mem, &relation, left->data.function.right);
 		}
 		else{
 			outer_depends->data.dependency.type = left->data.function.right;
-			generic_applied_type = deep_copy_type_replace(walk->parse->mem, relation, outer_depends);
+			generic_applied_type = deep_copy_type_replace(walk->parse->mem, &relation, outer_depends);
 		}
 		pop_binding(walk->local_scope, scope_pos);
 		token_stack_pop(walk->term_stack, token_pos);
@@ -3292,7 +3292,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		type_ast* forlimittype = walk_expr(walk, expr->data.for_statement.limit, for_type, for_type, 0);
 		walk_assert_prop();
 	   	walk_assert(forlimittype != NULL, nearest_token(expr->data.for_statement.limit), "For loop range must be integral");
-		push_binding(walk->parse, walk->local_scope, &expr->data.for_statement.binding, for_type);
+		push_binding(walk, walk->local_scope, &expr->data.for_statement.binding, for_type);
 		walk_expr(walk, expr->data.for_statement.cons, NULL, outer_type, 0);
 		pop_binding(walk->local_scope, scope_pos);
 		token_stack_pop(walk->term_stack, token_pos);
@@ -3404,7 +3404,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 
 type_ast*
 walk_term(walker* const walk, term_ast* const term, type_ast* expected_type, uint8_t is_outer){
-	uint64_t pos = push_binding(walk->parse, walk->local_scope, &term->name, term->type);
+	uint64_t pos = push_binding(walk, walk->local_scope, &term->name, term->type);
 	walk_assert_prop();
 	uint64_t token_pos = token_stack_push(walk->term_stack, term->name);
 	type_ast* real_type = walk_expr(walk, term->expression, term->type, term->type, is_outer);
@@ -3416,7 +3416,8 @@ walk_term(walker* const walk, term_ast* const term, type_ast* expected_type, uin
 }
 
 uint64_t
-push_binding(parser* const parse, scope* const s, token* const t, type_ast* const type){
+push_binding(walker* const walk, scope* const s, token* const t, type_ast* const type){
+	parser* parse = walk->parse;
 	for (uint64_t i = 0;i<s->binding_count;++i){
 		if (string_compare(&t->data.name, &s->bindings[i].name->data.name) == 0){
 			printf("im here");
@@ -3431,10 +3432,9 @@ push_binding(parser* const parse, scope* const s, token* const t, type_ast* cons
 		}
 		s->bindings = bindings;
 	}
-	type_ast_map empty = type_ast_map_init(parse->mem);
 	binding b = {
 		.name = t,
-		.type = deep_copy_type_replace(parse->mem, &empty, type)
+		.type = deep_copy_type(walk, type)
 	};
 	s->bindings[s->binding_count] = b;
 	s->binding_count += 1;
@@ -3530,7 +3530,12 @@ reduce_alias_and_type(parser* const parse, type_ast* start_type){
 				for (uint64_t i = 0;i<start_type->data.named.arg_count;++i){
 					type_ast_map_insert(&relation, (*type)->params[i].data.name, start_type->data.named.args[i]);
 				}
-				start_type = deep_copy_type_replace(parse->mem, &relation, (*type)->type);
+				type_ast_map empty_ptr_only = type_ast_map_init(parse->mem);
+				clash_relation r = {
+					.relation = &relation,
+					.pointer_only = &empty_ptr_only
+				};
+				start_type = deep_copy_type_replace(parse->mem, &r, (*type)->type);
 				continue;
 			}
 			start_type = (*type)->type;
@@ -3580,7 +3585,9 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type){
 				scrape_binding(walk, &walk->local_scope->bindings[i]);
 			}
 			type_ast_map empty = type_ast_map_init(walk->parse->mem);
-			return deep_copy_type_replace(walk->parse->mem, &empty, walk->local_scope->bindings[i].type);
+			type_ast_map ptr_empty = type_ast_map_init(walk->parse->mem);
+			clash_relation r = {&empty, &ptr_empty};
+			return deep_copy_type_replace(walk->parse->mem, &r, walk->local_scope->bindings[i].type);
 		}
 	}
 	term_ptr_buffer* poly_funcs = term_ptr_buffer_map_access(walk->parse->implemented_terms, bind->data.name);
@@ -3818,7 +3825,9 @@ nearest_token(expr_ast* const e){
 }
 
 type_ast*
-deep_copy_type_replace(pool* const mem, type_ast_map* relation, type_ast* const source){
+deep_copy_type_replace(pool* const mem, clash_relation* crelation, type_ast* const source){
+	type_ast_map* relation = crelation->relation;
+	type_ast_map* pointer_only = crelation->pointer_only;
 	type_ast* dest = pool_request(mem, sizeof(type_ast));
 	*dest = *source;
 	switch (source->tag){
@@ -3827,33 +3836,39 @@ deep_copy_type_replace(pool* const mem, type_ast_map* relation, type_ast* const 
 			type_ast* replacement = type_ast_map_access(relation, source->data.dependency.dependency_typenames[i].data.name);
 			if (replacement != NULL){
 				if (replacement->tag != NAMED_TYPE){
-					continue; // TODO this is testing "what if we just keep dependencies which have been fully disolved"
+					continue; // TODO this is testing "what if we just keep dependencies which have been fully disolved", NOTE we probably just dissolve them later
 				}
 				dest->data.dependency.dependency_typenames[i] = replacement->data.named.name;
 			}
 		}
-		dest->data.dependency.type = deep_copy_type_replace(mem, relation, source->data.dependency.type);
+		dest->data.dependency.type = deep_copy_type_replace(mem, crelation, source->data.dependency.type);
 		return dest;
 	case FUNCTION_TYPE:
-		dest->data.function.left = deep_copy_type_replace(mem, relation, source->data.function.left);
-		dest->data.function.right = deep_copy_type_replace(mem, relation, source->data.function.right);
+		dest->data.function.left = deep_copy_type_replace(mem, crelation, source->data.function.left);
+		dest->data.function.right = deep_copy_type_replace(mem, crelation, source->data.function.right);
 		return dest;
 	case LIT_TYPE:
 		return dest;
 	case PTR_TYPE:
-		dest->data.ptr = deep_copy_type_replace(mem, relation, source->data.ptr);
+		if (dest->data.ptr->tag == NAMED_TYPE){
+			type_ast* replacement = type_ast_map_access(pointer_only, dest->data.ptr->data.named.name.data.name);
+			if (replacement != NULL){
+				return replacement;
+			}
+		}
+		dest->data.ptr = deep_copy_type_replace(mem, crelation, source->data.ptr);
 		return dest;
 	case FAT_PTR_TYPE:
-		dest->data.fat_ptr.ptr = deep_copy_type_replace(mem, relation, source->data.fat_ptr.ptr);
+		dest->data.fat_ptr.ptr = deep_copy_type_replace(mem, crelation, source->data.fat_ptr.ptr);
 		return dest;
 	case STRUCT_TYPE:
-		dest->data.structure = deep_copy_structure_replace(mem, relation, source->data.structure);
+		dest->data.structure = deep_copy_structure_replace(mem, crelation, source->data.structure);
 		return dest;
 	case NAMED_TYPE:
 		type_ast* replacement = type_ast_map_access(relation, source->data.named.name.data.name);
 		if (replacement == NULL){
 			for (uint64_t i = 0;i<source->data.named.arg_count;++i){
-				dest->data.named.args[i] = *deep_copy_type_replace(mem, relation, &source->data.named.args[i]);
+				dest->data.named.args[i] = *deep_copy_type_replace(mem, crelation, &source->data.named.args[i]);
 			}
 			return dest;
 		}
@@ -3863,7 +3878,7 @@ deep_copy_type_replace(pool* const mem, type_ast_map* relation, type_ast* const 
 }
 
 structure_ast*
-deep_copy_structure_replace(pool* const mem, type_ast_map* relation, structure_ast* const source){
+deep_copy_structure_replace(pool* const mem, clash_relation* relation, structure_ast* const source){
 	structure_ast* dest = pool_request(mem, sizeof(structure_ast));
 	*dest = *source;
 	switch (source->tag){
@@ -3892,7 +3907,7 @@ walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* expected_type
 	pat->type = expected_type;
 	switch (pat->tag){
 	case NAMED_PATTERN:
-		push_binding(walk->parse, walk->local_scope, &pat->data.named.name, expected_type);
+		push_binding(walk, walk->local_scope, &pat->data.named.name, expected_type);
 		walk_assert_prop();
 		return walk_pattern(walk, pat->data.named.inner, expected_type);
 	case STRUCT_PATTERN:
@@ -3919,7 +3934,7 @@ walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* expected_type
 	case HOLE_PATTERN:
 		return expected_type;
 	case BINDING_PATTERN:
-		push_binding(walk->parse, walk->local_scope, &pat->data.binding, expected_type);
+		push_binding(walk, walk->local_scope, &pat->data.binding, expected_type);
 		walk_assert_prop();
 		return expected_type;
 	case LITERAL_PATTERN:
@@ -4003,19 +4018,43 @@ is_member(type_ast* const outer, expr_ast* const field){
 	return NULL;
 }
 
-type_ast_map*
+clash_relation
 clash_types(parser* const parse, type_ast* const left, type_ast* const right){
 	type_ast_map* relation = pool_request(parse->mem, sizeof(type_ast_map));
 	*relation = type_ast_map_init(parse->mem);
-	if (clash_types_worker(parse, relation, left, right) == 0){
-		return NULL;
+	type_ast_map* pointer_only = pool_request(parse->mem, sizeof(type_ast_map));
+	*pointer_only = type_ast_map_init(parse->mem);
+	if (clash_types_worker(parse, relation, pointer_only, left, right) == 0){
+		return (clash_relation){.relation = NULL};
 	}
-	return relation;
+	clash_relation r = {
+		.relation = relation,
+		.pointer_only = pointer_only
+	};
+	return r;
 }
 
 uint8_t
-clash_types_worker(parser* const parse, type_ast_map* relation, type_ast* const left, type_ast* const right){
+clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* pointer_only, type_ast* const left, type_ast* const right){
 	if (left->tag != right->tag){
+		if (left->tag == PTR_TYPE && right->tag == FUNCTION_TYPE){
+			if (left->data.ptr->tag == NAMED_TYPE){
+				type_ast* existing_ptr = type_ast_map_access(pointer_only, left->data.ptr->data.named.name.data.name);
+				if (existing_ptr != NULL){
+					if (type_equal(parse, existing_ptr, right) == 0){
+						return 0;
+					}
+					return 1;
+				}
+				typedef_ast** istypedef = typedef_ptr_map_access(parse->types, left->data.ptr->data.named.name.data.name);
+				alias_ast** isalias = alias_ptr_map_access(parse->aliases, left->data.ptr->data.named.name.data.name);
+				if (istypedef != NULL || isalias != NULL){
+					return 0;
+				}
+				type_ast_map_insert(pointer_only, left->data.ptr->data.named.name.data.name, *right);
+				return 1;
+			}
+		}
 		if (left->tag != NAMED_TYPE){
 			return 0;
 		}
@@ -4045,10 +4084,10 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast* const 
 			synthetic->data.named.arg_count = 0;
 			type_ast_map_insert(relation, left->data.dependency.dependency_typenames[i].data.name, *synthetic);
 		}
-		return clash_types_worker(parse, relation, left->data.dependency.type, right->data.dependency.type);
+		return clash_types_worker(parse, relation, pointer_only, left->data.dependency.type, right->data.dependency.type);
 	case FUNCTION_TYPE:
-		return clash_types_worker(parse, relation, left->data.function.left, right->data.function.left)
-		     & clash_types_worker(parse, relation, left->data.function.right, right->data.function.right);
+		return clash_types_worker(parse, relation, pointer_only, left->data.function.left, right->data.function.left)
+		     & clash_types_worker(parse, relation, pointer_only, left->data.function.right, right->data.function.right);
 	case LIT_TYPE:
 		if (left->data.lit == INT_ANY || right->data.lit == INT_ANY){
 			return 1;
@@ -4056,12 +4095,16 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast* const 
 		return left->data.lit == right->data.lit;
 		//TODO coersion? we'll experiment without for now, you can always explicit cast
 	case PTR_TYPE:
-		return clash_types_worker(parse, relation, left->data.ptr, right->data.ptr);
+		return clash_types_worker(parse, relation, pointer_only, left->data.ptr, right->data.ptr);
 	case FAT_PTR_TYPE:
-		return clash_types_worker(parse, relation, left->data.fat_ptr.ptr, right->data.fat_ptr.ptr);
+		return clash_types_worker(parse, relation, pointer_only, left->data.fat_ptr.ptr, right->data.fat_ptr.ptr);
 	case STRUCT_TYPE:
-		return clash_structure_worker(parse, relation, left->data.structure, right->data.structure);
+		return clash_structure_worker(parse, relation, pointer_only, left->data.structure, right->data.structure);
 	case NAMED_TYPE:
+		type_ast* supposed_pointer = type_ast_map_access(pointer_only, left->data.named.name.data.name);
+		if (supposed_pointer != NULL){
+			return 0;
+		}
 		type_ast* confirm = type_ast_map_access(relation, left->data.named.name.data.name);
 		if (confirm != NULL){
 			if (type_equal(parse, confirm, right) == 0){
@@ -4099,7 +4142,7 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast* const 
 			return 0;
 		}
 		for (uint64_t i = 0;i<left->data.named.arg_count;++i){
-			if (clash_types_worker(parse, relation, &left->data.named.args[i], &right->data.named.args[i]) == 0){
+			if (clash_types_worker(parse, relation, pointer_only, &left->data.named.args[i], &right->data.named.args[i]) == 0){
 				return 0;
 			}
 		}
@@ -4109,7 +4152,7 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast* const 
 }
 
 uint8_t
-clash_structure_worker(parser* const parse, type_ast_map* relation, structure_ast* const left, structure_ast* const right){
+clash_structure_worker(parser* const parse, type_ast_map* relation, type_ast_map* pointer_only, structure_ast* const left, structure_ast* const right){
 	if (left->tag != right->tag){
 		return 0;
 	}
@@ -4119,7 +4162,7 @@ clash_structure_worker(parser* const parse, type_ast_map* relation, structure_as
 			return 0;
 		}
 		for (uint64_t i = 0;i<left->data.structure.count;++i){
-			if (clash_types_worker(parse, relation, &left->data.structure.members[i], &right->data.structure.members[i]) == 0){
+			if (clash_types_worker(parse, relation, pointer_only, &left->data.structure.members[i], &right->data.structure.members[i]) == 0){
 				return 0;
 			}
 		}
@@ -4129,7 +4172,7 @@ clash_structure_worker(parser* const parse, type_ast_map* relation, structure_as
 			return 0;
 		}
 		for (uint64_t i = 0;i<left->data.union_structure.count;++i){
-			if (clash_types_worker(parse, relation, &left->data.union_structure.members[i], &right->data.union_structure.members[i]) == 0){
+			if (clash_types_worker(parse, relation, pointer_only, &left->data.union_structure.members[i], &right->data.union_structure.members[i]) == 0){
 				return 0;
 			}
 		}
@@ -5336,7 +5379,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 	case LIT_EXPR:
 		return expr;
 	case TERM_EXPR:
-		uint64_t pos = push_binding(walk->parse, walk->local_scope, &expr->data.term->name, expr->data.term->type);
+		uint64_t pos = push_binding(walk, walk->local_scope, &expr->data.term->name, expr->data.term->type);
 		expr->data.term->expression = transform_expr(walk, expr->data.term->expression, 0, newlines);
 		pop_binding(walk->local_scope, pos);
 		return expr;
@@ -5379,7 +5422,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		return expr;
 	case FOR_EXPR:
 		expr->data.for_statement.initial = transform_expr(walk, expr->data.for_statement.initial, 0, newlines);
-		uint64_t for_scope_pos = push_binding(walk->parse, walk->local_scope, &expr->data.for_statement.initial->data.binding, expr->data.for_statement.initial->type);
+		uint64_t for_scope_pos = push_binding(walk, walk->local_scope, &expr->data.for_statement.initial->data.binding, expr->data.for_statement.initial->type);
 		expr->data.for_statement.limit = transform_expr(walk, expr->data.for_statement.limit, 0, newlines);
 		expr->data.for_statement.cons = transform_expr(walk, expr->data.for_statement.cons, 0, NULL);
 		pop_binding(walk->local_scope, for_scope_pos-1);
@@ -5424,7 +5467,7 @@ void
 transform_pattern(walker* const walk, pattern_ast* const pat, line_relay* const newlines){
 	switch (pat->tag){
 	case NAMED_PATTERN:
-		push_binding(walk->parse, walk->local_scope, &pat->data.named.name, pat->type);
+		push_binding(walk, walk->local_scope, &pat->data.named.name, pat->type);
 		transform_pattern(walk, pat->data.named.inner, newlines);
 		return;
 	case STRUCT_PATTERN:
@@ -5439,7 +5482,7 @@ transform_pattern(walker* const walk, pattern_ast* const pat, line_relay* const 
 	case HOLE_PATTERN:
 		return;
 	case BINDING_PATTERN:
-		push_binding(walk->parse, walk->local_scope, &pat->data.binding, pat->type);
+		push_binding(walk, walk->local_scope, &pat->data.binding, pat->type);
 		return;
 	case LITERAL_PATTERN:
 		return;
@@ -5593,9 +5636,6 @@ function_to_structure_type_isolated(walker* const walk, type_ast* const type, ty
 	size_type->tag = LIT_TYPE;
 	size_type->data.lit = U64_TYPE;
 }
-
-
-
 
 uint64_t
 sizeof_type(parser* const parse, type_ast* const type){
@@ -5803,10 +5843,9 @@ in_scope_transform(walker* const walk, token* const bind, type_ast* expected_typ
 			if (i < walk->scope_ptrs->ptrs[walk->scope_ptrs->count-1]){
 				scrape_binding(walk, &walk->local_scope->bindings[i]);
 			}
-			type_ast_map empty = type_ast_map_init(walk->parse->mem);
 			scope_info ret = {
 				.top_level = 0,
-				.type = deep_copy_type_replace(walk->parse->mem, &empty, walk->local_scope->bindings[i].type)
+				.type = deep_copy_type(walk, walk->local_scope->bindings[i].type)
 			};
 			return ret;
 		}
@@ -5863,9 +5902,9 @@ in_scope_transform(walker* const walk, token* const bind, type_ast* expected_typ
 
 /* TODO
  *
- * generic pointer args must accept functions
+ * generic pointer args must accept functions*** but this breaks down, check most of the stuff on monomorph i guess?
+ * 	keep track of generic only arguments first, and their function arguments
  * generic pointer returns must accept functions, deref cannot be performed on functions
- * closure copy builtin
  * outer types get their internal function poitners structured
  * inner types ger their entire function pointers structured
  * all closures are pointers, copies are explicit.

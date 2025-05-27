@@ -499,9 +499,6 @@ typedef struct scope {
 	uint64_t binding_count;
 } scope;
 
-uint64_t push_binding(parser* const parse, scope* const s, token* const t, type_ast* const type);
-void pop_binding(scope* const s, uint64_t pos);
-
 typedef struct expr_stack expr_stack;
 typedef struct expr_stack {
 	pool* mem;
@@ -544,6 +541,9 @@ typedef struct walker {
 	string next_lambda;
 	token_stack* term_stack;
 } walker;
+
+uint64_t push_binding(walker* const walk, scope* const s, token* const t, type_ast* const type);
+void pop_binding(scope* const s, uint64_t pos);
 
 void push_expr_stack(walker* const walk);
 void pop_expr_stack(walker* const walk);
@@ -592,14 +592,20 @@ type_ast* in_scope(walker* const walk, token* const bind, type_ast* const expect
 uint8_t type_equal(parser* const parse, type_ast* const left, type_ast* const right);
 uint8_t type_equal_worker(parser* const parse, token_map* const generics, type_ast* const left, type_ast* const right);
 uint8_t structure_equal(parser* const parse, token_map* const generics, structure_ast* const left, structure_ast* const right);
-type_ast* deep_copy_type_replace(pool* const mem, type_ast_map* relation, type_ast* const source);
-structure_ast* deep_copy_structure_replace(pool* const mem, type_ast_map* relation, structure_ast* const source);
 uint64_t nearest_token(expr_ast* const e);
 uint64_t nearest_pattern_token(pattern_ast* const pat);
 type_ast* is_member(type_ast* const obj, expr_ast* const field);
-type_ast_map* clash_types(parser* const parse, type_ast* const left, type_ast* const right);
-uint8_t clash_types_worker(parser* const parse, type_ast_map* relation, type_ast* const left, type_ast* const right);
-uint8_t clash_structure_worker(parser* const parse, type_ast_map* relation, structure_ast* const left, structure_ast* const right);
+
+typedef struct clash_relation {
+	type_ast_map* relation;
+	type_ast_map* pointer_only;
+} clash_relation;
+
+clash_relation clash_types(parser* const parse, type_ast* const left, type_ast* const right);
+uint8_t clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* pointer_only, type_ast* const left, type_ast* const right);
+uint8_t clash_structure_worker(parser* const parse, type_ast_map* relation, type_ast_map* pointer_only, structure_ast* const left, structure_ast* const right);
+type_ast* deep_copy_type_replace(pool* const mem, clash_relation* relation, type_ast* const source);
+structure_ast* deep_copy_structure_replace(pool* const mem, clash_relation* relation, structure_ast* const source);
 structure_ast* deep_copy_structure(walker* const walk, structure_ast* const source);
 type_ast* deep_copy_type(walker* const walk, type_ast* const source);
 uint8_t type_valid(parser* const parse, type_ast* const type);

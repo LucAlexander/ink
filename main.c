@@ -5315,7 +5315,6 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		line_relay_append(newlines, struct_wrapper);
 		return term_name(walk, struct_wrapper->data.term);
 	case BINDING_EXPR:
-		//TODO
 		return expr;
 	case MUTATION_EXPR:
 		expr->data.mutation.right = transform_expr(walk, expr->data.mutation.right, 0, newlines);
@@ -5660,6 +5659,106 @@ line_relay_concat(line_relay* const left, line_relay* const right){
 	left->last->next = right->first;
 	left->last = right->last;
 	left->len += right->len;
+}
+
+scope_info // TODO doing it this way means we need to transform term types as we go, before we add them to the scope
+in_scope_transform(walker* const walk, token* const bind, type_ast* expected_type){
+	if (expected_type != NULL){
+		expected_type = reduce_alias(walk->parse, expected_type);
+	}
+	term_ast** term = term_ptr_map_access(walk->parse->terms, bind->data.name);
+	if (term != NULL){
+		scope_info ret = {
+			.top_level = 1,
+			.type = (*term)->type
+		};
+		return ret;
+	}
+	uint64_t* value = uint64_t_map_access(walk->parse->enumerated_values, bind->data.name);
+	if (value != NULL){
+		if (expected_type != NULL){
+			if ((expected_type->tag == STRUCT_TYPE) && (expected_type->data.structure->tag == ENUM_STRUCT)){
+				for (uint64_t i = 0;i<expected_type->data.structure->data.enumeration.count;++i){
+					if (string_compare(&expected_type->data.structure->data.enumeration.names[i].data.name, &bind->data.name) == 0){
+						scope_info ret = {
+							.top_level = 0,
+							.type = expected_type
+						};
+						return ret;
+					}
+				}
+			}
+		}
+		type_ast* any = pool_request(walk->parse->mem, sizeof(type_ast));
+		any->tag = LIT_TYPE;
+		any->data.lit = INT_ANY;
+		scope_info ret = {
+			.top_level = 0,
+			.type = any 
+		};
+		return ret;
+	}
+	for (uint64_t i = 0;i<walk->local_scope->binding_count;++i){
+		if (string_compare(&bind->data.name, &walk->local_scope->bindings[i].name->data.name) == 0){
+			if (i < walk->scope_ptrs->ptrs[walk->scope_ptrs->count-1]){
+				scrape_binding(walk, &walk->local_scope->bindings[i]);
+			}
+			type_ast_map empty = type_ast_map_init(walk->parse->mem);
+			scope_info ret = {
+				.top_level = 0,
+				.type = deep_copy_type_replace(walk->parse->mem, &empty, walk->local_scope->bindings[i].type)
+			};
+			return ret;
+		}
+	}
+	term_ptr_buffer* poly_funcs = term_ptr_buffer_map_access(walk->parse->implemented_terms, bind->data.name);
+	if (poly_funcs != NULL){
+		for (uint64_t i = 0;i<poly_funcs->count;++i){
+			term_ast* term = poly_funcs->buffer[i];
+			type_ast* type = term->type;
+			if (expected_type == NULL){
+				uint64_t index = walk->outer_exprs->expr_count-1;
+				uint8_t broke = 0;
+				while (type->tag == FUNCTION_TYPE){
+					expr_ast* arg = walk->outer_exprs->exprs[index];
+					type_ast* candidate = walk_expr(walk, arg, NULL, NULL, 0);
+					if (candidate == NULL){
+						broke = 1;
+						break;
+					}
+					if (type_equal(walk->parse, candidate, type->data.function.left) == 0){
+						broke = 1;
+						break;
+					}
+					type = type->data.function.right;
+					if (index == 0){
+						break;
+					}
+				}
+				if (broke == 0){
+					scope_info ret = {
+						.top_level = 1,
+						.type = deep_copy_type(walk, term->type)
+					};
+					return ret;
+				}
+			}
+			else{
+				if (type_equal(walk->parse, expected_type, type) == 1){
+					scope_info ret = {
+						.top_level = 1,
+						.type = expected_type
+					};
+					return ret;
+				}
+			}
+		}
+	}
+	scope_info ret = {
+		.top_level = 0,
+		.type = NULL
+	};
+	return ret;
 }
 
 /* TODO

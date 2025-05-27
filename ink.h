@@ -640,4 +640,12 @@ expr_ast* transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_ou
 void transform_term(walker* const walk, term_ast* const term, uint8_t is_outer);
 void transform_pattern(walker* const walk, pattern_ast* const pat, line_relay* const newlines);
 
+typedef struct scope_info {
+	uint8_t top_level;
+	type_ast* type;
+} scope_info;
+
+scope_info
+in_scope_transform(walker* const walk, token* const bind, type_ast* expected_type);
+
 #endif

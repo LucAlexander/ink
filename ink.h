@@ -66,6 +66,7 @@ typedef enum TOKEN {
 	RETURN_TOKEN,
 	IMPORT_TOKEN,
 	SIZEOF_TOKEN,
+	CLOSURE_COPY_TOKEN,
 	TOKEN_COUNT
 } TOKEN;
 
@@ -333,6 +334,7 @@ typedef struct expr_ast {
 		expr_ast* ret;
 		expr_ast* ref;
 		expr_ast* deref;
+		expr_ast* closure;
 		type_ast* size_type;
 		struct {
 			type_ast* target;
@@ -361,6 +363,7 @@ typedef struct expr_ast {
 		CAST_EXPR,
 		BREAK_EXPR,
 		CONTINUE_EXPR,
+		CLOSURE_COPY_EXPR,
 		NOP_EXPR,
 		//for use after walk
 		STRUCT_ACCESS_EXPR,
@@ -636,6 +639,7 @@ uint64_t sizeof_struct(parser* const parse, structure_ast* const s);
 expr_ast* new_term(walker* const walk, type_ast* const type, expr_ast* const expression);
 expr_ast* term_name(walker* const walk, term_ast* const term);
 void function_to_structure_type(walker* const walk, term_ast* const term);
+void function_to_structure_type_isolated(walker* const walk, type_ast* const type, type_ast* const host);
 expr_ast* transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_relay* const newlines);
 void transform_term(walker* const walk, term_ast* const term, uint8_t is_outer);
 void transform_pattern(walker* const walk, pattern_ast* const pat, line_relay* const newlines);

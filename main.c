@@ -199,6 +199,7 @@ keymap_fill(TOKEN_map* const map){
 	TOKEN_map_insert(map, string_init(map->mem, "return"), RETURN_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "import"), IMPORT_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "sizeof"), SIZEOF_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "#"), CLOSURE_COPY_TOKEN);
 }
 
 uint8_t
@@ -1522,6 +1523,9 @@ show_expression(expr_ast* expr){
 		show_expression(expr->data.appl.right);
 		printf(")");
 		break;
+	case CLOSURE_COPY_EXPR:
+		printf("#");
+		break;
 	case STRUCT_ACCESS_EXPR:
 		printf("(");
 		show_expression(expr->data.access.left);
@@ -1876,11 +1880,20 @@ parse_expr(parser* const parse, TOKEN end){
 			assert_prop(NULL);
 			parse->token_index += 1;
 			return outer;
-		case SYMBOL_TOKEN:
 		case COMPOSE_TOKEN:
+			expr->dot = 1;
+		case SYMBOL_TOKEN:
 			expr->tag = BINDING_EXPR;
 			expr->data.binding = *t;
-			expr->dot = 1;
+			if (outer->tag == APPL_EXPR){
+				expr_ast* swap = outer->data.appl.left;
+				outer->data.appl.left = outer->data.appl.right;
+				outer->data.appl.right = swap;
+			}
+			break;
+		case CLOSURE_COPY_TOKEN:
+			expr->tag = CLOSURE_COPY_EXPR;
+			expr->data.binding = *t;
 			if (outer->tag == APPL_EXPR){
 				expr_ast* swap = outer->data.appl.left;
 				outer->data.appl.left = outer->data.appl.right;
@@ -2579,6 +2592,26 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 	}
 	switch (expr->tag){
 	case APPL_EXPR:
+		if (expr->data.appl.left->tag == CLOSURE_COPY_EXPR){
+			if (expected_type == NULL){
+				type_ast* right = walk_expr(walk, expr->data.appl.right, expected_type, expected_type, 0);
+				walk_assert_prop();
+				walk_assert(right != NULL, nearest_token(expr), "Type of copy expression was not function or was not inferreable");
+				walk_assert(right->tag == FUNCTION_TYPE, nearest_token(expr), "Type of copy expression was not a function");
+				pop_binding(walk->local_scope, scope_pos);
+				token_stack_pop(walk->term_stack, token_pos);
+				expr->type = right;
+				return right;
+			}
+			walk_assert(expected_type->tag == FUNCTION_TYPE, nearest_token(expr), "Unexpected closure copy expression");
+			type_ast* right = walk_expr(walk, expr->data.appl.right, expected_type, expected_type, 0);
+			walk_assert_prop();
+			walk_assert(right != NULL, nearest_token(expr), "Function type of copy expression did not match the expected type");
+			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
+			expr->type = expected_type;
+			return expected_type;
+		}
 		if (expr->data.appl.right->tag == LIST_EXPR){
 			if (expr->data.appl.right->data.list.line_count == 1){
 				// x[i]
@@ -3362,6 +3395,9 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 	case ARRAY_ACCESS_EXPR:
 		walk_assert(expr->type != NULL, nearest_token(expr), "Type should already have been evaluated for this access");
 		return expr->type;
+	case CLOSURE_COPY_EXPR:
+		walk_assert(0, nearest_token(expr), "Closure copy is an operator, not a referencable function");
+		return expr->type;
 	}
 	return NULL;
 }
@@ -3723,6 +3759,8 @@ nearest_token(expr_ast* const e){
 	switch (e->tag){
 	case APPL_EXPR:
 		return nearest_token(e->data.appl.left);
+	case CLOSURE_COPY_EXPR:
+		return e->data.binding.index;
 	case STRUCT_ACCESS_EXPR:
 	case ARRAY_ACCESS_EXPR:
 		return nearest_token(e->data.access.left);
@@ -4567,6 +4605,8 @@ realias_type_expr(realias_walker* const walk, expr_ast* const expr){
 		realias_type_expr(walk, expr->data.appl.left);
 		realias_type_expr(walk, expr->data.appl.right);
 		return;
+	case CLOSURE_COPY_EXPR:
+		return;
 	case STRUCT_ACCESS_EXPR:
 	case ARRAY_ACCESS_EXPR:
 		realias_type_expr(walk, expr->data.access.left);
@@ -5360,6 +5400,9 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 	case CAST_EXPR:
 		expr->data.cast.source = transform_expr(walk, expr->data.cast.source, 0, newlines);
 		return expr;
+	case CLOSURE_COPY_EXPR:
+		//TODO
+		return expr;
 	case BREAK_EXPR:
 		return expr;
 	case CONTINUE_EXPR:
@@ -5435,6 +5478,7 @@ term_name(walker* const walk, term_ast* const term){
 	return bind;
 }
 
+//TODO do these two function need to recruse over counter->left in the conversion run?
 //NOTE we begin dissolving dependencies here
 void
 function_to_structure_type(walker* const walk, term_ast* const term){
@@ -5496,6 +5540,62 @@ function_to_structure_type(walker* const walk, term_ast* const term){
 	size_type->tag = LIT_TYPE;
 	size_type->data.lit = U64_TYPE;
 }
+
+//NOTE we begin dissolving dependencies here
+void
+function_to_structure_type_isolated(walker* const walk, type_ast* const type, type_ast* const host){
+	if (type->tag != FUNCTION_TYPE && type->tag != DEPENDENCY_TYPE){
+		return;
+	}
+	if (type->tag == DEPENDENCY_TYPE){
+		*type = *type->data.dependency.type;
+	}
+	if (type->tag != FUNCTION_TYPE){
+		return;
+	}
+	type_ast* counter = host;
+	uint64_t member_count = 2;
+	while (counter->tag == FUNCTION_TYPE){
+		counter = counter->data.function.right;
+		member_count += 1;
+	}
+	counter = host;
+	type->tag = STRUCT_TYPE;
+	type->data.structure = pool_request(walk->parse->mem, sizeof(structure_ast));
+	structure_ast* s = type->data.structure;
+	s->tag = STRUCT_STRUCT;
+	s->data.structure.names = pool_request(walk->parse->mem, sizeof(token)*member_count);
+	s->data.structure.members = pool_request(walk->parse->mem, sizeof(type_ast)*member_count);
+	s->data.structure.count = member_count;
+	uint64_t member_index = 0;
+	while (counter->tag == FUNCTION_TYPE){
+		s->data.structure.members[member_index] = *counter->data.function.left;
+		s->data.structure.names[member_index].data.name = string_init(walk->parse->mem, "arg_n");
+		s->data.structure.names[member_index].data.name.str[4] = ((member_count-3)-member_index)+48;
+		member_index += 1;
+		counter = counter->data.function.right;
+	}
+	assert(member_index == member_count-2);
+	type_ast* func_type = &s->data.structure.members[member_index];
+	s->data.structure.names[member_index].data.name = string_init(walk->parse->mem, "func");
+	member_index += 1;
+	type_ast* size_type = &s->data.structure.members[member_index];
+	s->data.structure.names[member_index].data.name = string_init(walk->parse->mem, "size");
+	member_index += 1;
+	func_type->tag = FUNCTION_TYPE;
+	type_ast* u8ptr = pool_request(walk->parse->mem, sizeof(type_ast));
+	u8ptr->tag = PTR_TYPE;
+	u8ptr->data.ptr = pool_request(walk->parse->mem, sizeof(type_ast));
+	u8ptr->data.ptr->tag = LIT_TYPE;
+	u8ptr->data.ptr->data.lit = U8_TYPE;
+	func_type->data.function.left = u8ptr;
+	func_type->data.function.right = counter;
+	size_type->tag = LIT_TYPE;
+	size_type->data.lit = U64_TYPE;
+}
+
+
+
 
 uint64_t
 sizeof_type(parser* const parse, type_ast* const type){
@@ -5762,6 +5862,14 @@ in_scope_transform(walker* const walk, token* const bind, type_ast* expected_typ
 }
 
 /* TODO
+ *
+ * generic pointer args must accept functions
+ * generic pointer returns must accept functions, deref cannot be performed on functions
+ * closure copy builtin
+ * outer types get their internal function poitners structured
+ * inner types ger their entire function pointers structured
+ * all closures are pointers, copies are explicit.
+ *
  * transform patterns into checks
  * assert that structures are nonrecursive, must be done after monomorph
 	 * then you can validate sizeof, evaluate the closure offsets with sizeof_type

@@ -653,10 +653,11 @@ void transform_pattern(walker* const walk, pattern_ast* const pat, line_relay* c
 
 typedef struct scope_info {
 	uint8_t top_level;
-	type_ast* type;
+	term_ast* term;
 } scope_info;
 
 scope_info
 in_scope_transform(walker* const walk, token* const bind, type_ast* expected_type);
+token create_wrapper(walker* const walk, term_ast* const term, type_ast* const newtype, type_ast* const full_type);
 
 #endif

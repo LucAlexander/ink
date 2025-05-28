@@ -659,5 +659,6 @@ typedef struct scope_info {
 scope_info
 in_scope_transform(walker* const walk, token* const bind, type_ast* expected_type);
 token create_wrapper(walker* const walk, term_ast* const term, type_ast* const newtype, type_ast* const full_type);
+expr_ast* closure_call(walker* const walk, token name);
 
 #endif

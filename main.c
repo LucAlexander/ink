@@ -4353,15 +4353,15 @@ check_program(parser* const parse){
 #ifdef DEBUG
 	printf("Transformations:\n");
 #endif
-	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
-		implementation_ast* impl = &parse->implementation_list.buffer[i];
-		for (uint64_t t = 0;t<impl->member_count;++t){
-			function_to_structure_type(&walk, &impl->members[t]);
-		}
-	}
-	for (uint64_t i = 0;i<parse->term_list.count;++i){
-		function_to_structure_type(&walk, &parse->term_list.buffer[i]);
-	}
+	//for (uint64_t i = 0;i<parse->implementation_list.count;++i){
+		//implementation_ast* impl = &parse->implementation_list.buffer[i];
+		//for (uint64_t t = 0;t<impl->member_count;++t){
+			//function_to_structure_type(&walk, &impl->members[t]);
+		//}
+	//}
+	//for (uint64_t i = 0;i<parse->term_list.count;++i){
+		//function_to_structure_type(&walk, &parse->term_list.buffer[i]);
+	//}
 	pool_empty(parse->temp_mem);
 	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 		implementation_ast* impl = &parse->implementation_list.buffer[i];
@@ -5340,8 +5340,9 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				if (farg_count == arg_count){
 					return expr;
 				}
-				type_ast* full_type_copy = deep_copy_type(walk, root->type);
-				token wrapper_name = create_wrapper(walk, info.term, &full_type_copy->data.structure->data.structure.members[full_type_copy->data.structure->data.structure.count-2], full_type_copy);
+				type_ast* full_type_copy = deep_copy_type(walk, info.term->type);
+				function_to_structure_recursive(walk, full_type_copy);
+				token wrapper_name = create_wrapper(walk, info.term, &full_type_copy->data.ptr->data.structure->data.structure.members[full_type_copy->data.ptr->data.structure->data.structure.count-2], full_type_copy);
 				expr_ast* setter = pool_request(walk->parse->mem, sizeof(expr_ast));
 				setter->tag = TERM_EXPR;
 				setter->data.term = pool_request(walk->parse->mem, sizeof(term_ast));
@@ -5381,7 +5382,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 					access->data.access.left = setter_binding;
 					access->data.access.right = pool_request(walk->parse->mem, sizeof(expr_ast));
 					access->data.access.right->tag = BINDING_EXPR;
-					access->data.access.right->data.binding = full_type_copy->data.structure->data.structure.names[start_index];
+					access->data.access.right->data.binding = full_type_copy->data.ptr->data.structure->data.structure.names[start_index];
 					line_relay_append(newlines, mut);
 					arg = arg->data.appl.left;
 				}
@@ -5397,7 +5398,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		 
 		   root.arg_n = arg
 		   ...
-		   return root.arg_n-1
+		   return &root.arg_n-1
 		   or if last was arg_0
 		   return root.func root-root_size // TODO whoops, need -
 
@@ -5613,15 +5614,64 @@ term_name(walker* const walk, term_ast* const term){
 //NOTE we begin dissolving dependencies here
 void
 function_to_structure_type(walker* const walk, term_ast* const term){
-	type_ast* type = term->type;
-	if (type->tag == DEPENDENCY_TYPE){
-		*type = *type->data.dependency.type;
+	if (term->type->tag != FUNCTION_TYPE && term->type->tag != DEPENDENCY_TYPE){
+		return;
 	}
-	while (type->tag == FUNCTION_TYPE){
-		function_to_structure_recursive(walk, type->data.function.left);
-		type = type->data.function.right;
+	type_ast* focus = term->type;
+	if (term->type->tag == DEPENDENCY_TYPE){
+		term->type = focus->data.dependency.type;
 	}
-	function_to_structure_recursive(walk, type);
+	if (term->expression->tag == LAMBDA_EXPR){
+		uint64_t arg_c = term->expression->data.lambda.arg_count;
+		while (arg_c > 0){
+			focus = focus->data.function.right;
+			arg_c -= 1;
+		}
+	}
+	if (focus->tag != FUNCTION_TYPE){
+		return;
+	}
+	type_ast old = *focus;
+	type_ast* counter = focus;
+	uint64_t member_count = 2;
+	while (counter->tag == FUNCTION_TYPE){
+		counter = counter->data.function.right;
+		member_count += 1;
+	}
+	counter = &old;
+	focus->tag = STRUCT_TYPE;
+	focus->data.structure = pool_request(walk->parse->mem, sizeof(structure_ast));
+	structure_ast* s = focus->data.structure;
+	s->tag = STRUCT_STRUCT;
+	s->data.structure.names = pool_request(walk->parse->mem, sizeof(token)*member_count);
+	s->data.structure.members = pool_request(walk->parse->mem, sizeof(type_ast)*member_count);
+	s->data.structure.count = member_count;
+	uint64_t member_index = 0;
+	while (counter->tag == FUNCTION_TYPE){
+		s->data.structure.members[member_index] = *counter->data.function.left;
+		function_to_structure_recursive(walk, &s->data.structure.members[member_index]);
+		s->data.structure.names[member_index].data.name = string_init(walk->parse->mem, "arg_n");
+		s->data.structure.names[member_index].data.name.str[4] = ((member_count-3)-member_index)+48;
+		member_index += 1;
+		counter = counter->data.function.right;
+	}
+	assert(member_index == member_count-2);
+	type_ast* func_type = &s->data.structure.members[member_index];
+	s->data.structure.names[member_index].data.name = string_init(walk->parse->mem, "func");
+	member_index += 1;
+	type_ast* size_type = &s->data.structure.members[member_index];
+	s->data.structure.names[member_index].data.name = string_init(walk->parse->mem, "size");
+	member_index += 1;
+	func_type->tag = FUNCTION_TYPE;
+	type_ast* u8ptr = pool_request(walk->parse->mem, sizeof(type_ast));
+	u8ptr->tag = PTR_TYPE;
+	u8ptr->data.ptr = pool_request(walk->parse->mem, sizeof(type_ast));
+	u8ptr->data.ptr->tag = LIT_TYPE;
+	u8ptr->data.ptr->data.lit = U8_TYPE;
+	func_type->data.function.left = u8ptr;
+	func_type->data.function.right = counter;
+	size_type->tag = LIT_TYPE;
+	size_type->data.lit = U64_TYPE;
 }
 
 //NOTE we begin dissolving dependencies here
@@ -5673,6 +5723,10 @@ function_to_structure_recursive(walker* const walk, type_ast* const type){
 		func_type->data.function.right = counter;
 		size_type->tag = LIT_TYPE;
 		size_type->data.lit = U64_TYPE;
+		type_ast* in_wrap = pool_request(walk->parse->mem, sizeof(type_ast));
+		*in_wrap = *type;
+		type->tag = PTR_TYPE;
+		type->data.ptr = in_wrap;
 		return;
 	case LIT_TYPE:
 		return;
@@ -6004,9 +6058,30 @@ create_wrapper(walker* const walk, term_ast* const term, type_ast* const newtype
 	wrapper->expression = expr;
 	expr = expr->data.lambda.expression;
 	expr->tag = BLOCK_EXPR;
-	expr->data.block.line_count = 2;
+	type_ast* preconverted = deep_copy_type(walk, term->type);
+	type_ast* type_save = term->type;
+	term->type = preconverted;
+	function_to_structure_type(walk, term);
+	preconverted = term->type;
+	term->type = type_save;
+	type_ast* arg_walker = preconverted;
+	uint64_t real_args = 0;
+	while (arg_walker->tag == FUNCTION_TYPE){
+		real_args += 1;
+		arg_walker = arg_walker->data.function.right;
+	}
+	if (real_args < full_type->data.ptr->data.structure->data.structure.count-2){
+		expr->data.block.line_count = 3+((full_type->data.ptr->data.structure->data.structure.count-2)-real_args);
+	}
+	else{
+		expr->data.block.line_count = 2;
+	}
 	expr->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast)*expr->data.block.line_count);
 	expr_ast* setter = &expr->data.block.lines[0];
+	expr_ast* inner = &expr->data.block.lines[1];
+	if (real_args < full_type->data.ptr->data.structure->data.structure.count-2){
+		inner = &expr->data.block.lines[2+((full_type->data.ptr->data.structure->data.structure.count-2)-real_args)];
+	}
 	setter->tag = TERM_EXPR;
 	setter->data.term = pool_request(walk->parse->mem, sizeof(term_ast));
 	term_ast* A = setter->data.term;
@@ -6025,25 +6100,64 @@ create_wrapper(walker* const walk, term_ast* const term, type_ast* const newtype
 	A->expression->data.cast.source = pool_request(walk->parse->mem, sizeof(expr_ast));
 	A->expression->data.cast.source->tag = BINDING_EXPR;
 	A->expression->data.cast.source->data.binding = binding_name;
-	expr_ast* inner = &expr->data.block.lines[1];
 	inner->tag = RETURN_EXPR;
 	expr_ast* root = pool_request(walk->parse->mem, sizeof(expr_ast));	
 	root->tag = BINDING_EXPR;
 	root->data.binding = term->name;
-	for (uint64_t i = 0;i<full_type->data.structure->data.structure.count-2;++i){
+	expr_ast* setter_binding = pool_request(walk->parse->mem, sizeof(expr_ast));
+	setter_binding->tag = BINDING_EXPR;
+	setter_binding->data.binding = setter_name;
+	for (uint64_t i = 0;i<real_args;++i){
 		expr_ast* appl = pool_request(walk->parse->mem, sizeof(expr_ast));
 		appl->tag = APPL_EXPR;
 		appl->data.appl.left = root;
 		appl->data.appl.right = pool_request(walk->parse->mem, sizeof(expr_ast));
 		appl->data.appl.right->tag = STRUCT_ACCESS_EXPR;
 		expr_ast* access = appl->data.appl.right;
-		access->data.access.left = pool_request(walk->parse->mem, sizeof(expr_ast));
+		access->data.access.left = setter_binding;
 		access->data.access.right = pool_request(walk->parse->mem, sizeof(expr_ast));
-		access->data.access.left->tag = BINDING_EXPR;
-		access->data.access.left->data.binding = setter_name;
 		access->data.access.right->tag = BINDING_EXPR;
-		access->data.access.right->data.binding = full_type->data.structure->data.structure.names[i];
+		access->data.access.right->data.binding = full_type->data.ptr->data.structure->data.structure.names[i];
 		root = appl;
+	}
+	if (real_args < full_type->data.ptr->data.structure->data.structure.count-2){
+		expr_ast* interm = &expr->data.block.lines[1];
+		interm->tag = TERM_EXPR;
+		interm->data.term = pool_request(walk->parse->mem, sizeof(term_ast));
+		interm->data.term->type = arg_walker->data.structure->data.structure.members[arg_walker->data.structure->data.structure.count-2].data.function.right;
+		token interm_name = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = walk->next_lambda
+		};
+		generate_new_lambda(walk);
+		interm->data.term->name = interm_name;
+		interm->data.term->expression = root;
+		expr_ast* interm_binding = pool_request(walk->parse->mem, sizeof(expr_ast));
+		interm_binding->tag = BINDING_EXPR;
+		interm_binding->data.binding = interm_name;
+		uint64_t line = 2;
+		for (uint64_t i = real_args;i<full_type->data.ptr->data.structure->data.structure.count-2;++i){
+			expr_ast* mut = &expr->data.block.lines[line];
+			line += 1;
+			mut->tag = MUTATION_EXPR;
+			mut->data.mutation.left = pool_request(walk->parse->mem, sizeof(expr_ast));
+			mut->data.mutation.right = pool_request(walk->parse->mem, sizeof(expr_ast));
+			expr_ast* left_access = mut->data.mutation.left;
+			expr_ast* right_access = mut->data.mutation.right;
+			left_access->tag = STRUCT_ACCESS_EXPR;
+			left_access->data.access.left = interm_binding;
+			left_access->data.access.right = pool_request(walk->parse->mem, sizeof(expr_ast));
+			left_access->data.access.right->tag = BINDING_EXPR;
+			left_access->data.access.right->data.binding = full_type->data.ptr->data.structure->data.structure.names[i];
+			right_access->tag = STRUCT_ACCESS_EXPR;
+			right_access->data.access.left = setter_binding;
+			right_access->data.access.right = pool_request(walk->parse->mem, sizeof(expr_ast));
+			right_access->data.access.right->tag = BINDING_EXPR;
+			right_access->data.access.right->data.binding = full_type->data.ptr->data.structure->data.structure.names[i];
+		}
+		root = closure_call(walk, interm_name);
 	}
 	inner->data.ret = root;
 	term_ast_buffer_insert(&walk->parse->term_list, *wrapper);
@@ -6051,7 +6165,59 @@ create_wrapper(walker* const walk, term_ast* const term, type_ast* const newtype
 	return newname;
 }
 
+expr_ast*
+closure_call(walker* const walk, token name){
+	expr_ast* name_bind = pool_request(walk->parse->mem, sizeof(expr_ast));
+	name_bind->tag = BINDING_EXPR;
+	name_bind->data.binding = name;
+	expr_ast* func_bind = pool_request(walk->parse->mem, sizeof(expr_ast));
+	func_bind->tag = BINDING_EXPR;
+	func_bind->data.binding.data.name = string_init(walk->parse->mem, "func");
+	expr_ast* outer = pool_request(walk->parse->mem, sizeof(expr_ast));
+	outer->tag = APPL_EXPR;
+	outer->data.appl.left = pool_request(walk->parse->mem, sizeof(expr_ast));
+	outer->data.appl.right = pool_request(walk->parse->mem, sizeof(expr_ast));
+	expr_ast* outer_access = outer->data.appl.left;
+	expr_ast* outer_cast = outer->data.appl.right;
+	outer_access->tag = STRUCT_ACCESS_EXPR;
+	outer_access->data.access.left = name_bind;
+	outer_access->data.access.right = func_bind;
+	outer_cast->tag = CAST_EXPR;
+	outer_cast->data.cast.target = pool_request(walk->parse->mem, sizeof(expr_ast));
+	outer_cast->data.cast.target->tag = PTR_TYPE;
+	outer_cast->data.cast.target->data.ptr = pool_request(walk->parse->mem, sizeof(type_ast));
+	outer_cast->data.cast.target->data.ptr->tag = LIT_EXPR;
+	outer_cast->data.cast.target->data.ptr->data.lit = U8_TYPE;
+	outer_cast->data.cast.source = pool_request(walk->parse->mem, sizeof(expr_ast));
+	expr_ast* inner_appl = outer_cast->data.cast.source;
+	inner_appl->tag = APPL_EXPR;
+	inner_appl->data.appl.left = pool_request(walk->parse->mem, sizeof(expr_ast));
+	inner_appl->data.appl.right = pool_request(walk->parse->mem, sizeof(expr_ast));
+	expr_ast* minus_expr = inner_appl->data.appl.left;
+	minus_expr->tag = APPL_EXPR;
+	minus_expr->data.appl.left = pool_request(walk->parse->mem, sizeof(expr_ast));
+	minus_expr->data.appl.right = pool_request(walk->parse->mem, sizeof(expr_ast));
+	expr_ast* minus_bind = minus_expr->data.appl.left;
+	minus_bind->tag = BINDING_EXPR;
+	minus_bind->data.binding.data.name = string_init(walk->parse->mem, "^-");
+	expr_ast* ref = minus_expr->data.appl.right;
+	ref->tag = REF_EXPR;
+	ref->data.ref = pool_request(walk->parse->mem, sizeof(expr_ast));
+	ref->data.ref->tag = STRUCT_ACCESS_EXPR;
+	ref->data.ref->data.access.left = name_bind;
+	ref->data.ref->data.access.right = func_bind;
+	expr_ast* size_access = inner_appl->data.appl.right;
+	size_access->tag = STRUCT_ACCESS_EXPR;
+	size_access->data.access.left = name_bind;
+	size_access->data.access.right = pool_request(walk->parse->mem, sizeof(expr_ast));
+	size_access->data.access.right->tag = BINDING_EXPR;
+	size_access->data.access.right->data.binding.data.name = string_init(walk->parse->mem, "size");
+	return outer;
+}
+
 /* TODO
+ * TODO transform top level types after the normal transformation pass
+ * 	should be the old function from a few commits ago, a funciton to structure, may need to be edited to make recursive
  * generic pointer returns must accept functions, deref cannot be performed on functions // I think this one works as intended, but im keeping it here in case I find a contradiction to that belief.
  * all closures are pointers, copies are explicit.
  *

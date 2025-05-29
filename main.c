@@ -6135,7 +6135,7 @@ create_wrapper(walker* const walk, term_ast* const term, type_ast* const newtype
 		expr_ast* interm = &expr->data.block.lines[1];
 		interm->tag = TERM_EXPR;
 		interm->data.term = pool_request(walk->parse->mem, sizeof(term_ast));
-		interm->data.term->type = arg_walker->data.structure->data.structure.members[arg_walker->data.structure->data.structure.count-2].data.function.right;
+		interm->data.term->type = arg_walker;
 		token interm_name = {
 			.content_tag = STRING_TOKEN_TYPE,
 			.tag = IDENTIFIER_TOKEN,
@@ -6194,10 +6194,10 @@ closure_call(walker* const walk, token name){
 	outer_access->data.access.left = name_bind;
 	outer_access->data.access.right = func_bind;
 	outer_cast->tag = CAST_EXPR;
-	outer_cast->data.cast.target = pool_request(walk->parse->mem, sizeof(expr_ast));
+	outer_cast->data.cast.target = pool_request(walk->parse->mem, sizeof(type_ast));
 	outer_cast->data.cast.target->tag = PTR_TYPE;
 	outer_cast->data.cast.target->data.ptr = pool_request(walk->parse->mem, sizeof(type_ast));
-	outer_cast->data.cast.target->data.ptr->tag = LIT_EXPR;
+	outer_cast->data.cast.target->data.ptr->tag = LIT_TYPE;
 	outer_cast->data.cast.target->data.ptr->data.lit = U8_TYPE;
 	outer_cast->data.cast.source = pool_request(walk->parse->mem, sizeof(expr_ast));
 	expr_ast* inner_appl = outer_cast->data.cast.source;
@@ -6227,7 +6227,9 @@ closure_call(walker* const walk, token name){
 }
 
 /* TODO
+ * TODO the multi line calls dont work, segfault
  * TODO normal function calls now need more attention since we convert the types to partial structured types, full calls to curried functions need to resolve to two calls to functions, just like what happens in create_wrapper
+ * TODO partial types
  * TODO transform top level types after the normal transformation pass
  * 	should be the old function from a few commits ago, a funciton to structure, may need to be edited to make recursive
  * generic pointer returns must accept functions, deref cannot be performed on functions // I think this one works as intended, but im keeping it here in case I find a contradiction to that belief.

@@ -3147,7 +3147,8 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			expr->type = actual;
 			return actual;
 		}
-		walk_assert(type_equal(walk->parse, actual, expected_type), nearest_token(expr), "Binding was not the expected type");
+		uint8_t bind_equal = type_equal(walk->parse, actual, expected_type);
+		walk_assert(bind_equal == 1, nearest_token(expr), "Binding was not the expected type");
 		pop_binding(walk->local_scope, scope_pos);
 		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = actual;
@@ -3419,10 +3420,8 @@ uint64_t
 push_binding(walker* const walk, scope* const s, token* const t, type_ast* const type){
 	parser* parse = walk->parse;
 	for (uint64_t i = 0;i<s->binding_count;++i){
-		if (string_compare(&t->data.name, &s->bindings[i].name->data.name) == 0){
-			printf("im here");
-		}
-		assert_local(string_compare(&t->data.name, &s->bindings[i].name->data.name) != 0, 0, "Duplicate bound name");
+		uint8_t duplicate = string_compare(&t->data.name, &s->bindings[i].name->data.name);
+		assert_local(duplicate != 0, 0, "Duplicate bound name");
 	}
 	if (s->binding_count == s->binding_capacity){
 		s->binding_capacity *= 2;
@@ -5276,7 +5275,14 @@ lift_lambda(walker* const walk, expr_ast* const expr, type_ast* const type, toke
 		binding->type = type_view->data.function.left;
 		expr->data.appl.right = binding;
 		type_view = type_view->data.function.right;
-		scrape_lower_binding(walk, bind);
+		for (uint64_t k = 0;k<walk->local_scope->binding_count;++k){
+			if (string_compare(&bind->name->data.name, &walk->local_scope->bindings[k].name->data.name) == 0){
+				if (k < walk->scope_ptrs->ptrs[walk->scope_ptrs->count-2]){
+					scrape_lower_binding(walk, bind);
+					break;
+				}
+			}
+		}
 	}
 }
 
@@ -6216,6 +6222,7 @@ closure_call(walker* const walk, token name){
 }
 
 /* TODO
+ * TODO normal function calls now need more attention since we convert the types to partial structured types, full calls to curried functions need to resolve to two calls to functions, just like what happens in create_wrapper
  * TODO transform top level types after the normal transformation pass
  * 	should be the old function from a few commits ago, a funciton to structure, may need to be edited to make recursive
  * generic pointer returns must accept functions, deref cannot be performed on functions // I think this one works as intended, but im keeping it here in case I find a contradiction to that belief.

@@ -5352,7 +5352,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				expr_ast* setter = pool_request(walk->parse->mem, sizeof(expr_ast));
 				setter->tag = TERM_EXPR;
 				setter->data.term = pool_request(walk->parse->mem, sizeof(term_ast));
-				setter->data.term->type = full_type_copy;
+				setter->data.term->type = full_type_copy->data.ptr;
 				token setter_name = {
 					.content_tag = STRING_TOKEN_TYPE,
 					.tag = IDENTIFIER_TOKEN,
@@ -5395,7 +5395,12 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				assert(start_index == 0);
 				expr_ast* ref = pool_request(walk->parse->mem, sizeof(expr_ast));
 				ref->tag = REF_EXPR;
-				ref->data.ref = setter_binding;
+				ref->data.ref = pool_request(walk->parse->mem, sizeof(expr_ast));
+				ref->data.ref->tag = STRUCT_ACCESS_EXPR;
+				ref->data.ref->data.access.left = setter_binding;
+				ref->data.ref->data.access.right = pool_request(walk->parse->mem, sizeof(expr_ast));
+				ref->data.ref->data.access.right->tag = BINDING_EXPR;
+				ref->data.ref->data.access.right->data.binding = full_type_copy->data.ptr->data.structure->data.structure.names[start_index+1];
 				return ref;
 			}
 		}

@@ -658,7 +658,22 @@ typedef struct scope_info {
 
 scope_info
 in_scope_transform(walker* const walk, token* const bind, type_ast* expected_type);
-token create_wrapper(walker* const walk, term_ast* const term, type_ast* const newtype, type_ast* const full_type);
-expr_ast* closure_call(walker* const walk, token name);
+
+expr_ast* mk_appl(pool* const mem, expr_ast* const left, expr_ast* const right);
+expr_ast* mk_struct_access(pool* const mem, expr_ast* const left, expr_ast* const right);
+expr_ast* mk_ref(pool* const mem, expr_ast* const inner);
+expr_ast* mk_cast(pool* const mem, expr_ast* const source, type_ast* const target);
+expr_ast* mk_binding(pool* const mem, token* const tok);
+expr_ast* mk_term(pool* const mem, type_ast* const type, token* const name, expr_ast* const expr);
+expr_ast* mk_return(pool* const mem, expr_ast* const ret);
+expr_ast* mk_sizeof(pool* const mem, type_ast* const type);
+
+type_ast* mk_func(pool* const mem, type_ast* const left, type_ast* const right);
+type_ast* mk_lit(pool* const mem, uint8_t lit);
+type_ast* mk_ptr(pool* const mem, type_ast* const inner);
+
+expr_ast* closure_call(walker* const walk, expr_ast* input_binding, line_relay* const newlines, type_ast* const result_type);
+token create_wrapper(walker* const walk, expr_ast* func_binding, type_ast* const converted_type, uint64_t real_args, uint64_t args);
+expr_ast* standard_call_wrapper(walker* const walk, expr_ast* const func_binding, type_ast* const u8ptr, type_ast* const converted_type, expr_ast* memcpy_binding, expr_ast* plus_binding, uint64_t args, expr_ast* const block, token param_name, expr_ast** const last_ptr);
 
 #endif

@@ -5419,6 +5419,8 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		expr_ast* last_reference = mk_binding(walk->parse->mem, &ref_name);
 		line_relay_append(newlines, reference);
 		expr_ast* outer_arg = expr;
+		expr_ast** arg_vars = pool_request(walk->parse->temp_mem, sizeof(expr_ast*)*arg_count);
+		uint64_t arg_index = 0;
 		while (outer_arg->tag == APPL_EXPR){
 			token arg_name = {
 				.content_tag = STRING_TOKEN_TYPE,
@@ -5427,12 +5429,18 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				.data.name = walk->next_lambda
 			};
 			generate_new_lambda(walk);
-			expr_ast* arg_binding = mk_binding(walk->parse->mem, &arg_name);
 			expr_ast* arg_set = mk_term(walk->parse->mem,
 				outer_arg->data.appl.right->type,
 				&arg_name,
 				outer_arg->data.appl.right
 			);
+			arg_vars[arg_index] = arg_set;
+			arg_index += 1;
+			outer_arg = outer_arg->data.appl.left;
+		}
+		for (uint64_t i = arg_count;i>0;--i){
+			expr_ast* arg_set = arg_vars[i-1];
+			expr_ast* arg_binding = mk_binding(walk->parse->mem, &arg_set->data.term->name);
 			line_relay_append(newlines, arg_set);
 			expr_ast* copy_arg = mk_appl(walk->parse->mem,
 				mk_appl(walk->parse->mem,
@@ -5466,8 +5474,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			);
 			line_relay_append(newlines, new_set);
 			last_reference = new_binding;
-			outer_arg = outer_arg->data.appl.left;
-		}//TODO this doesnt work becuase the args are backwards
+		}
 		expr_ast* refind_root = expr;
 		while (refind_root->tag == APPL_EXPR){
 			refind_root = refind_root->data.appl.left;
@@ -5549,7 +5556,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 	case LIT_EXPR:
 		return expr;
 	case TERM_EXPR:
-		function_to_structure_recursive(walk, expr->data.term->type);
+		function_to_structure_recursive(walk, expr->data.term->type); // TODO probably just u8*
 		uint64_t pos = push_binding(walk, walk->local_scope, &expr->data.term->name, expr->data.term->type);
 		expr->data.term->expression = transform_expr(walk, expr->data.term->expression, 0, newlines);
 		pop_binding(walk->local_scope, pos);
@@ -6599,6 +6606,8 @@ standard_call_wrapper(walker* const walk, expr_ast* const func_binding, type_ast
 }
 
 /* TODO rewrite with u8* and memcpy
+ * TODO rewrite again, with [u8] and .size = whatever ...
+ * TODO set sizes of closures
  * TODO check that id set thing in test_anon_structs
  * TODO top level functions passed as args need to be full converted
  * TODO normal function calls now need more attention since we convert the types to partial structured types, full calls to curried functions need to resolve to two calls to functions, just like what happens in create_wrapper

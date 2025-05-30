@@ -5331,13 +5331,13 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			root = root->data.appl.left;
 		}
 		prev->data.appl.left = transform_expr(walk, prev->data.appl.left, 0, newlines);
+		if (root->tag == CLOSURE_COPY_EXPR){
+			return expr;
+		}
 		if (root->tag == BINDING_EXPR){
 			scope_info info = in_scope_transform(walk, &root->data.binding, root->type);
 			if (info.top_level == 1){
 				uint64_t farg_count = 0;
-				if (root->tag == CLOSURE_COPY_EXPR){
-					return expr;
-				}
 				type_ast* inner = info.term->type;
 				while (inner->tag == FUNCTION_TYPE){
 					inner = inner->data.function.right;
@@ -5363,7 +5363,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				type_ast* full_type_copy = deep_copy_type(walk, info.term->type);
 				function_to_structure_recursive(walk, full_type_copy);
 				expr_ast* term_binding = mk_binding(walk->parse->mem, &info.term->name);
-				token wrapper_name = create_wrapper(walk, term_binding, full_type_copy->data.ptr, convert_args, farg_count); // TODO ensure we know what real args and args are supposed to be 
+				token wrapper_name = create_wrapper(walk, term_binding, full_type_copy->data.ptr, convert_args, farg_count);
 				expr_ast* setter = pool_request(walk->parse->mem, sizeof(expr_ast));
 				setter->tag = TERM_EXPR;
 				setter->data.term = pool_request(walk->parse->mem, sizeof(term_ast));
@@ -5386,50 +5386,104 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				cons->data.constructor.members->tag = BINDING_EXPR;
 				cons->data.constructor.members->data.binding = wrapper_name;
 				line_relay_append(newlines, setter);
-				expr_ast* setter_binding = pool_request(walk->parse->mem, sizeof(expr_ast));
-				setter_binding->tag = BINDING_EXPR;
-				setter_binding->data.binding = setter_name;
-				expr_ast* arg = expr;
-				uint64_t start_index = arg_count;
-				while (arg->tag == APPL_EXPR){
-					start_index -= 1;
-					expr_ast* current_arg = arg->data.appl.right;
-					expr_ast* mut = pool_request(walk->parse->mem, sizeof(expr_ast));
-					mut->tag = MUTATION_EXPR;
-					mut->data.mutation.right = current_arg;
-					mut->data.mutation.left = pool_request(walk->parse->mem, sizeof(expr_ast));
-					expr_ast* access = mut->data.mutation.left;
-					access->tag = STRUCT_ACCESS_EXPR;
-					access->data.access.left = setter_binding;
-					access->data.access.right = pool_request(walk->parse->mem, sizeof(expr_ast));
-					access->data.access.right->tag = BINDING_EXPR;
-					access->data.access.right->data.binding = full_type_copy->data.ptr->data.structure->data.structure.names[start_index];
-					line_relay_append(newlines, mut);
-					arg = arg->data.appl.left;
-				}
-				assert(start_index == 0);
-				expr_ast* ref = pool_request(walk->parse->mem, sizeof(expr_ast));
-				ref->tag = REF_EXPR;
-				ref->data.ref = pool_request(walk->parse->mem, sizeof(expr_ast));
-				ref->data.ref->tag = STRUCT_ACCESS_EXPR;
-				ref->data.ref->data.access.left = setter_binding;
-				ref->data.ref->data.access.right = pool_request(walk->parse->mem, sizeof(expr_ast));
-				ref->data.ref->data.access.right->tag = BINDING_EXPR;
-				ref->data.ref->data.access.right->data.binding = full_type_copy->data.ptr->data.structure->data.structure.names[start_index+1];
-				return ref;
+				expr_ast* setter_binding = mk_binding(walk->parse->mem, &setter_name);
+				root = mk_ref(walk->parse->mem, setter_binding);
 			}
 		}
-		//TODO pointer, partial or complete, same as inner partial
-		/*
-		 
-		   root.arg_n = arg
-		   ...
-		   return &root.arg_n-1
-		   or if last was arg_0
-		   return root.func root-root_size // TODO whoops, need -
-
-		 */
-		return expr;
+		token mem_cpy = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = string_init(walk->parse->mem, "memcpy")
+		};
+		expr_ast* memcpy_binding = mk_binding(walk->parse->mem, &mem_cpy);
+		token plus = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = string_init(walk->parse->mem, "+")
+		};
+		expr_ast* plus_binding = mk_binding(walk->parse->mem, &plus);
+		token ref_name = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = walk->next_lambda
+		};
+		generate_new_lambda(walk);
+		expr_ast* reference = mk_term(walk->parse->mem,
+			mk_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE)),
+			&ref_name,
+			root
+		);
+		expr_ast* last_reference = mk_binding(walk->parse->mem, &ref_name);
+		line_relay_append(newlines, reference);
+		expr_ast* outer_arg = expr;
+		while (outer_arg->tag == APPL_EXPR){
+			token arg_name = {
+				.content_tag = STRING_TOKEN_TYPE,
+				.tag = IDENTIFIER_TOKEN,
+				.index = 0,
+				.data.name = walk->next_lambda
+			};
+			generate_new_lambda(walk);
+			expr_ast* arg_binding = mk_binding(walk->parse->mem, &arg_name);
+			expr_ast* arg_set = mk_term(walk->parse->mem,
+				outer_arg->data.appl.right->type,
+				&arg_name,
+				outer_arg->data.appl.right
+			);
+			line_relay_append(newlines, arg_set);
+			expr_ast* copy_arg = mk_appl(walk->parse->mem,
+				mk_appl(walk->parse->mem,
+					mk_appl(walk->parse->mem,
+						memcpy_binding,
+						last_reference
+					),
+					mk_ref(walk->parse->mem, arg_binding)
+				),
+				mk_sizeof(walk->parse->mem, arg_set->data.term->type)
+			);
+			line_relay_append(newlines, copy_arg);
+			token new_arg_name = {
+				.content_tag = STRING_TOKEN_TYPE,
+				.tag = IDENTIFIER_TOKEN,
+				.index = 0,
+				.data.name = walk->next_lambda
+			};
+			generate_new_lambda(walk);
+			expr_ast* new_binding = mk_binding(walk->parse->mem, &new_arg_name);
+			expr_ast* new_set = mk_term(walk->parse->mem,
+				mk_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE)),
+				&new_arg_name,
+				mk_appl(walk->parse->mem,
+					mk_appl(walk->parse->mem,
+						plus_binding,
+						last_reference
+					),
+					mk_sizeof(walk->parse->mem, arg_set->data.term->type)
+				)
+			);
+			line_relay_append(newlines, new_set);
+			last_reference = new_binding;
+			outer_arg = outer_arg->data.appl.left;
+		}//TODO this doesnt work becuase the args are backwards
+		expr_ast* refind_root = expr;
+		while (refind_root->tag == APPL_EXPR){
+			refind_root = refind_root->data.appl.left;
+		}
+		type_ast* refind_fargs = refind_root->type;
+		uint64_t farg_count = 0;
+		while (refind_fargs->tag == FUNCTION_TYPE){
+			refind_fargs = refind_fargs->data.function.right;
+			farg_count += 1;
+		}
+		if (arg_count < farg_count){
+			return last_reference;
+		}
+		type_ast* converted_root = deep_copy_type(walk, refind_root->type);
+		function_to_structure_recursive(walk, converted_root);
+		return closure_call(walk, last_reference, newlines, &converted_root->data.ptr->data.structure->data.structure.members[converted_root->data.ptr->data.structure->data.structure.count-2]);
 	case STRUCT_ACCESS_EXPR:
 		expr->data.access.left = transform_expr(walk, expr->data.access.left, 0, newlines);
 		return expr;
@@ -5471,6 +5525,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				if (expr->data.block.lines[i].tag == BLOCK_EXPR){
 					expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, NULL);
 					line_relay_append(&outer_lines, line);
+					continue;
 				}
 				expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, &linelines);
 				line_relay_append(&linelines, line);
@@ -5514,6 +5569,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		line_relay_append(newlines, struct_wrapper);
 		return term_name(walk, struct_wrapper->data.term);
 	case BINDING_EXPR:
+		//TODO get binding and figure out if its a top level with args, if so yoink it and do the A={func}; u8* b = A transformation
 		return expr;
 	case MUTATION_EXPR:
 		expr->data.mutation.right = transform_expr(walk, expr->data.mutation.right, 0, newlines);
@@ -5552,6 +5608,24 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		for (uint64_t i = 0;i<expr->data.match.count;++i){
 			uint64_t match_scope_pos = walk->local_scope->binding_count;
 			transform_pattern(walk, &expr->data.match.patterns[i], NULL);
+			expr_ast case_expr = expr->data.match.cases[i];
+			if (case_expr.tag != BLOCK_EXPR){
+				expr_ast* block = pool_request(walk->parse->mem, sizeof(expr_ast));
+				block->tag = BLOCK_EXPR;
+				block->type = case_expr.type;
+				block->data.block.line_count = 1;
+				if (case_expr.tag == RETURN_EXPR){
+					block->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast));
+					*block->data.block.lines = case_expr;
+				}
+				else{
+					block->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast));
+					block->data.block.lines[0].tag = RETURN_EXPR;
+					block->data.block.lines[0].data.ret = pool_request(walk->parse->mem, sizeof(expr_ast));
+					*block->data.block.lines[0].data.ret = case_expr;
+				}
+				expr->data.match.cases[i] = *block;
+			}
 			expr->data.match.cases[i] = *transform_expr(walk, &expr->data.match.cases[i], 0, NULL);
 			pop_binding(walk->local_scope, match_scope_pos);
 		}
@@ -5624,6 +5698,7 @@ new_term(walker* const walk, type_ast* const type, expr_ast* const expression){
 	generate_new_lambda(walk);
 	term->name = newname;
 	expr_ast* wrapper = pool_request(walk->parse->mem, sizeof(expr_ast));
+	wrapper->type = type;
 	wrapper->tag = TERM_EXPR;
 	wrapper->data.term = term;
 	return wrapper;
@@ -5634,6 +5709,7 @@ term_name(walker* const walk, term_ast* const term){
 	expr_ast* bind = pool_request(walk->parse->mem, sizeof(expr_ast));
 	bind->tag = BINDING_EXPR;
 	bind->data.binding = term->name;
+	bind->type = term->type;
 	return bind;
 }
 
@@ -6101,6 +6177,7 @@ expr_ast*
 mk_term(pool* const mem, type_ast* const type, token* const name, expr_ast* const expr){
 	expr_ast* term = pool_request(mem, sizeof(expr_ast));
 	term->tag = TERM_EXPR;
+	term->type = type;
 	term->data.term = pool_request(mem, sizeof(term_ast));
 	term->data.term->name = *name;
 	term->data.term->type = type;
@@ -6246,6 +6323,7 @@ closure_call(walker* const walk, expr_ast* input_binding, line_relay* const newl
 			sizebinding
 		)
 	);
+	call->type = result_type->data.function.right;
 	return call;
 }
 
@@ -6459,6 +6537,8 @@ standard_call_wrapper(walker* const walk, expr_ast* const func_binding, type_ast
 		expr_ast* argterm = &block->data.block.lines[line];
 		line += 1;
 		argterm->tag = TERM_EXPR;
+		argterm->type = &converted_type->data.structure->data.structure.members[i];
+
 		argterm->data.term = pool_request(walk->parse->mem, sizeof(term_ast));
 		token argname = {
 			.content_tag = STRING_TOKEN_TYPE,
@@ -6486,6 +6566,7 @@ standard_call_wrapper(walker* const walk, expr_ast* const func_binding, type_ast
 		expr_ast* increment = &block->data.block.lines[line];
 		line += 1;
 		increment->tag = TERM_EXPR;
+		increment->type = u8ptr;
 		increment->data.term = pool_request(walk->parse->mem, sizeof(term_ast));
 		increment->data.term->type = u8ptr;
 		token new_param_name = {
@@ -6518,6 +6599,7 @@ standard_call_wrapper(walker* const walk, expr_ast* const func_binding, type_ast
 }
 
 /* TODO rewrite with u8* and memcpy
+ * TODO check that id set thing in test_anon_structs
  * TODO top level functions passed as args need to be full converted
  * TODO normal function calls now need more attention since we convert the types to partial structured types, full calls to curried functions need to resolve to two calls to functions, just like what happens in create_wrapper
  * TODO partial types

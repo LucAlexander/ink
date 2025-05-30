@@ -5322,15 +5322,12 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 	switch (expr->tag){
 	case APPL_EXPR:
 		expr_ast* root = expr;
-		expr_ast* prev = root;
 		uint64_t arg_count = 0;
 		while (root->tag == APPL_EXPR){
 			root->data.appl.right = transform_expr(walk, root->data.appl.right, 0, newlines);
 			arg_count += 1;
-			prev = root;
 			root = root->data.appl.left;
 		}
-		prev->data.appl.left = transform_expr(walk, prev->data.appl.left, 0, newlines);
 		if (root->tag == CLOSURE_COPY_EXPR){
 			return expr;
 		}
@@ -5338,6 +5335,9 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			scope_info info = in_scope_transform(walk, &root->data.binding, root->type);
 			if (info.top_level == 1){
 				uint64_t farg_count = 0;
+				if (info.term->type->tag == DEPENDENCY_TYPE){
+					info.term->type = info.term->type->data.dependency.type;
+				}
 				type_ast* inner = info.term->type;
 				while (inner->tag == FUNCTION_TYPE){
 					inner = inner->data.function.right;
@@ -5576,7 +5576,66 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		line_relay_append(newlines, struct_wrapper);
 		return term_name(walk, struct_wrapper->data.term);
 	case BINDING_EXPR:
-		//TODO get binding and figure out if its a top level with args, if so yoink it and do the A={func}; u8* b = A transformation
+		scope_info info = in_scope_transform(walk, &expr->data.binding, expr->type);
+		if (info.top_level == 1){
+			uint64_t arg_count = 0;
+			uint64_t farg_count = 0;
+			if (info.term->type->tag == DEPENDENCY_TYPE){
+				info.term->type = info.term->type->data.dependency.type;
+			}
+			type_ast* inner = info.term->type;
+			while (inner->tag == FUNCTION_TYPE){
+				inner = inner->data.function.right;
+				farg_count += 1;
+			}
+			type_ast* partial_structured = deep_copy_type(walk, info.term->type);
+			type_ast* save = info.term->type;
+			info.term->type = partial_structured;
+			function_to_structure_type(walk, info.term);
+			partial_structured = info.term->type;
+			info.term->type = save;
+			type_ast* converted_inner = partial_structured;
+			uint64_t convert_args = 0;
+			while (converted_inner->tag == FUNCTION_TYPE){
+				convert_args += 1;
+				converted_inner = converted_inner->data.function.right;
+			}
+			if (farg_count == arg_count){
+				if (convert_args == arg_count){
+					return expr;
+				}
+			}
+			type_ast* full_type_copy = deep_copy_type(walk, info.term->type);
+			function_to_structure_recursive(walk, full_type_copy);
+			expr_ast* term_binding = mk_binding(walk->parse->mem, &info.term->name);
+			token wrapper_name = create_wrapper(walk, term_binding, full_type_copy->data.ptr, convert_args, farg_count);
+			expr_ast* setter = pool_request(walk->parse->mem, sizeof(expr_ast));
+			setter->tag = TERM_EXPR;
+			setter->data.term = pool_request(walk->parse->mem, sizeof(term_ast));
+			setter->data.term->type = full_type_copy->data.ptr;
+			token setter_name = {
+				.content_tag = STRING_TOKEN_TYPE,
+				.tag = IDENTIFIER_TOKEN,
+				.index = 0,
+				.data.name = walk->next_lambda
+			};
+			generate_new_lambda(walk);
+			setter->data.term->name = setter_name;
+			setter->data.term->expression = pool_request(walk->parse->mem, sizeof(expr_ast));
+			expr_ast* cons = setter->data.term->expression;
+			cons->tag = STRUCT_EXPR;
+			cons->data.constructor.member_count = 1;
+			cons->data.constructor.names = pool_request(walk->parse->mem, sizeof(token));
+			cons->data.constructor.members = pool_request(walk->parse->mem, sizeof(expr_ast));
+			cons->data.constructor.names->data.name = string_init(walk->parse->mem, "func");
+			cons->data.constructor.members->tag = BINDING_EXPR;
+			cons->data.constructor.members->data.binding = wrapper_name;
+			line_relay_append(newlines, setter);
+			expr_ast* setter_binding = mk_binding(walk->parse->mem, &setter_name);
+			expr_ast* final_ref = mk_ref(walk->parse->mem, setter_binding);
+			final_ref->type = mk_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE));
+			return final_ref;
+		}
 		return expr;
 	case MUTATION_EXPR:
 		expr->data.mutation.right = transform_expr(walk, expr->data.mutation.right, 0, newlines);
@@ -6545,7 +6604,6 @@ standard_call_wrapper(walker* const walk, expr_ast* const func_binding, type_ast
 		line += 1;
 		argterm->tag = TERM_EXPR;
 		argterm->type = &converted_type->data.structure->data.structure.members[i];
-
 		argterm->data.term = pool_request(walk->parse->mem, sizeof(term_ast));
 		token argname = {
 			.content_tag = STRING_TOKEN_TYPE,
@@ -6606,6 +6664,7 @@ standard_call_wrapper(walker* const walk, expr_ast* const func_binding, type_ast
 }
 
 /* TODO rewrite with u8* and memcpy
+ * TODO all the weird structs nee to be u8 ptrs everywhere
  * TODO rewrite again, with [u8] and .size = whatever ...
  * TODO set sizes of closures
  * TODO check that id set thing in test_anon_structs

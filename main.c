@@ -5556,7 +5556,12 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 	case LIT_EXPR:
 		return expr;
 	case TERM_EXPR:
-		function_to_structure_recursive(walk, expr->data.term->type); // TODO probably just u8*
+		if (expr->data.term->type->tag == FUNCTION_TYPE || expr->data.term->type->tag == DEPENDENCY_TYPE){
+			expr->data.term->type = mk_closure_type(walk->parse->mem);
+		}
+		else{
+			function_to_structure_recursive(walk, expr->data.term->type);
+		}
 		uint64_t pos = push_binding(walk, walk->local_scope, &expr->data.term->name, expr->data.term->type);
 		expr->data.term->expression = transform_expr(walk, expr->data.term->expression, 0, newlines);
 		pop_binding(walk->local_scope, pos);
@@ -5817,7 +5822,12 @@ function_to_structure_type(walker* const walk, term_ast* const term){
 	uint64_t member_index = 0;
 	while (counter->tag == FUNCTION_TYPE){
 		s->data.structure.members[member_index] = *counter->data.function.left;
-		function_to_structure_recursive(walk, &s->data.structure.members[member_index]);
+		if (s->data.structure.members[member_index].tag == FUNCTION_TYPE || s->data.structure.members[member_index].tag == DEPENDENCY_TYPE){
+			s->data.structure.members[member_index] = *mk_closure_type(walk->parse->mem);
+		}
+		else{
+			function_to_structure_recursive(walk, &s->data.structure.members[member_index]);
+		}
 		s->data.structure.names[member_index].data.name = string_init(walk->parse->mem, "arg_n");
 		s->data.structure.names[member_index].data.name.str[4] = ((member_count-3)-member_index)+48;
 		member_index += 1;
@@ -5866,7 +5876,12 @@ function_to_structure_recursive(walker* const walk, type_ast* const type){
 		s->data.structure.count = member_count;
 		uint64_t member_index = 0;
 		while (counter->tag == FUNCTION_TYPE){
-			function_to_structure_recursive(walk, counter->data.function.left);
+			if (counter->data.function.left->tag == FUNCTION_TYPE || counter->data.function.left->tag == DEPENDENCY_TYPE){
+				counter->data.function.left = mk_closure_type(walk->parse->mem);
+			}
+			else{
+				function_to_structure_recursive(walk, counter->data.function.left);
+			}
 			s->data.structure.members[member_index] = *counter->data.function.left;
 			s->data.structure.members[member_index].variable = 1;
 			s->data.structure.names[member_index].data.name = string_init(walk->parse->mem, "arg_n");
@@ -6663,14 +6678,16 @@ standard_call_wrapper(walker* const walk, expr_ast* const func_binding, type_ast
 	return func_call;
 }
 
-/* TODO rewrite with u8* and memcpy
- * TODO all the weird structs nee to be u8 ptrs everywhere
+type_ast*
+mk_closure_type(pool* const mem){
+	return mk_ptr(mem, mk_lit(mem, U8_TYPE));
+}
+
+/*
+ * TODO fat ptr construction from 2 arg list [ptr, unsigned]
+ * TODO all the weird structs need to be u8 ptrs everywhere
  * TODO rewrite again, with [u8] and .size = whatever ...
- * TODO set sizes of closures
- * TODO check that id set thing in test_anon_structs
- * TODO top level functions passed as args need to be full converted
- * TODO normal function calls now need more attention since we convert the types to partial structured types, full calls to curried functions need to resolve to two calls to functions, just like what happens in create_wrapper
- * TODO partial types
+ * TODO set sizes of closurestop
  * TODO transform top level types after the normal transformation pass
  * 	should be the old function from a few commits ago, a funciton to structure, may need to be edited to make recursive
  * generic pointer returns must accept functions, deref cannot be performed on functions // I think this one works as intended, but im keeping it here in case I find a contradiction to that belief.

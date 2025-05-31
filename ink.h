@@ -671,6 +671,7 @@ expr_ast* mk_sizeof(pool* const mem, type_ast* const type);
 type_ast* mk_func(pool* const mem, type_ast* const left, type_ast* const right);
 type_ast* mk_lit(pool* const mem, uint8_t lit);
 type_ast* mk_ptr(pool* const mem, type_ast* const inner);
+type_ast* mk_closure_type(pool* const mem);
 
 expr_ast* closure_call(walker* const walk, expr_ast* input_binding, line_relay* const newlines, type_ast* const result_type);
 token create_wrapper(walker* const walk, expr_ast* func_binding, type_ast* const converted_type, uint64_t real_args, uint64_t args);

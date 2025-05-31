@@ -5351,12 +5351,20 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				setter->data.term->expression = pool_request(walk->parse->mem, sizeof(expr_ast));
 				expr_ast* cons = setter->data.term->expression;
 				cons->tag = STRUCT_EXPR;
-				cons->data.constructor.member_count = 1;
-				cons->data.constructor.names = pool_request(walk->parse->mem, sizeof(token));
-				cons->data.constructor.members = pool_request(walk->parse->mem, sizeof(expr_ast));
-				cons->data.constructor.names->data.name = string_init(walk->parse->mem, "func");
-				cons->data.constructor.members->tag = BINDING_EXPR;
-				cons->data.constructor.members->data.binding = wrapper_name;
+				cons->data.constructor.member_count = 2;
+				cons->data.constructor.names = pool_request(walk->parse->mem, sizeof(token)*2);
+				cons->data.constructor.members = pool_request(walk->parse->mem, sizeof(expr_ast)*2);
+				cons->data.constructor.names[0].data.name = string_init(walk->parse->mem, "func");
+				cons->data.constructor.members[0].tag = BINDING_EXPR;
+				cons->data.constructor.members[0].data.binding = wrapper_name;
+				cons->data.constructor.names[1].data.name = string_init(walk->parse->mem, "size");
+				cons->data.constructor.members[1].tag = LIT_EXPR;
+				cons->data.constructor.members[1].data.literal.tag = UINT_LITERAL;
+				uint64_t packed_size = 0;
+				for (uint64_t i = 0;i<full_type_copy->data.ptr->data.structure->data.structure.count;++i){
+					packed_size += sizeof_type(walk->parse, &full_type_copy->data.ptr->data.structure->data.structure.members[i]);
+				}
+				cons->data.constructor.members[1].data.literal.data.u = packed_size;
 				line_relay_append(newlines, setter);
 				expr_ast* setter_binding = mk_binding(walk->parse->mem, &setter_name);
 				root = mk_fptr_cons(walk->parse->mem,
@@ -5413,6 +5421,16 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			&ref_name,
 			root
 		);
+		expr_ast* refind_root = expr;
+		while (refind_root->tag == APPL_EXPR){
+			refind_root = refind_root->data.appl.left;
+		}
+		type_ast* refind_fargs = refind_root->type;
+		uint64_t farg_count = 0;
+		while (refind_fargs->tag == FUNCTION_TYPE){
+			refind_fargs = refind_fargs->data.function.right;
+			farg_count += 1;
+		}
 		expr_ast* last_reference = mk_binding(walk->parse->mem, &ref_name);
 		line_relay_append(newlines, reference);
 		expr_ast* outer_arg = expr;
@@ -5427,7 +5445,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			};
 			generate_new_lambda(walk);
 			expr_ast* arg_set = mk_term(walk->parse->mem,
-				outer_arg->data.appl.right->type,
+				NULL,
 				&arg_name,
 				outer_arg->data.appl.right
 			);
@@ -5435,8 +5453,10 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			arg_index += 1;
 			outer_arg = outer_arg->data.appl.left;
 		}
+		type_ast* current_arg_type_info = refind_root->type;
 		for (uint64_t i = arg_count;i>0;--i){
 			expr_ast* arg_set = arg_vars[i-1];
+			arg_set->data.term->type = current_arg_type_info->data.function.left; // TODO UH OH : id gid y, or id u8id 4 <- int, not u8, this might only work after monomorphization
 			expr_ast* arg_binding = mk_binding(walk->parse->mem, &arg_set->data.term->name);
 			line_relay_append(newlines, arg_set);
 			expr_ast* copy_arg = mk_appl(walk->parse->mem,
@@ -5489,16 +5509,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			);
 			line_relay_append(newlines, new_set);
 			last_reference = new_binding;
-		}
-		expr_ast* refind_root = expr;
-		while (refind_root->tag == APPL_EXPR){
-			refind_root = refind_root->data.appl.left;
-		}
-		type_ast* refind_fargs = refind_root->type;
-		uint64_t farg_count = 0;
-		while (refind_fargs->tag == FUNCTION_TYPE){
-			refind_fargs = refind_fargs->data.function.right;
-			farg_count += 1;
+			current_arg_type_info = current_arg_type_info->data.function.right;
 		}
 		if (arg_count < farg_count){
 			return last_reference;
@@ -5647,12 +5658,20 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			setter->data.term->expression = pool_request(walk->parse->mem, sizeof(expr_ast));
 			expr_ast* cons = setter->data.term->expression;
 			cons->tag = STRUCT_EXPR;
-			cons->data.constructor.member_count = 1;
-			cons->data.constructor.names = pool_request(walk->parse->mem, sizeof(token));
-			cons->data.constructor.members = pool_request(walk->parse->mem, sizeof(expr_ast));
-			cons->data.constructor.names->data.name = string_init(walk->parse->mem, "func");
-			cons->data.constructor.members->tag = BINDING_EXPR;
-			cons->data.constructor.members->data.binding = wrapper_name;
+			cons->data.constructor.member_count = 2;
+			cons->data.constructor.names = pool_request(walk->parse->mem, sizeof(token)*2);
+			cons->data.constructor.members = pool_request(walk->parse->mem, sizeof(expr_ast)*2);
+			cons->data.constructor.names[0].data.name = string_init(walk->parse->mem, "func");
+			cons->data.constructor.members[0].tag = BINDING_EXPR;
+			cons->data.constructor.members[0].data.binding = wrapper_name;
+			cons->data.constructor.names[1].data.name = string_init(walk->parse->mem, "size");
+			cons->data.constructor.members[1].tag = LIT_EXPR;
+			cons->data.constructor.members[1].data.literal.tag = UINT_LITERAL;
+			uint64_t packed_size = 0;
+			for (uint64_t i = 0;i<full_type_copy->data.ptr->data.structure->data.structure.count;++i){
+				packed_size += sizeof_type(walk->parse, &full_type_copy->data.ptr->data.structure->data.structure.members[i]);
+			}
+			cons->data.constructor.members[1].data.literal.data.u = packed_size;
 			line_relay_append(newlines, setter);
 			expr_ast* setter_binding = mk_binding(walk->parse->mem, &setter_name);
 			expr_ast* final_ref = mk_fptr_cons(walk->parse->mem,
@@ -6535,10 +6554,14 @@ create_wrapper(walker* const walk, expr_ast* func_binding, type_ast* const conve
 		),
 		last_ptr
 	);
+	uint64_t remaining_size = 0;
+	for (uint64_t i = real_args;i<args;++i){
+		remaining_size += sizeof_type(walk->parse, &converted_type->data.structure->data.structure.members[i]);
+	}
 	expr_ast* total_size = pool_request(walk->parse->mem, sizeof(expr_ast));
 	total_size->tag = LIT_EXPR;
 	total_size->data.literal.tag = UINT_LITERAL;
-	total_size->data.literal.data.u = 8;//TODO total size, this is a placeholder
+	total_size->data.literal.data.u = remaining_size;
 	copy_args->data.appl.right = total_size;
 	token func_offset_name = {
 		.content_tag = STRING_TOKEN_TYPE,
@@ -6710,11 +6733,12 @@ mk_closure_type(pool* const mem){
 }
 
 /* Closure tasks
- * TODO set sizes of closures on init
- * TODO closure copying (now possible in language?) think about if you want it this way or not, requires arena
  *
  * TODO fat ptr construction from 2 arg list [ptr, unsigned]
  * TODO ~> syntax for -> ()^ shorthand
+ *
+ * test closure size init and total size for optimizing arg move
+ * we might need applciation expected_type bubbling if not present already
  *
  * transform patterns into checks
  * assert that structures are nonrecursive, must be done after monomorph

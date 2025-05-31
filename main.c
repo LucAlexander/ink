@@ -4354,15 +4354,7 @@ check_program(parser* const parse){
 #ifdef DEBUG
 	printf("Transformations:\n");
 #endif
-	//for (uint64_t i = 0;i<parse->implementation_list.count;++i){
-		//implementation_ast* impl = &parse->implementation_list.buffer[i];
-		//for (uint64_t t = 0;t<impl->member_count;++t){
-			//function_to_structure_type(&walk, &impl->members[t]);
-		//}
-	//}
-	//for (uint64_t i = 0;i<parse->term_list.count;++i){
-		//function_to_structure_type(&walk, &parse->term_list.buffer[i]);
-	//}
+	uint64_t pre_transform_limit = parse->term_list.count;
 	pool_empty(parse->temp_mem);
 	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 		implementation_ast* impl = &parse->implementation_list.buffer[i];
@@ -4370,28 +4362,35 @@ check_program(parser* const parse){
 			pool_empty(parse->temp_mem);
 			transform_term(&walk, &impl->members[t], 1);
 			assert_prop();
-#ifdef DEBUG
-			show_term(&impl->members[t]);
-			printf("\n");
-#endif
 		}
 	}
-	uint64_t pre_transform_limit = parse->term_list.count;
 	for (uint64_t i = 0;i<pre_transform_limit;++i){
 		pool_empty(parse->temp_mem);
 		transform_term(&walk, &parse->term_list.buffer[i], 1);
 		assert_prop();
-#ifdef DEBUG
-		show_term(&parse->term_list.buffer[i]);
-		printf("\n");
-#endif
+	}
+	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
+		implementation_ast* impl = &parse->implementation_list.buffer[i];
+		for (uint64_t t = 0;t<impl->member_count;++t){
+			function_to_structure_type(&walk, &impl->members[t]);
+		}
+	}
+	for (uint64_t i = 0;i<pre_transform_limit;++i){
+		function_to_structure_type(&walk, &parse->term_list.buffer[i]);
 	}
 #ifdef DEBUG
-	for (uint64_t i = pre_transform_limit;i<parse->term_list.count;++i){
+	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
+		implementation_ast* impl = &parse->implementation_list.buffer[i];
+		for (uint64_t t = 0;t<impl->member_count;++t){
+			show_term(&impl->members[t]);
+		}
+	}
+	for (uint64_t i = 0;i<parse->term_list.count;++i){
 		show_term(&parse->term_list.buffer[i]);
 		printf("\n");
 	}
 #endif
+
 }
 
 type_ast*
@@ -5799,6 +5798,12 @@ function_to_structure_type(walker* const walk, term_ast* const term){
 	if (term->expression->tag == LAMBDA_EXPR){
 		uint64_t arg_c = term->expression->data.lambda.arg_count;
 		while (arg_c > 0){
+			if (focus->data.function.left->tag == FUNCTION_TYPE || focus->data.function.left->tag == DEPENDENCY_TYPE){
+				focus->data.function.left = mk_closure_type(walk->parse->mem);
+			}
+			else{
+				function_to_structure_recursive(walk, focus->data.function.left);
+			}
 			focus = focus->data.function.right;
 			arg_c -= 1;
 		}
@@ -6410,7 +6415,6 @@ closure_call(walker* const walk, expr_ast* input_binding, line_relay* const newl
 	return call;
 }
 
-//TODO this can be memoized by relating the token from this return from the function it is sourced from (func_binding -> return token)
 //NOTE converted type is the type of a full structure, not a pointer
 //NOTE func_binding is the name of the origin function as a binding
 token
@@ -6692,7 +6696,6 @@ mk_closure_type(pool* const mem){
 
 /* Closure tasks
  * TODO rewrite again, with [u8] and .size = whatever ...
- * TODO memoize wrapper generator
  * TODO set sizes of closures
  * TODO transform top level types after the normal transformation pass
  * generic pointer returns must accept functions, deref cannot be performed on functions // I think this one works as intended, but im keeping it here in case I find a contradiction to that belief.

@@ -3849,15 +3849,15 @@ deep_copy_type_replace(pool* const mem, clash_relation* crelation, type_ast* con
 	case LIT_TYPE:
 		return dest;
 	case PTR_TYPE:
-		if (dest->data.ptr->tag == NAMED_TYPE){
-			type_ast* replacement = type_ast_map_access(pointer_only, dest->data.ptr->data.named.name.data.name);
+		dest->data.ptr = deep_copy_type_replace(mem, crelation, source->data.ptr);
+		return dest;
+	case FAT_PTR_TYPE:
+		if (dest->data.fat_ptr.ptr->tag == NAMED_TYPE){
+			type_ast* replacement = type_ast_map_access(pointer_only, dest->data.fat_ptr.ptr->data.named.name.data.name);
 			if (replacement != NULL){
 				return replacement;
 			}
 		}
-		dest->data.ptr = deep_copy_type_replace(mem, crelation, source->data.ptr);
-		return dest;
-	case FAT_PTR_TYPE:
 		dest->data.fat_ptr.ptr = deep_copy_type_replace(mem, crelation, source->data.fat_ptr.ptr);
 		return dest;
 	case STRUCT_TYPE:
@@ -4036,21 +4036,21 @@ clash_types(parser* const parse, type_ast* const left, type_ast* const right){
 uint8_t
 clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* pointer_only, type_ast* const left, type_ast* const right){
 	if (left->tag != right->tag){
-		if (left->tag == PTR_TYPE && right->tag == FUNCTION_TYPE){
-			if (left->data.ptr->tag == NAMED_TYPE){
-				type_ast* existing_ptr = type_ast_map_access(pointer_only, left->data.ptr->data.named.name.data.name);
+		if (left->tag == FAT_PTR_TYPE && right->tag == FUNCTION_TYPE){
+			if (left->data.fat_ptr.ptr->tag == NAMED_TYPE){
+				type_ast* existing_ptr = type_ast_map_access(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name);
 				if (existing_ptr != NULL){
 					if (type_equal(parse, existing_ptr, right) == 0){
 						return 0;
 					}
 					return 1;
 				}
-				typedef_ast** istypedef = typedef_ptr_map_access(parse->types, left->data.ptr->data.named.name.data.name);
-				alias_ast** isalias = alias_ptr_map_access(parse->aliases, left->data.ptr->data.named.name.data.name);
+				typedef_ast** istypedef = typedef_ptr_map_access(parse->types, left->data.fat_ptr.ptr->data.named.name.data.name);
+				alias_ast** isalias = alias_ptr_map_access(parse->aliases, left->data.fat_ptr.ptr->data.named.name.data.name);
 				if (istypedef != NULL || isalias != NULL){
 					return 0;
 				}
-				type_ast_map_insert(pointer_only, left->data.ptr->data.named.name.data.name, *right);
+				type_ast_map_insert(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name, *right);
 				return 1;
 			}
 		}

@@ -5791,72 +5791,19 @@ function_to_structure_type(walker* const walk, term_ast* const term){
 	if (term->type->tag != FUNCTION_TYPE && term->type->tag != DEPENDENCY_TYPE){
 		return;
 	}
-	type_ast* focus = term->type;
 	if (term->type->tag == DEPENDENCY_TYPE){
-		term->type = focus->data.dependency.type;
+		term->type = term->type->data.dependency.type;
 	}
+	type_ast* focus = term->type;
 	if (term->expression->tag == LAMBDA_EXPR){
 		uint64_t arg_c = term->expression->data.lambda.arg_count;
 		while (arg_c > 0){
-			if (focus->data.function.left->tag == FUNCTION_TYPE || focus->data.function.left->tag == DEPENDENCY_TYPE){
-				focus->data.function.left = mk_closure_type(walk->parse->mem);
-			}
-			else{
-				function_to_structure_recursive(walk, focus->data.function.left);
-			}
+			function_to_closure_ptr_recursive(walk, focus->data.function.left);
 			focus = focus->data.function.right;
 			arg_c -= 1;
 		}
 	}
-	if (focus->tag != FUNCTION_TYPE){
-		return;
-	}
-	type_ast old = *focus;
-	type_ast* counter = focus;
-	uint64_t member_count = 2;
-	while (counter->tag == FUNCTION_TYPE){
-		counter = counter->data.function.right;
-		member_count += 1;
-	}
-	counter = &old;
-	focus->tag = STRUCT_TYPE;
-	focus->data.structure = pool_request(walk->parse->mem, sizeof(structure_ast));
-	structure_ast* s = focus->data.structure;
-	s->tag = STRUCT_STRUCT;
-	s->data.structure.names = pool_request(walk->parse->mem, sizeof(token)*member_count);
-	s->data.structure.members = pool_request(walk->parse->mem, sizeof(type_ast)*member_count);
-	s->data.structure.count = member_count;
-	uint64_t member_index = 0;
-	while (counter->tag == FUNCTION_TYPE){
-		s->data.structure.members[member_index] = *counter->data.function.left;
-		if (s->data.structure.members[member_index].tag == FUNCTION_TYPE || s->data.structure.members[member_index].tag == DEPENDENCY_TYPE){
-			s->data.structure.members[member_index] = *mk_closure_type(walk->parse->mem);
-		}
-		else{
-			function_to_structure_recursive(walk, &s->data.structure.members[member_index]);
-		}
-		s->data.structure.names[member_index].data.name = string_init(walk->parse->mem, "arg_n");
-		s->data.structure.names[member_index].data.name.str[4] = ((member_count-3)-member_index)+48;
-		member_index += 1;
-		counter = counter->data.function.right;
-	}
-	assert(member_index == member_count-2);
-	type_ast* func_type = &s->data.structure.members[member_index];
-	s->data.structure.names[member_index].data.name = string_init(walk->parse->mem, "func");
-	member_index += 1;
-	type_ast* size_type = &s->data.structure.members[member_index];
-	s->data.structure.names[member_index].data.name = string_init(walk->parse->mem, "size");
-	member_index += 1;
-	func_type->tag = FUNCTION_TYPE;
-	type_ast* u8ptr = pool_request(walk->parse->mem, sizeof(type_ast));
-	u8ptr->tag = PTR_TYPE;
-	u8ptr->data.ptr = pool_request(walk->parse->mem, sizeof(type_ast));
-	u8ptr->data.ptr->tag = LIT_TYPE;
-	u8ptr->data.ptr->data.lit = U8_TYPE;
-	func_type->data.function.left = u8ptr;
-	func_type->data.function.right = counter;
-	size_type->tag = LIT_TYPE;
-	size_type->data.lit = U64_TYPE;
+	function_to_closure_ptr_recursive(walk, focus);
 }
 
 //NOTE we begin dissolving dependencies here
@@ -5883,12 +5830,7 @@ function_to_structure_recursive(walker* const walk, type_ast* const type){
 		s->data.structure.count = member_count;
 		uint64_t member_index = 0;
 		while (counter->tag == FUNCTION_TYPE){
-			if (counter->data.function.left->tag == FUNCTION_TYPE || counter->data.function.left->tag == DEPENDENCY_TYPE){
-				counter->data.function.left = mk_closure_type(walk->parse->mem);
-			}
-			else{
-				function_to_structure_recursive(walk, counter->data.function.left);
-			}
+			function_to_closure_ptr_recursive(walk, counter->data.function.left);
 			s->data.structure.members[member_index] = *counter->data.function.left;
 			s->data.structure.members[member_index].variable = 1;
 			s->data.structure.names[member_index].data.name = string_init(walk->parse->mem, "arg_n");
@@ -5921,40 +5863,68 @@ function_to_structure_recursive(walker* const walk, type_ast* const type){
 	case LIT_TYPE:
 		return;
 	case PTR_TYPE:
-		function_to_structure_recursive(walk, type->data.ptr);
+		function_to_closure_ptr_recursive(walk, type->data.ptr);
 		return;
 	case FAT_PTR_TYPE:
-		function_to_structure_recursive(walk, type->data.fat_ptr.ptr);
+		function_to_closure_ptr_recursive(walk, type->data.fat_ptr.ptr);
 		return;
 	case STRUCT_TYPE:
-		structure_function_to_structure_recursive(walk, type->data.structure);
+		structure_function_to_closure_ptr_recursive(walk, type->data.structure);
 		return;
 	case NAMED_TYPE:
 		for (uint64_t i = 0;i<type->data.named.arg_count;++i){
-			function_to_structure_recursive(walk, &type->data.named.args[i]);
+			function_to_closure_ptr_recursive(walk, &type->data.named.args[i]);
+		}
+		return;
+	}
+}
+
+//NOTE we begin dissolving dependencies here
+void
+function_to_closure_ptr_recursive(walker* const walk, type_ast* const type){
+	switch (type->tag){
+	case DEPENDENCY_TYPE:
+		*type = *type->data.dependency.type;
+	case FUNCTION_TYPE:
+		*type = *mk_closure_type(walk->parse->mem);
+		return;
+	case LIT_TYPE:
+		return;
+	case PTR_TYPE:
+		function_to_closure_ptr_recursive(walk, type->data.ptr);
+		return;
+	case FAT_PTR_TYPE:
+		function_to_closure_ptr_recursive(walk, type->data.fat_ptr.ptr);
+		return;
+	case STRUCT_TYPE:
+		structure_function_to_closure_ptr_recursive(walk, type->data.structure);
+		return;
+	case NAMED_TYPE:
+		for (uint64_t i = 0;i<type->data.named.arg_count;++i){
+			function_to_closure_ptr_recursive(walk, &type->data.named.args[i]);
 		}
 		return;
 	}
 }
 
 void
-structure_function_to_structure_recursive(walker* const walk, structure_ast* const s){
+structure_function_to_closure_ptr_recursive(walker* const walk, structure_ast* const s){
 	switch (s->tag){
 	case STRUCT_STRUCT:
 		for (uint64_t i = 0;i<s->data.structure.count;++i){
-			function_to_structure_recursive(walk, &s->data.structure.members[i]);
+			function_to_closure_ptr_recursive(walk, &s->data.structure.members[i]);
 		}
 		return;
 	case UNION_STRUCT:
 		for (uint64_t i = 0;i<s->data.union_structure.count;++i){
-			function_to_structure_recursive(walk, &s->data.union_structure.members[i]);
+			function_to_closure_ptr_recursive(walk, &s->data.union_structure.members[i]);
 		}
 		return;
 	case ENUM_STRUCT:
 		return;
 	}
 }
-		
+
 uint64_t
 sizeof_type(parser* const parse, type_ast* const type){
 	switch (type->tag){
@@ -6697,9 +6667,8 @@ mk_closure_type(pool* const mem){
 /* Closure tasks
  * TODO rewrite again, with [u8] and .size = whatever ...
  * TODO set sizes of closures
- * TODO transform top level types after the normal transformation pass
- * generic pointer returns must accept functions, deref cannot be performed on functions // I think this one works as intended, but im keeping it here in case I find a contradiction to that belief.
- * closure copying
+ * TODO generic pointer returns must accept functions, deref cannot be performed on functions // I think this one works as intended, but im keeping it here in case I find a contradiction to that belief.
+ * TODO closure copying
  *
  * TODO fat ptr construction from 2 arg list [ptr, unsigned]
  * TODO ~> syntax for -> ()^ shorthand

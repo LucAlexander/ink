@@ -647,7 +647,8 @@ expr_ast* new_term(walker* const walk, type_ast* const type, expr_ast* const exp
 expr_ast* term_name(walker* const walk, term_ast* const term);
 void function_to_structure_type(walker* const walk, term_ast* const term);
 void function_to_structure_recursive(walker* const walk, type_ast* const type);
-void structure_function_to_structure_recursive(walker* const walk, structure_ast* const s);
+void function_to_closure_ptr_recursive(walker* const walk, type_ast* const type);
+void structure_function_to_closure_ptr_recursive(walker* const walk, structure_ast* const s);
 expr_ast* transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_relay* const newlines);
 void transform_term(walker* const walk, term_ast* const term, uint8_t is_outer);
 void transform_pattern(walker* const walk, pattern_ast* const pat, line_relay* const newlines);

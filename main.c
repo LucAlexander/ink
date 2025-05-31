@@ -4225,13 +4225,15 @@ check_program(parser* const parse){
 		.capacity = 2,
 		.tokens = pool_request(parse->mem, sizeof(token)*2)
 	};
+	token_map wrappers = token_map_init(parse->mem);
 	walker walk = {
 		.parse = parse,
 		.local_scope = &local_scope,
 		.scope_ptrs = &ptrs,
 		.outer_exprs = &outer_exprs,
 		.next_lambda = string_init(parse->mem, "#A"),
-		.term_stack = &term_stack
+		.term_stack = &term_stack,
+		.wrappers = &wrappers
 	};
 	realias_walker realias = {
 		.parse = parse,
@@ -6413,6 +6415,10 @@ closure_call(walker* const walk, expr_ast* input_binding, line_relay* const newl
 //NOTE func_binding is the name of the origin function as a binding
 token
 create_wrapper(walker* const walk, expr_ast* func_binding, type_ast* const converted_type, uint64_t real_args, uint64_t args){
+	token* wrapper_exists = token_map_access(walk->wrappers, func_binding->data.binding.data.name);
+	if (wrapper_exists != NULL){
+		return *wrapper_exists;
+	}
 	token newname = {
 		.content_tag = STRING_TOKEN_TYPE,
 		.tag = IDENTIFIER_TOKEN,
@@ -6420,6 +6426,7 @@ create_wrapper(walker* const walk, expr_ast* func_binding, type_ast* const conve
 		.data.name = walk->next_lambda
 	};
 	generate_new_lambda(walk);
+	token_map_insert(walk->wrappers, func_binding->data.binding.data.name, newname);
 	type_ast* u8ptr = mk_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE));
 	type_ast* newtype = mk_func(walk->parse->mem,
 		u8ptr,
@@ -6683,15 +6690,16 @@ mk_closure_type(pool* const mem){
 	return mk_ptr(mem, mk_lit(mem, U8_TYPE));
 }
 
-/*
- * TODO fat ptr construction from 2 arg list [ptr, unsigned]
- * TODO all the weird structs need to be u8 ptrs everywhere
+/* Closure tasks
  * TODO rewrite again, with [u8] and .size = whatever ...
- * TODO set sizes of closurestop
+ * TODO memoize wrapper generator
+ * TODO set sizes of closures
  * TODO transform top level types after the normal transformation pass
- * 	should be the old function from a few commits ago, a funciton to structure, may need to be edited to make recursive
  * generic pointer returns must accept functions, deref cannot be performed on functions // I think this one works as intended, but im keeping it here in case I find a contradiction to that belief.
- * all closures are pointers, copies are explicit.
+ * closure copying
+ *
+ * TODO fat ptr construction from 2 arg list [ptr, unsigned]
+ * TODO ~> syntax for -> ()^ shorthand
  *
  * transform patterns into checks
  * assert that structures are nonrecursive, must be done after monomorph

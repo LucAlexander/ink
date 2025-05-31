@@ -540,6 +540,7 @@ typedef struct walker {
 	expr_stack* outer_exprs;
 	string next_lambda;
 	token_stack* term_stack;
+	token_map* wrappers;
 } walker;
 
 uint64_t push_binding(walker* const walk, scope* const s, token* const t, type_ast* const type);

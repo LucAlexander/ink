@@ -143,6 +143,7 @@ compile_file(char* input, const char* output){
 		printf("\033[1m[!] Failed to lex, \033[0m");
 		string_print(&parse.err);
 		printf("\n");
+		return;
 	}
 #ifdef DEBUG
 	show_tokens(parse.tokens, parse.token_count);
@@ -199,6 +200,7 @@ keymap_fill(TOKEN_map* const map){
 	TOKEN_map_insert(map, string_init(map->mem, "return"), RETURN_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "import"), IMPORT_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "sizeof"), SIZEOF_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "~>"), EFFECT_TOKEN);
 }
 
 uint8_t
@@ -291,7 +293,7 @@ lex_string(parser* const parse){
 				case 'f': c = '\f'; break;
 				case 'r': c = '\r'; break;
 				case 't': c = '\t'; break;
-case 'v': c = '\v'; break;
+				case 'v': c = '\v'; break;
 				case '\\': c = '\\'; break;
 				case '\'': c = '\''; break;
 				case '"': c = '"'; break;
@@ -317,7 +319,7 @@ case 'v': c = '\v'; break;
 				while (parse->text_index < parse->text.len){
 					c = parse->text.str[parse->text_index];
 					parse->text_index += 1;
-		if (c == '\n'){
+					if (c == '\n'){
 						break;
 					}
 				}
@@ -333,9 +335,9 @@ case 'v': c = '\v'; break;
 						if (k == '/'){
 							parse->text_index += 1;
 							break;
-		}
+						}
 					}
-}
+				}
 				continue;
 			}
 		}
@@ -364,7 +366,7 @@ case 'v': c = '\v'; break;
 			t->data.name.len += 1;
 			t->tag = SYMBOL_TOKEN;
 			t->content_tag = STRING_TOKEN_TYPE;
-c = parse->text.str[parse->text_index];
+			c = parse->text.str[parse->text_index];
 			parse->text_index += 1;
 			while ((parse->text_index < parse->text.len) && issymbol(c)){
 				t->data.name.len += 1;
@@ -664,6 +666,9 @@ case COMPOSE_TOKEN:
 		case AS_TOKEN:
 			printf("AS ");
 			break;
+		case EFFECT_TOKEN:
+			printf("EFFECT ~> ");
+			break;
 		default:
 			printf("UNKNOWN_TOKEN_TYPE ??? ");
 			break;
@@ -891,6 +896,14 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 			outer->tag = FUNCTION_TYPE;
 			outer->data.function.left = base;
 			outer->data.function.right = parse_type_worker(parse, named, end);
+			assert_prop(NULL);
+			base = outer;
+			break;
+		case EFFECT_TOKEN:
+			outer = pool_request(parse->mem, sizeof(type_ast));
+			outer->tag = FUNCTION_TYPE;
+			outer->data.function.left = base;
+			outer->data.function.right = mk_ptr(parse->mem, parse_type_worker(parse, named, end));
 			assert_prop(NULL);
 			base = outer;
 			break;

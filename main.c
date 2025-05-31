@@ -199,7 +199,6 @@ keymap_fill(TOKEN_map* const map){
 	TOKEN_map_insert(map, string_init(map->mem, "return"), RETURN_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "import"), IMPORT_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "sizeof"), SIZEOF_TOKEN);
-	TOKEN_map_insert(map, string_init(map->mem, "#"), CLOSURE_COPY_TOKEN);
 }
 
 uint8_t
@@ -1523,9 +1522,6 @@ show_expression(expr_ast* expr){
 		show_expression(expr->data.appl.right);
 		printf(")");
 		break;
-	case CLOSURE_COPY_EXPR:
-		printf("#");
-		break;
 	case STRUCT_ACCESS_EXPR:
 		printf("(");
 		show_expression(expr->data.access.left);
@@ -1891,15 +1887,6 @@ parse_expr(parser* const parse, TOKEN end){
 			expr->dot = 1;
 		case SYMBOL_TOKEN:
 			expr->tag = BINDING_EXPR;
-			expr->data.binding = *t;
-			if (outer->tag == APPL_EXPR){
-				expr_ast* swap = outer->data.appl.left;
-				outer->data.appl.left = outer->data.appl.right;
-				outer->data.appl.right = swap;
-			}
-			break;
-		case CLOSURE_COPY_TOKEN:
-			expr->tag = CLOSURE_COPY_EXPR;
 			expr->data.binding = *t;
 			if (outer->tag == APPL_EXPR){
 				expr_ast* swap = outer->data.appl.left;
@@ -2599,26 +2586,6 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 	}
 	switch (expr->tag){
 	case APPL_EXPR:
-		if (expr->data.appl.left->tag == CLOSURE_COPY_EXPR){
-			if (expected_type == NULL){
-				type_ast* right = walk_expr(walk, expr->data.appl.right, expected_type, expected_type, 0);
-				walk_assert_prop();
-				walk_assert(right != NULL, nearest_token(expr), "Type of copy expression was not function or was not inferreable");
-				walk_assert(right->tag == FUNCTION_TYPE, nearest_token(expr), "Type of copy expression was not a function");
-				pop_binding(walk->local_scope, scope_pos);
-				token_stack_pop(walk->term_stack, token_pos);
-				expr->type = right;
-				return right;
-			}
-			walk_assert(expected_type->tag == FUNCTION_TYPE, nearest_token(expr), "Unexpected closure copy expression");
-			type_ast* right = walk_expr(walk, expr->data.appl.right, expected_type, expected_type, 0);
-			walk_assert_prop();
-			walk_assert(right != NULL, nearest_token(expr), "Function type of copy expression did not match the expected type");
-			pop_binding(walk->local_scope, scope_pos);
-			token_stack_pop(walk->term_stack, token_pos);
-			expr->type = expected_type;
-			return expected_type;
-		}
 		if (expr->data.appl.right->tag == LIST_EXPR){
 			if (expr->data.appl.right->data.list.line_count == 1){
 				// x[i]
@@ -3404,9 +3371,6 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 	case ARRAY_ACCESS_EXPR:
 		walk_assert(expr->type != NULL, nearest_token(expr), "Type should already have been evaluated for this access");
 		return expr->type;
-	case CLOSURE_COPY_EXPR:
-		walk_assert(0, nearest_token(expr), "Closure copy is an operator, not a referencable function");
-		return expr->type;
 	}
 	return NULL;
 }
@@ -3773,8 +3737,6 @@ nearest_token(expr_ast* const e){
 	switch (e->tag){
 	case APPL_EXPR:
 		return nearest_token(e->data.appl.left);
-	case CLOSURE_COPY_EXPR:
-		return e->data.binding.index;
 	case FAT_PTR_EXPR:
 		return nearest_token(e->data.access.left);
 	case STRUCT_ACCESS_EXPR:
@@ -4675,8 +4637,6 @@ realias_type_expr(realias_walker* const walk, expr_ast* const expr){
 		realias_type_expr(walk, expr->data.fat_ptr.left);
 		realias_type_expr(walk, expr->data.fat_ptr.right);
 		return;
-	case CLOSURE_COPY_EXPR:
-		return;
 	case STRUCT_ACCESS_EXPR:
 	case ARRAY_ACCESS_EXPR:
 		realias_type_expr(walk, expr->data.access.left);
@@ -5343,9 +5303,6 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			arg_count += 1;
 			root = root->data.appl.left;
 		}
-		if (root->tag == CLOSURE_COPY_EXPR){
-			return expr;
-		}
 		if (root->tag == BINDING_EXPR){
 			scope_info info = in_scope_transform(walk, &root->data.binding, root->type);
 			if (info.top_level == 1){
@@ -5767,9 +5724,6 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		return expr;
 	case CAST_EXPR:
 		expr->data.cast.source = transform_expr(walk, expr->data.cast.source, 0, newlines);
-		return expr;
-	case CLOSURE_COPY_EXPR:
-		//TODO
 		return expr;
 	case BREAK_EXPR:
 		return expr;
@@ -6756,10 +6710,8 @@ mk_closure_type(pool* const mem){
 }
 
 /* Closure tasks
- * TODO rewrite again, with [u8] and .size = whatever ...
- * TODO set sizes of closures, and now [u8] sizes
- * TODO generic pointer returns must accept functions, deref cannot be performed on functions // I think this one works as intended, but im keeping it here in case I find a contradiction to that belief.
- * TODO closure copying
+ * TODO set sizes of closures on init
+ * TODO closure copying (now possible in language?) think about if you want it this way or not, requires arena
  *
  * TODO fat ptr construction from 2 arg list [ptr, unsigned]
  * TODO ~> syntax for -> ()^ shorthand

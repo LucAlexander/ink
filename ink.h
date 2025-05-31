@@ -66,7 +66,6 @@ typedef enum TOKEN {
 	RETURN_TOKEN,
 	IMPORT_TOKEN,
 	SIZEOF_TOKEN,
-	CLOSURE_COPY_TOKEN,
 	TOKEN_COUNT
 } TOKEN;
 
@@ -334,7 +333,6 @@ typedef struct expr_ast {
 		expr_ast* ret;
 		expr_ast* ref;
 		expr_ast* deref;
-		expr_ast* closure;
 		type_ast* size_type;
 		struct {
 			type_ast* target;
@@ -363,7 +361,6 @@ typedef struct expr_ast {
 		CAST_EXPR,
 		BREAK_EXPR,
 		CONTINUE_EXPR,
-		CLOSURE_COPY_EXPR,
 		NOP_EXPR,
 		//for use after walk
 		STRUCT_ACCESS_EXPR,

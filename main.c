@@ -3022,11 +3022,20 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		}
 		walk_assert(expected_type->tag == FAT_PTR_TYPE || expected_type->tag == PTR_TYPE, nearest_token(expr), "List assignment to non pointer type");
 		if (expected_type->tag == FAT_PTR_TYPE){
-			for (uint64_t i = 0;i<expr->data.block.line_count;++i){
-				type_ast* rest = walk_expr(walk, &expr->data.block.lines[i], expected_type->data.fat_ptr.ptr, expected_type->data.fat_ptr.ptr, 0);
-				walk_assert_prop();
-				walk_assert(rest != NULL, nearest_token(expr), "List element not able to resolve to type");
-			}
+			walk_assert(expr->data.block.line_count == 2, nearest_token(expr), "Expected fat pointer constructor to be in the format [pointer, length]");
+			type_ast* synth_ptr = mk_ptr(walk->parse->mem, expected_type->data.fat_ptr.ptr);
+			type_ast* integer = mk_lit(walk->parse->mem, INT_ANY);
+			type_ast* ptr = walk_expr(walk, &expr->data.block.lines[0], synth_ptr, synth_ptr, 0);
+			walk_assert_prop();
+			walk_assert(ptr != NULL, nearest_token(&expr->data.block.lines[0]), "Expected pointer to expression for fat pointer constructor");
+			type_ast* len = walk_expr(walk, &expr->data.block.lines[1], integer, integer, 0);
+			walk_assert_prop();
+			walk_assert(len != NULL, nearest_token(&expr->data.block.lines[1]), "Expected integer expressino for fat pointer constructor length");
+			expr_ast* fat_left = &expr->data.block.lines[0];
+			expr_ast* fat_right = &expr->data.block.lines[1];
+			expr->tag = FAT_PTR_EXPR;
+			expr->data.fat_ptr.left = fat_left;
+			expr->data.fat_ptr.right = fat_right;
 			pop_binding(walk->local_scope, scope_pos);
 			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = expected_type;
@@ -4323,6 +4332,7 @@ check_program(parser* const parse){
 		printf("\n");
 #endif
 	}
+	if (0){ // NOTE begin transform if statement
 #ifdef DEBUG
 	printf("Transformations:\n");
 #endif
@@ -4362,7 +4372,7 @@ check_program(parser* const parse){
 		printf("\n");
 	}
 #endif
-
+	} // NOTE end transform if statement
 }
 
 type_ast*
@@ -6734,7 +6744,6 @@ mk_closure_type(pool* const mem){
 
 /* Closure tasks
  *
- * TODO fat ptr construction from 2 arg list [ptr, unsigned]
  * TODO ~> syntax for -> ()^ shorthand
  *
  * test closure size init and total size for optimizing arg move

@@ -1533,6 +1533,13 @@ show_expression(expr_ast* expr){
 		show_expression(expr->data.access.right);
 		printf(")");
 		break;
+	case FAT_PTR_EXPR:
+		printf("[");
+		show_expression(expr->data.fat_ptr.left);
+		printf(", ");
+		show_expression(expr->data.fat_ptr.right);
+		printf("]");
+		break;
 	case ARRAY_ACCESS_EXPR:
 		printf("(");
 		show_expression(expr->data.access.left);
@@ -3392,6 +3399,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = NULL;
 		return NULL;
+	case FAT_PTR_EXPR:
 	case STRUCT_ACCESS_EXPR:
 	case ARRAY_ACCESS_EXPR:
 		walk_assert(expr->type != NULL, nearest_token(expr), "Type should already have been evaluated for this access");
@@ -3767,6 +3775,8 @@ nearest_token(expr_ast* const e){
 		return nearest_token(e->data.appl.left);
 	case CLOSURE_COPY_EXPR:
 		return e->data.binding.index;
+	case FAT_PTR_EXPR:
+		return nearest_token(e->data.access.left);
 	case STRUCT_ACCESS_EXPR:
 	case ARRAY_ACCESS_EXPR:
 		return nearest_token(e->data.access.left);
@@ -4661,6 +4671,10 @@ realias_type_expr(realias_walker* const walk, expr_ast* const expr){
 		realias_type_expr(walk, expr->data.appl.left);
 		realias_type_expr(walk, expr->data.appl.right);
 		return;
+	case FAT_PTR_EXPR:
+		realias_type_expr(walk, expr->data.fat_ptr.left);
+		realias_type_expr(walk, expr->data.fat_ptr.right);
+		return;
 	case CLOSURE_COPY_EXPR:
 		return;
 	case STRUCT_ACCESS_EXPR:
@@ -5388,7 +5402,11 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				cons->data.constructor.members->data.binding = wrapper_name;
 				line_relay_append(newlines, setter);
 				expr_ast* setter_binding = mk_binding(walk->parse->mem, &setter_name);
-				root = mk_ref(walk->parse->mem, setter_binding);
+				root = mk_fptr_cons(walk->parse->mem,
+					mk_ref(walk->parse->mem, setter_binding),
+					mk_sizeof(walk->parse->mem, full_type_copy->data.ptr)
+				);
+				root->type = mk_fat_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE));
 			}
 		}
 		token mem_cpy = {
@@ -5405,6 +5423,27 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			.data.name = string_init(walk->parse->mem, "+")
 		};
 		expr_ast* plus_binding = mk_binding(walk->parse->mem, &plus);
+		token minus = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = string_init(walk->parse->mem, "-")
+		};
+		expr_ast* minus_binding = mk_binding(walk->parse->mem, &minus);
+		token len_access = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = string_init(walk->parse->mem, "len")
+		};
+		expr_ast* len_access_binding = mk_binding(walk->parse->mem, &len_access);
+		token ptr_access = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = string_init(walk->parse->mem, "ptr")
+		};
+		expr_ast* ptr_access_binding = mk_binding(walk->parse->mem, &ptr_access);
 		token ref_name = {
 			.content_tag = STRING_TOKEN_TYPE,
 			.tag = IDENTIFIER_TOKEN,
@@ -5413,7 +5452,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		};
 		generate_new_lambda(walk);
 		expr_ast* reference = mk_term(walk->parse->mem,
-			mk_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE)),
+			mk_fat_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE)),
 			&ref_name,
 			root
 		);
@@ -5447,7 +5486,10 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				mk_appl(walk->parse->mem,
 					mk_appl(walk->parse->mem,
 						memcpy_binding,
-						last_reference
+						mk_struct_access(walk->parse->mem,
+							last_reference,
+							ptr_access_binding
+						)
 					),
 					mk_ref(walk->parse->mem, arg_binding)
 				),
@@ -5463,14 +5505,29 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			generate_new_lambda(walk);
 			expr_ast* new_binding = mk_binding(walk->parse->mem, &new_arg_name);
 			expr_ast* new_set = mk_term(walk->parse->mem,
-				mk_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE)),
+				mk_fat_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE)),
 				&new_arg_name,
-				mk_appl(walk->parse->mem,
+				mk_fptr_cons(walk->parse->mem,
 					mk_appl(walk->parse->mem,
-						plus_binding,
-						last_reference
+						mk_appl(walk->parse->mem,
+							plus_binding,
+							mk_struct_access(walk->parse->mem,
+								last_reference,
+								ptr_access_binding
+							)
+						),
+						mk_sizeof(walk->parse->mem, arg_set->data.term->type)
 					),
-					mk_sizeof(walk->parse->mem, arg_set->data.term->type)
+					mk_appl(walk->parse->mem,
+						mk_appl(walk->parse->mem,
+							minus_binding,
+							mk_struct_access(walk->parse->mem,
+								last_reference,
+								len_access_binding
+							)
+						),
+						mk_sizeof(walk->parse->mem, arg_set->data.term->type)
+					)
 				)
 			);
 			line_relay_append(newlines, new_set);
@@ -5553,6 +5610,9 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		}
 		//TODO this is a u8 x = {} or g {} b case,
 		//turns into expr->type A; { ... A = (unwrapped from return)};, A // thats for all returns in the block too..... nested in blocks and statements, we also have to ensure the block is escaped from on return and doesnt continue computation
+		return expr;
+	case FAT_PTR_EXPR:
+		//TODO
 		return expr;
 	case LIT_EXPR:
 		return expr;
@@ -5638,8 +5698,11 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			cons->data.constructor.members->data.binding = wrapper_name;
 			line_relay_append(newlines, setter);
 			expr_ast* setter_binding = mk_binding(walk->parse->mem, &setter_name);
-			expr_ast* final_ref = mk_ref(walk->parse->mem, setter_binding);
-			final_ref->type = mk_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE));
+			expr_ast* final_ref = mk_fptr_cons(walk->parse->mem,
+				mk_ref(walk->parse->mem, setter_binding),
+				mk_sizeof(walk->parse->mem, full_type_copy->data.ptr)
+			);
+			final_ref->type = mk_fat_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE));
 			return final_ref;
 		}
 		return expr;
@@ -6284,7 +6347,24 @@ mk_ptr(pool* const mem, type_ast* const inner){
 	return ptr;
 }
 
-//NOTE assumed input_binding is a pointer to the function pointer of a closure
+expr_ast*
+mk_fptr_cons(pool* const mem, expr_ast* left, expr_ast* right){
+	expr_ast* fptr = pool_request(mem, sizeof(expr_ast));
+	fptr->tag = FAT_PTR_EXPR;
+	fptr->data.fat_ptr.left = left;
+	fptr->data.fat_ptr.right = right;
+	return fptr;
+}
+
+type_ast*
+mk_fat_ptr(pool* const mem, type_ast* val){
+	type_ast* fptr = pool_request(mem, sizeof(type_ast));
+	fptr->tag = FAT_PTR_TYPE;
+	fptr->data.fat_ptr.ptr = val;
+	return fptr;
+}
+
+//NOTE assumed input_binding is a fat pointer to the function pointer of a closure
 //NOTE result_type is the type of the function pointer at input_binding
 expr_ast*
 closure_call(walker* const walk, expr_ast* input_binding, line_relay* const newlines, type_ast* const result_type){
@@ -6306,9 +6386,16 @@ closure_call(walker* const walk, expr_ast* input_binding, line_relay* const newl
 		.index = 0,
 		.data.name = string_init(walk->parse->mem, "-")
 	};
+	token ptr_accessor_name = {
+		.content_tag = STRING_TOKEN_TYPE,
+		.tag = IDENTIFIER_TOKEN,
+		.index = 0,
+		.data.name = string_init(walk->parse->mem, "ptr")
+	};
 	expr_ast* memcpy_binding = mk_binding(walk->parse->mem, &mem_cpy);
 	expr_ast* plus_binding = mk_binding(walk->parse->mem, &plus);
 	expr_ast* minus_binding = mk_binding(walk->parse->mem, &minus);
+	expr_ast* ptr_accessor_binding = mk_binding(walk->parse->mem, &ptr_accessor_name);
 	token f_name = {
 		.content_tag = STRING_TOKEN_TYPE,
 		.tag = IDENTIFIER_TOKEN,
@@ -6343,13 +6430,17 @@ closure_call(walker* const walk, expr_ast* input_binding, line_relay* const newl
 		NULL
 	);
 	line_relay_append(newlines, size);
+	expr_ast* ptr_accessor = mk_struct_access(walk->parse->mem,
+		input_binding,
+		ptr_accessor_binding
+	);
 	expr_ast* copy_func = mk_appl(walk->parse->mem,
 		mk_appl(walk->parse->mem,
 			mk_appl(walk->parse->mem, 
 				memcpy_binding,
 				mk_ref(walk->parse->mem, fbinding)
 			),
-			input_binding
+			ptr_accessor
 		),
 		sizeof_fptr
 	);
@@ -6363,7 +6454,7 @@ closure_call(walker* const walk, expr_ast* input_binding, line_relay* const newl
 			mk_appl(walk->parse->mem,
 				mk_appl(walk->parse->mem,
 					plus_binding,
-					input_binding
+					ptr_accessor
 				),
 				sizeof_fptr
 			)
@@ -6376,7 +6467,7 @@ closure_call(walker* const walk, expr_ast* input_binding, line_relay* const newl
 		mk_appl(walk->parse->mem,
 			mk_appl(walk->parse->mem,
 				minus_binding,
-				input_binding
+				ptr_accessor
 			),
 			sizebinding
 		)
@@ -6666,7 +6757,7 @@ mk_closure_type(pool* const mem){
 
 /* Closure tasks
  * TODO rewrite again, with [u8] and .size = whatever ...
- * TODO set sizes of closures
+ * TODO set sizes of closures, and now [u8] sizes
  * TODO generic pointer returns must accept functions, deref cannot be performed on functions // I think this one works as intended, but im keeping it here in case I find a contradiction to that belief.
  * TODO closure copying
  *

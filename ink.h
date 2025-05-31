@@ -290,7 +290,7 @@ typedef struct expr_ast {
 		struct {
 			expr_ast* left;
 			expr_ast* right;
-		} appl, mutation, access;
+		} appl, mutation, access, fat_ptr;
 		struct {
 			pattern_ast* args;
 			expr_ast* expression;
@@ -367,7 +367,8 @@ typedef struct expr_ast {
 		NOP_EXPR,
 		//for use after walk
 		STRUCT_ACCESS_EXPR,
-		ARRAY_ACCESS_EXPR
+		ARRAY_ACCESS_EXPR,
+		FAT_PTR_EXPR
 	} tag;
 } expr_ast;
 
@@ -669,11 +670,13 @@ expr_ast* mk_binding(pool* const mem, token* const tok);
 expr_ast* mk_term(pool* const mem, type_ast* const type, token* const name, expr_ast* const expr);
 expr_ast* mk_return(pool* const mem, expr_ast* const ret);
 expr_ast* mk_sizeof(pool* const mem, type_ast* const type);
+expr_ast* mk_fptr_cons(pool* const mem, expr_ast* left, expr_ast* right);
 
 type_ast* mk_func(pool* const mem, type_ast* const left, type_ast* const right);
 type_ast* mk_lit(pool* const mem, uint8_t lit);
 type_ast* mk_ptr(pool* const mem, type_ast* const inner);
 type_ast* mk_closure_type(pool* const mem);
+type_ast* mk_fat_ptr(pool* const mem, type_ast* val);
 
 expr_ast* closure_call(walker* const walk, expr_ast* input_binding, line_relay* const newlines, type_ast* const result_type);
 token create_wrapper(walker* const walk, expr_ast* func_binding, type_ast* const converted_type, uint64_t real_args, uint64_t args);

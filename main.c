@@ -6755,9 +6755,15 @@ mk_closure_type(pool* const mem){
 	return mk_ptr(mem, mk_lit(mem, U8_TYPE));
 }
 
-/* Closure tasks
- *
- * TODO ~> syntax for -> ()^ shorthand
+/*
+ *	Monomorphization
+ *		id id x, id u8id 4 cases mean we need a lift or something for a generic applied to a generic, to make it one function
+ *		this means scraping isolated call sections I think
+ *		what to do if generic real generic, i suppose its all one generic term
+ *		there should be no outer generics when were doing this, only local ones, this means we dont need to keep track of generic relations globally.
+ *		local generic terms will likey need to be tracked separately. 
+ *		what to do about T term = function (effectful function)
+ *		
  *
  * test closure size init and total size for optimizing arg move
  * we might need applciation expected_type bubbling if not present already

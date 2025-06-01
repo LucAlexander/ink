@@ -393,6 +393,7 @@ MAP_DECL(term_ptr);
 MAP_DECL(type_ast);
 MAP_DECL(uint64_t);
 MAP_DECL(token);
+MAP_DECL(expr_ast);
 
 #define GROWABLE_BUFFER_DECL(type)\
 	typedef struct type##_buffer {\
@@ -532,6 +533,17 @@ uint64_t token_stack_push(token_stack* const stack, token t);
 void token_stack_pop(token_stack* const stack, uint64_t pos);
 token token_stack_top(token_stack* const stack);
 
+typedef struct expr_map_stack {
+	pool* mem;
+	expr_ast_map* map;
+	uint64_t count;
+	uint64_t capacity;
+} expr_map_stack;
+
+uint64_t expr_map_stack_push(expr_map_stack* const stack);
+void expr_map_stack_push_relation(expr_map_stack* const stack, string name, expr_ast* expr);
+void expr_map_stack_pop(expr_map_stack* const stack, uint64_t pos);
+
 typedef struct walker {
 	parser* parse;
 	scope* local_scope;
@@ -540,6 +552,7 @@ typedef struct walker {
 	string next_lambda;
 	token_stack* term_stack;
 	token_map* wrappers;
+	expr_map_stack* replacements;
 } walker;
 
 uint64_t push_binding(walker* const walk, scope* const s, token* const t, type_ast* const type);
@@ -554,6 +567,7 @@ void scrape_binding(walker* const walk, binding* bind);
 void scrape_lower_binding(walker* const walk, binding* bind);
 void generate_new_lambda(walker* const walk);
 void lift_lambda(walker* const walk, expr_ast* const expr, type_ast* const type, token newname);
+void replace_recursive_reference(expr_ast* const, token t, token newname);
 
 GROWABLE_BUFFER_DECL(token);
 MAP_DECL(token_buffer);

@@ -17,6 +17,7 @@ MAP_IMPL(term_ptr);
 MAP_IMPL(type_ast);
 MAP_IMPL(uint64_t);
 MAP_IMPL(token);
+MAP_IMPL(expr_ast);
 
 GROWABLE_BUFFER_IMPL(typedef_ast);
 GROWABLE_BUFFER_IMPL(alias_ast);
@@ -3402,12 +3403,6 @@ walk_term(walker* const walk, term_ast* const term, type_ast* expected_type, uin
 	uint64_t pos = push_binding(walk, walk->local_scope, &term->name, term->type);
 	walk_assert_prop();
 	uint64_t token_pos = token_stack_push(walk->term_stack, term->name);
-	if (is_generic(walk, term->type) == 1){
-		token_stack_pop(walk->term_stack, token_pos);
-		pop_binding(walk->local_scope, pos);
-		walk_assert_prop();
-		return term->type;
-	}
 	type_ast* real_type = walk_expr(walk, term->expression, term->type, term->type, is_outer);
 	token_stack_pop(walk->term_stack, token_pos);
 	pop_binding(walk->local_scope, pos);
@@ -4226,6 +4221,15 @@ check_program(parser* const parse){
 		.tokens = pool_request(parse->mem, sizeof(token)*2)
 	};
 	token_map wrappers = token_map_init(parse->mem);
+	expr_map_stack replacements = {
+		.mem = parse->mem,
+		.map = pool_request(parse->mem, sizeof(expr_ast_map)*2),
+		.count = 0,
+		.capacity = 2
+	};
+	for (uint64_t i = 0;i<replacements.capacity;++i){
+		replacements.map[i] = expr_ast_map_init(parse->mem);
+	}
 	walker walk = {
 		.parse = parse,
 		.local_scope = &local_scope,
@@ -4233,7 +4237,8 @@ check_program(parser* const parse){
 		.outer_exprs = &outer_exprs,
 		.next_lambda = string_init(parse->mem, "#A"),
 		.term_stack = &term_stack,
-		.wrappers = &wrappers
+		.wrappers = &wrappers,
+		.replacements = &replacements
 	};
 	realias_walker realias = {
 		.parse = parse,
@@ -4331,6 +4336,9 @@ check_program(parser* const parse){
 	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 		implementation_ast* impl = &parse->implementation_list.buffer[i];
 		for (uint64_t t = 0;t<impl->member_count;++t){
+			//if (is_generic(&walk, impl->members[t].type) == 1){
+				//continue;
+			//}
 			uint64_t pos = walk.local_scope->binding_count;
 			walk_term(&walk, &impl->members[t], NULL, 1);
 			pop_binding(walk.local_scope, pos);
@@ -4342,6 +4350,9 @@ check_program(parser* const parse){
 		}
 	}
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
+		//if (is_generic(&walk, parse->term_list.buffer[i].type) == 1){
+			//continue;
+		//}
 		uint64_t pos = walk.local_scope->binding_count;
 		walk_term(&walk, &parse->term_list.buffer[i], NULL, 1);
 		pop_binding(walk.local_scope, pos);
@@ -5224,24 +5235,36 @@ void
 lift_lambda(walker* const walk, expr_ast* const expr, type_ast* const type, token newname){
 	type_ast* newtype = deep_copy_type(walk, type);
 	binding_buffer* scrapes = &walk->scope_ptrs->scraped_bindings[walk->scope_ptrs->count-1];
+	token top_level = token_stack_top(walk->term_stack);
 	if (scrapes->count != 0){
 		expr_ast* alt = expr;
 		while (alt != NULL){
 			pattern_ast* args = pool_request(walk->parse->mem, sizeof(pattern_ast)*(scrapes->count + alt->data.lambda.arg_count));
+			uint64_t index = 0;
+			uint8_t found = 0;
 			for (uint64_t i = 0;i<scrapes->count;++i){
 				binding* bind = &scrapes->buffer[i];
-				args[i].tag = BINDING_PATTERN;
-				args[i].data.binding = *bind->name;
+				if ((top_level.data.name.len != 0) && (string_compare(&top_level.data.name, &bind->name->data.name) == 0)){
+					found = 1;
+					continue;
+				}
+				args[index].tag = BINDING_PATTERN;
+				args[index].data.binding = *bind->name;
+				index += 1;
 			}
 			for (uint64_t i = scrapes->count;i<scrapes->count+alt->data.lambda.arg_count;++i){
-				args[i] = alt->data.lambda.args[i-scrapes->count];
+				args[index] = alt->data.lambda.args[i-scrapes->count];
+				index += 1;
 			}
 			alt->data.lambda.args = args;
-			alt->data.lambda.arg_count += scrapes->count;
+			alt->data.lambda.arg_count += scrapes->count - found;
 			alt = alt->data.lambda.alt;
 		}
 		for (uint64_t i = 0;i<scrapes->count;++i){
 			binding* bind = &scrapes->buffer[i];
+			if ((top_level.data.name.len != 0) && (string_compare(&top_level.data.name, &bind->name->data.name) == 0)){
+				continue;
+			}
 			type_ast* shell = pool_request(walk->parse->mem, sizeof(type_ast));
 			shell->tag = FUNCTION_TYPE;
 			shell->data.function.right = newtype;
@@ -5260,22 +5283,21 @@ lift_lambda(walker* const walk, expr_ast* const expr, type_ast* const type, toke
 	expr->tag = BINDING_EXPR;
 	expr->data.binding = newname;
 	expr->type = type;
-	token top_level = token_stack_top(walk->term_stack);
+	uint8_t found = 0;
 	for (uint64_t i = 0;i<scrapes->count;++i){
+		binding* bind = &scrapes->buffer[i];
+		if ((top_level.data.name.len != 0) && (string_compare(&top_level.data.name, &bind->name->data.name) == 0)){
+			found = 1;
+			continue;
+		}
 		expr_ast* func = pool_request(walk->parse->mem, sizeof(expr_ast));
 		*func = *expr;
 		expr->tag = APPL_EXPR;
 		expr->data.appl.left = func;
 		expr->type = type_view;
-		binding* bind = &scrapes->buffer[i];
 		expr_ast* binding = pool_request(walk->parse->mem, sizeof(expr_ast));
 		binding->tag = BINDING_EXPR;
-		if ((top_level.data.name.len != 0) && (string_compare(&top_level.data.name, &bind->name->data.name) == 0)){
-			binding->data.binding = newname;
-		}
-		else{
-			binding->data.binding = *bind->name;
-		}
+		binding->data.binding = *bind->name;
 		binding->type = type_view->data.function.left;
 		expr->data.appl.right = binding;
 		type_view = type_view->data.function.right;
@@ -5287,6 +5309,107 @@ lift_lambda(walker* const walk, expr_ast* const expr, type_ast* const type, toke
 				}
 			}
 		}
+	}
+	if (found){
+		replace_recursive_reference(newterm->expression, top_level, newname);
+	}
+}
+
+void
+replace_recursive_reference(expr_ast* const expr, token t, token newname){
+	switch (expr->tag){
+	case APPL_EXPR:
+		replace_recursive_reference(expr->data.appl.right, t, newname);
+		replace_recursive_reference(expr->data.appl.left, t, newname);
+		return;
+	case LAMBDA_EXPR:
+		replace_recursive_reference(expr->data.lambda.expression, t, newname);
+		if (expr->data.lambda.alt != NULL){
+			replace_recursive_reference(expr->data.lambda.alt, t, newname);
+		}
+		return;
+	case BLOCK_EXPR:
+		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
+			replace_recursive_reference(&expr->data.block.lines[i], t, newname);
+		}
+		return;
+	case LIT_EXPR:
+		return;
+	case TERM_EXPR:
+		replace_recursive_reference(expr->data.term->expression, t, newname);
+		return;
+	case STRING_EXPR:
+		return;
+	case LIST_EXPR:
+		for (uint64_t i = 0;i<expr->data.list.line_count;++i){
+			replace_recursive_reference(&expr->data.list.lines[i], t, newname);
+		}
+		return;
+	case STRUCT_EXPR:
+		for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
+			replace_recursive_reference(&expr->data.constructor.members[i], t, newname);
+		}
+		return;
+	case BINDING_EXPR:
+		if (string_compare(&expr->data.binding.data.name, &t.data.name) == 0){
+			expr->data.binding = newname;
+		}
+		return;
+	case MUTATION_EXPR:
+		replace_recursive_reference(expr->data.mutation.right, t, newname);
+		replace_recursive_reference(expr->data.mutation.left, t, newname);
+		return;
+	case RETURN_EXPR:
+		replace_recursive_reference(expr->data.ret, t, newname);
+		return;
+	case SIZEOF_EXPR:
+		return;
+	case REF_EXPR:
+		replace_recursive_reference(expr->data.ref, t, newname);
+		return;
+	case DEREF_EXPR:
+		replace_recursive_reference(expr->data.deref, t, newname);
+		return;
+	case IF_EXPR:
+		replace_recursive_reference(expr->data.if_statement.pred, t, newname);
+		replace_recursive_reference(expr->data.if_statement.cons, t, newname);
+		if (expr->data.if_statement.alt != NULL){
+			replace_recursive_reference(expr->data.if_statement.alt, t, newname);
+		}
+		break;
+	case FOR_EXPR:
+		replace_recursive_reference(expr->data.for_statement.limit, t, newname);
+		replace_recursive_reference(expr->data.for_statement.cons, t, newname);
+		return;
+	case WHILE_EXPR:
+		replace_recursive_reference(expr->data.while_statement.pred, t, newname);
+		replace_recursive_reference(expr->data.while_statement.cons, t, newname);
+		return;
+	case MATCH_EXPR:
+		replace_recursive_reference(expr->data.match.pred, t, newname);
+		for (uint64_t i = 0;i<expr->data.match.count;++i){
+			replace_recursive_reference(&expr->data.match.cases[i], t, newname);
+		}
+		return;
+	case CAST_EXPR:
+		replace_recursive_reference(expr->data.cast.source, t, newname);
+		return;
+	case BREAK_EXPR:
+	case CONTINUE_EXPR:
+	case NOP_EXPR:
+		return;
+	case STRUCT_ACCESS_EXPR:
+		replace_recursive_reference(expr->data.access.right, t, newname);
+		replace_recursive_reference(expr->data.access.left, t, newname);
+		return;
+	case ARRAY_ACCESS_EXPR:
+		replace_recursive_reference(expr->data.access.right, t, newname);
+		replace_recursive_reference(expr->data.access.left, t, newname);
+		return;
+	case FAT_PTR_EXPR:
+		replace_recursive_reference(expr->data.fat_ptr.right, t, newname);
+		replace_recursive_reference(expr->data.fat_ptr.left, t, newname);
+		return;
 	}
 }
 
@@ -6825,6 +6948,34 @@ is_generic_struct(walker* const walk, structure_ast* const s){
 	return 0;
 }
 
+uint64_t
+expr_map_stack_push(expr_map_stack* const stack){
+	if (stack->count == stack->capacity){
+		stack->capacity *= 2;
+		expr_ast_map* maps = pool_request(stack->mem, sizeof(expr_ast_map)*stack->capacity);
+		for (uint64_t i = 0;i<stack->count;++i){
+			maps[i] = stack->map[i];
+		}
+		stack->map = maps;
+		for (uint64_t i = stack->count;i<stack->capacity;++i){
+			stack->map[i] = expr_ast_map_init(stack->mem);
+		}
+	}
+	expr_ast_map_clear(&stack->map[stack->count]);
+	stack->count += 1;
+	return stack->count-1;
+}
+
+void
+expr_map_stack_push_relation(expr_map_stack* const stack, string name, expr_ast* expr){
+	expr_ast_map_insert(&stack->map[stack->count-1], name, *expr);
+}
+
+void
+expr_map_stack_pop(expr_map_stack* const stack, uint64_t pos){
+	stack->count = pos;
+}
+
 /*
  *	Monomorphization
  *		id id x, id u8id 4 cases mean we need a lift or something for a generic applied to a generic, to make it one function
@@ -6835,7 +6986,14 @@ is_generic_struct(walker* const walk, structure_ast* const s){
  *		what to do about T term = function (effectful function)
  *
  *		pass over only terms without generics
- *			local generics get lifted, but the walk is skipped and the term is tracked for later replacement applications
+ *			local generics get lifted ( the walk cannot be skipped because we have to lift ) and the term is tracked for later replacement applications
+ *				we have to skip the walk here, so we may just have to lift the entire term to top level and track the replacement so we can replace inline as we monomorph
+ *				if is_generic and is not outer:
+ *					lift outer, dont add to scope or scrape or anything, itll be accessible as an outer function
+ *					track replacement
+ *				replacements will need to be another stack
+ *				when we find a binding:
+ *					check if its in replacements, replace the binding, return replaced type
  *			applciations with (generic real1 generic real2 real3)
  *				get converted to (lifted real1 real2 real3)
  *				which gets converted to (monomorphed real1 real2 real3)

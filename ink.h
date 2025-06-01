@@ -680,4 +680,7 @@ expr_ast* closure_call(walker* const walk, expr_ast* input_binding, line_relay* 
 token create_wrapper(walker* const walk, expr_ast* func_binding, type_ast* const converted_type, uint64_t real_args, uint64_t args);
 expr_ast* standard_call_wrapper(walker* const walk, expr_ast* const func_binding, type_ast* const u8ptr, type_ast* const converted_type, expr_ast* memcpy_binding, expr_ast* plus_binding, uint64_t args, expr_ast* const block, token param_name, expr_ast** const last_ptr);
 
+uint8_t is_generic(walker* const walk, type_ast* const type);
+uint8_t is_generic_struct(walker* const walk, structure_ast* const s);
+
 #endif

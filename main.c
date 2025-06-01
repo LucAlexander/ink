@@ -3402,6 +3402,12 @@ walk_term(walker* const walk, term_ast* const term, type_ast* expected_type, uin
 	uint64_t pos = push_binding(walk, walk->local_scope, &term->name, term->type);
 	walk_assert_prop();
 	uint64_t token_pos = token_stack_push(walk->term_stack, term->name);
+	if (is_generic(walk, term->type) == 1){
+		token_stack_pop(walk->term_stack, token_pos);
+		pop_binding(walk->local_scope, pos);
+		walk_assert_prop();
+		return term->type;
+	}
 	type_ast* real_type = walk_expr(walk, term->expression, term->type, term->type, is_outer);
 	token_stack_pop(walk->term_stack, token_pos);
 	pop_binding(walk->local_scope, pos);
@@ -6755,6 +6761,70 @@ mk_closure_type(pool* const mem){
 	return mk_ptr(mem, mk_lit(mem, U8_TYPE));
 }
 
+uint8_t
+is_generic(walker* const walk, type_ast* const type){
+	switch (type->tag){
+	case DEPENDENCY_TYPE:
+		if (type->data.dependency.dependency_count > 0){
+			return 1;
+		}
+		return is_generic(walk, type->data.dependency.type);
+	case FUNCTION_TYPE:
+		return is_generic(walk, type->data.function.left) |
+		       is_generic(walk, type->data.function.right);
+	case LIT_TYPE:
+		return 0;
+	case PTR_TYPE:
+		return is_generic(walk, type->data.ptr);
+	case FAT_PTR_TYPE:
+		return is_generic(walk, type->data.fat_ptr.ptr);
+	case STRUCT_TYPE:
+		return is_generic_struct(walk, type->data.structure);
+	case NAMED_TYPE:
+		for (uint64_t i = 0;i<type->data.named.arg_count;++i){
+			if (is_generic(walk, &type->data.named.args[i]) == 1){
+				return 1;
+			}
+		}
+		type_ast* reduced = reduce_alias(walk->parse, type);
+		if (type->tag == NAMED_TYPE){
+			typedef_ast** istypedef = typedef_ptr_map_access(walk->parse->types, reduced->data.named.name.data.name);
+			if (istypedef != NULL){
+				if (type->data.named.arg_count < (*istypedef)->param_count){
+					return 1;
+				}
+				return 0;
+			}
+			return 1;
+		}
+		return is_generic(walk, reduced);
+	}
+	return 0;
+}
+
+uint8_t
+is_generic_struct(walker* const walk, structure_ast* const s){
+	switch (s->tag){
+	case STRUCT_STRUCT:
+		for (uint64_t i = 0;i<s->data.structure.count;++i){
+			if (is_generic(walk, &s->data.structure.members[i]) == 1){
+				return 1;
+			}
+		}
+		return 0;
+	case UNION_STRUCT:
+		for (uint64_t i = 0;i<s->data.union_structure.count;++i){
+			if (is_generic(walk, &s->data.union_structure.members[i]) == 1){
+				return 1;
+			}
+		}
+		return 0;
+	case ENUM_STRUCT:
+		return 0;
+	}
+	return 0;
+}
+
 /*
  *	Monomorphization
  *		id id x, id u8id 4 cases mean we need a lift or something for a generic applied to a generic, to make it one function
@@ -6763,8 +6833,29 @@ mk_closure_type(pool* const mem){
  *		there should be no outer generics when were doing this, only local ones, this means we dont need to keep track of generic relations globally.
  *		local generic terms will likey need to be tracked separately. 
  *		what to do about T term = function (effectful function)
- *		
  *
+ *		pass over only terms without generics
+ *			local generics get lifted, but the walk is skipped and the term is tracked for later replacement applications
+ *			applciations with (generic real1 generic real2 real3)
+ *				get converted to (lifted real1 real2 real3)
+ *				which gets converted to (monomorphed real1 real2 real3)
+ *			applications with (generic real1 real2)
+ *				can be simply monomorphed to (monomorphed real1 real2)
+ *			applications with (generic generic real1 real2)
+ *				first get lifted (lifted real1 real2)
+ *				then monomorphed (monomorphed real1 real2)
+ *
+ *		Algorithmically, pass from outer to inner until
+ *			arg is generic:
+ *				start generic collection, scrape arg, scrape func for lift
+ *			func is generic:
+ *				start generic collection, scrape func for lift
+ *			then:
+ *				if its already a single term, monomorphi that term
+ *				if its a complicated term, lift it first, then monomorph
+ *				replace term name, walk the newly created tree
+ *
+ * mk_closure_ptr still uses u8^ rather than [u8], see what it effects and correct
  * test closure size init and total size for optimizing arg move
  * we might need applciation expected_type bubbling if not present already
  *

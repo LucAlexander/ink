@@ -17,7 +17,7 @@ MAP_IMPL(term_ptr);
 MAP_IMPL(type_ast);
 MAP_IMPL(uint64_t);
 MAP_IMPL(token);
-MAP_IMPL(expr_ast);
+MAP_IMPL(term_ast);
 
 GROWABLE_BUFFER_IMPL(typedef_ast);
 GROWABLE_BUFFER_IMPL(alias_ast);
@@ -2987,6 +2987,10 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		expr->type = lit_type;
 		return lit_type;
 	case TERM_EXPR:
+		if (is_generic(walk, expr->data.term->type) == 1){
+			term_map_stack_push_relation(walk->replacements, expr->data.term->name.data.name, expr->data.term);
+			return expected_type;
+		}
 		type_ast* term_type = walk_term(walk, expr->data.term, expected_type, 0);
 		expr->type = term_type;
 		return term_type;
@@ -3403,7 +3407,9 @@ walk_term(walker* const walk, term_ast* const term, type_ast* expected_type, uin
 	uint64_t pos = push_binding(walk, walk->local_scope, &term->name, term->type);
 	walk_assert_prop();
 	uint64_t token_pos = token_stack_push(walk->term_stack, term->name);
+	uint64_t mapstack_pos = term_map_stack_push(walk->replacements);
 	type_ast* real_type = walk_expr(walk, term->expression, term->type, term->type, is_outer);
+	term_map_stack_pop(walk->replacements, mapstack_pos);
 	token_stack_pop(walk->term_stack, token_pos);
 	pop_binding(walk->local_scope, pos);
 	walk_assert_prop();
@@ -4221,14 +4227,14 @@ check_program(parser* const parse){
 		.tokens = pool_request(parse->mem, sizeof(token)*2)
 	};
 	token_map wrappers = token_map_init(parse->mem);
-	expr_map_stack replacements = {
+	term_map_stack replacements = {
 		.mem = parse->mem,
-		.map = pool_request(parse->mem, sizeof(expr_ast_map)*2),
+		.map = pool_request(parse->mem, sizeof(term_ast_map)*2),
 		.count = 0,
 		.capacity = 2
 	};
 	for (uint64_t i = 0;i<replacements.capacity;++i){
-		replacements.map[i] = expr_ast_map_init(parse->mem);
+		replacements.map[i] = term_ast_map_init(parse->mem);
 	}
 	walker walk = {
 		.parse = parse,
@@ -4336,9 +4342,9 @@ check_program(parser* const parse){
 	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 		implementation_ast* impl = &parse->implementation_list.buffer[i];
 		for (uint64_t t = 0;t<impl->member_count;++t){
-			//if (is_generic(&walk, impl->members[t].type) == 1){
-				//continue;
-			//}
+			if (is_generic(&walk, impl->members[t].type) == 1){
+				continue;
+			}
 			uint64_t pos = walk.local_scope->binding_count;
 			walk_term(&walk, &impl->members[t], NULL, 1);
 			pop_binding(walk.local_scope, pos);
@@ -4350,9 +4356,9 @@ check_program(parser* const parse){
 		}
 	}
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
-		//if (is_generic(&walk, parse->term_list.buffer[i].type) == 1){
-			//continue;
-		//}
+		if (is_generic(&walk, parse->term_list.buffer[i].type) == 1){
+			continue;
+		}
 		uint64_t pos = walk.local_scope->binding_count;
 		walk_term(&walk, &parse->term_list.buffer[i], NULL, 1);
 		pop_binding(walk.local_scope, pos);
@@ -6949,90 +6955,172 @@ is_generic_struct(walker* const walk, structure_ast* const s){
 }
 
 uint64_t
-expr_map_stack_push(expr_map_stack* const stack){
+term_map_stack_push(term_map_stack* const stack){
 	if (stack->count == stack->capacity){
 		stack->capacity *= 2;
-		expr_ast_map* maps = pool_request(stack->mem, sizeof(expr_ast_map)*stack->capacity);
+		term_ast_map* maps = pool_request(stack->mem, sizeof(term_ast_map)*stack->capacity);
 		for (uint64_t i = 0;i<stack->count;++i){
 			maps[i] = stack->map[i];
 		}
 		stack->map = maps;
 		for (uint64_t i = stack->count;i<stack->capacity;++i){
-			stack->map[i] = expr_ast_map_init(stack->mem);
+			stack->map[i] = term_ast_map_init(stack->mem);
 		}
 	}
-	expr_ast_map_clear(&stack->map[stack->count]);
+	term_ast_map_clear(&stack->map[stack->count]);
 	stack->count += 1;
 	return stack->count-1;
 }
 
 void
-expr_map_stack_push_relation(expr_map_stack* const stack, string name, expr_ast* expr){
-	expr_ast_map_insert(&stack->map[stack->count-1], name, *expr);
+term_map_stack_push_relation(term_map_stack* const stack, string name, term_ast* term){
+	term_ast_map_insert(&stack->map[stack->count-1], name, *term);
 }
 
 void
-expr_map_stack_pop(expr_map_stack* const stack, uint64_t pos){
+term_map_stack_pop(term_map_stack* const stack, uint64_t pos){
 	stack->count = pos;
+}
+
+expr_ast*
+deep_copy_expr_type_replace(walker* const walk, expr_ast* source, clash_relation* const relation){
+	expr_ast* new = pool_request(walk->parse->mem, sizeof(expr_ast));
+	*new = *source;
+	switch (source->tag){
+	case APPL_EXPR:
+		new->data.appl.left = deep_copy_expr_type_replace(walk, source->data.appl.left, relation);
+		new->data.appl.right = deep_copy_expr_type_replace(walk, source->data.appl.right, relation);
+		return new;
+	case LAMBDA_EXPR:
+		new->data.lambda.expression = deep_copy_expr_type_replace(walk, source->data.lambda.expression, relation);
+		if (new->data.lambda.alt != NULL){
+			new->data.lambda.alt = deep_copy_expr_type_replace(walk, source->data.lambda.alt, relation);
+		}
+		return new;
+	case BLOCK_EXPR:
+		new->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast)*new->data.block.line_count);
+		for (uint64_t i = 0;i<new->data.block.line_count;++i){
+			new->data.block.lines[i] = *deep_copy_expr_type_replace(walk, &source->data.block.lines[i], relation);
+		}
+		return new;
+	case LIT_EXPR:
+		return new;
+	case TERM_EXPR:
+		new->data.term = pool_request(walk->parse->mem, sizeof(term_ast));
+		*new->data.term = *source->data.term;
+		new->data.term->type = deep_copy_type_replace(walk->parse->mem, relation, source->data.term->type);
+		new->data.term->expression = deep_copy_expr_type_replace(walk, source->data.term->expression, relation);
+		return new;
+	case STRING_EXPR:
+		return new;
+	case LIST_EXPR:
+		new->data.list.lines = pool_request(walk->parse->mem, sizeof(expr_ast)*new->data.list.line_count);
+		for (uint64_t i = 0;i<new->data.list.line_count;++i){
+			new->data.list.lines[i] = *deep_copy_expr_type_replace(walk, &source->data.list.lines[i], relation);
+		}
+		return new;
+	case STRUCT_EXPR:
+		new->data.constructor.members = pool_request(walk->parse->mem, sizeof(expr_ast)*new->data.constructor.member_count);
+		for (uint64_t i = 0;i<new->data.constructor.member_count;++i){
+			new->data.constructor.members[i] = *deep_copy_expr_type_replace(walk, &source->data.constructor.members[i], relation);
+		}
+		return new;
+	case BINDING_EXPR:
+		return new;
+	case MUTATION_EXPR:
+		new->data.mutation.left = deep_copy_expr_type_replace(walk, source->data.mutation.left, relation);
+		new->data.mutation.right = deep_copy_expr_type_replace(walk, source->data.mutation.right, relation);
+		return new;
+	case RETURN_EXPR:
+		new->data.ret = deep_copy_expr_type_replace(walk, source->data.ret, relation);
+		return new;
+	case SIZEOF_EXPR:
+		new->data.size_type = deep_copy_type_replace(walk->parse->mem, relation, source->data.size_type);
+		return new;
+	case REF_EXPR:
+		new->data.ref = deep_copy_expr_type_replace(walk, source->data.ref, relation);
+		return new;
+	case DEREF_EXPR:
+		new->data.deref = deep_copy_expr_type_replace(walk, source->data.deref, relation);
+		return new;
+	case IF_EXPR:
+		new->data.if_statement.pred = deep_copy_expr_type_replace(walk, source->data.if_statement.pred, relation);
+		new->data.if_statement.cons = deep_copy_expr_type_replace(walk, source->data.if_statement.cons, relation);
+		if (new->data.if_statement.alt != NULL){
+			new->data.if_statement.alt = deep_copy_expr_type_replace(walk, source->data.if_statement.alt, relation);
+		}
+		return new;
+	case FOR_EXPR:
+		new->data.for_statement.initial= deep_copy_expr_type_replace(walk, source->data.for_statement.initial, relation);
+		new->data.for_statement.limit = deep_copy_expr_type_replace(walk, source->data.for_statement.limit, relation);
+		new->data.for_statement.cons = deep_copy_expr_type_replace(walk, source->data.for_statement.cons, relation);
+		return new;
+	case WHILE_EXPR:
+		new->data.while_statement.pred = deep_copy_expr_type_replace(walk, source->data.while_statement.pred, relation);
+		new->data.while_statement.cons = deep_copy_expr_type_replace(walk, source->data.while_statement.cons, relation);
+		return new;
+	case MATCH_EXPR:
+		new->data.match.pred = deep_copy_expr_type_replace(walk, source->data.match.pred, relation);
+		new->data.match.cases = pool_request(walk->parse->mem, sizeof(expr_ast)*new->data.match.count);
+		for (uint64_t i = 0;i<new->data.match.count;++i){
+			new->data.match.cases[i] = *deep_copy_expr_type_replace(walk, &source->data.match.cases[i], relation);
+		}
+	case CAST_EXPR:
+		new->data.cast.source = deep_copy_expr_type_replace(walk, source->data.cast.source, relation);
+		new->data.cast.target = deep_copy_type_replace(walk->parse->mem, relation, source->data.cast.target);
+		return new;
+	case BREAK_EXPR:
+	case CONTINUE_EXPR:
+	case NOP_EXPR:
+		return new;
+	case STRUCT_ACCESS_EXPR:
+	case ARRAY_ACCESS_EXPR:
+		new->data.access.left = deep_copy_expr_type_replace(walk, source->data.access.left, relation);
+		new->data.access.right= deep_copy_expr_type_replace(walk, source->data.access.right, relation);
+		return new;
+	case FAT_PTR_EXPR:
+		new->data.fat_ptr.left = deep_copy_expr_type_replace(walk, source->data.fat_ptr.left, relation);
+		new->data.fat_ptr.right = deep_copy_expr_type_replace(walk, source->data.fat_ptr.right, relation);
+		return new;
+	}
+	return new;
 }
 
 /*
  *	Monomorphization
- *		id id x, id u8id 4 cases mean we need a lift or something for a generic applied to a generic, to make it one function
- *		this means scraping isolated call sections I think
- *		what to do if generic real generic, i suppose its all one generic term
- *		there should be no outer generics when were doing this, only local ones, this means we dont need to keep track of generic relations globally.
- *		local generic terms will likey need to be tracked separately. 
- *		what to do about T term = function (effectful function)
+ *	
+ *		make sure that on monomorph lifts, the top level binding is tracked and set somehow so that recursive calls are set correctly
  *
- *		pass over only terms without generics
- *			local generics get lifted ( the walk cannot be skipped because we have to lift ) and the term is tracked for later replacement applications
- *				we have to skip the walk here, so we may just have to lift the entire term to top level and track the replacement so we can replace inline as we monomorph
- *				if is_generic and is not outer:
- *					lift outer, dont add to scope or scrape or anything, itll be accessible as an outer function
- *					track replacement
- *				replacements will need to be another stack
- *				when we find a binding:
- *					check if its in replacements, replace the binding, return replaced type
- *			applciations with (generic real1 generic real2 real3)
- *				get converted to (lifted real1 real2 real3)
- *				which gets converted to (monomorphed real1 real2 real3)
- *			applications with (generic real1 real2)
- *				can be simply monomorphed to (monomorphed real1 real2)
- *			applications with (generic generic real1 real2)
- *				first get lifted (lifted real1 real2)
- *				then monomorphed (monomorphed real1 real2)
+ *		skip top levels, x
+ *		skip nested, but gather as replacements x
+ *		replace on find, deep copying the expression, synthesize type, replace types with relation, and and allow lift/walk to happen, using synthesized expected type without generics
+ *			to synthesize:
+ *				if its an arg, build the full type with a copy, and mutate tracked pointers to generics
+ *				if func, use arg types
+ *			combine deep copy with replacement for single pass algorithm, this means you need to synthesize the type first
+ *		This should fully monomorphize, because only finished types are descended, meaning there will always be enough information for all generics to resolve
  *
- *		Algorithmically, pass from outer to inner until
- *			arg is generic:
- *				start generic collection, scrape arg, scrape func for lift
- *			func is generic:
- *				start generic collection, scrape func for lift
- *			then:
- *				if its already a single term, monomorphi that term
- *				if its a complicated term, lift it first, then monomorph
- *				replace term name, walk the newly created tree
+ *		for T a = ... cases, descend like normal term with null expected type, if it cant synthesize, err
  *
  * mk_closure_ptr still uses u8^ rather than [u8], see what it effects and correct
+ * dissolve dependencies, and generics during transformation
  * test closure size init and total size for optimizing arg move
- * we might need applciation expected_type bubbling if not present already
  *
  * transform patterns into checks
  * assert that structures are nonrecursive, must be done after monomorph
 	 * then you can validate sizeof, evaluate the closure offsets with sizeof_type
  * more mem optimizations on the normal walk pass since its basically done for now
- * Transformation pass
- 	* expression block flattening? might be a code generation thing
-		* u8 x = {u8 y = 7; return y;} -> u8 x; {u8 y = 7; x = y};
- 	 * structure/defined type monomorphization
- 	* only monomorph full defined parametric non generic types
- * function type monomorphization
+ * expression block flattening? might be a code generation thing
+	* u8 x = {u8 y = 7; return y;} -> u8 x; {u8 y = 7; x = y};
+ * structure/defined type monomorphization
+ * only monomorph full defined parametric non generic types
  *
  * global and local assertions, probably with other system calls and C level invocations
  * validate cast and sizeof expressionas after monomorphization (because generics are gone) to validate that they are correct types [ type_valid() ]
  * error reporting as logging rather than single report
  * nearest type token function
  *
+ * ensure term definitions only happen in blocks, one of the only algebraic restrictions
  */
 
 int

@@ -393,7 +393,7 @@ MAP_DECL(term_ptr);
 MAP_DECL(type_ast);
 MAP_DECL(uint64_t);
 MAP_DECL(token);
-MAP_DECL(expr_ast);
+MAP_DECL(term_ast);
 
 #define GROWABLE_BUFFER_DECL(type)\
 	typedef struct type##_buffer {\
@@ -533,16 +533,16 @@ uint64_t token_stack_push(token_stack* const stack, token t);
 void token_stack_pop(token_stack* const stack, uint64_t pos);
 token token_stack_top(token_stack* const stack);
 
-typedef struct expr_map_stack {
+typedef struct term_map_stack {
 	pool* mem;
-	expr_ast_map* map;
+	term_ast_map* map;
 	uint64_t count;
 	uint64_t capacity;
-} expr_map_stack;
+} term_map_stack;
 
-uint64_t expr_map_stack_push(expr_map_stack* const stack);
-void expr_map_stack_push_relation(expr_map_stack* const stack, string name, expr_ast* expr);
-void expr_map_stack_pop(expr_map_stack* const stack, uint64_t pos);
+uint64_t term_map_stack_push(term_map_stack* const stack);
+void term_map_stack_push_relation(term_map_stack* const stack, string name, term_ast* term);
+void term_map_stack_pop(term_map_stack* const stack, uint64_t pos);
 
 typedef struct walker {
 	parser* parse;
@@ -552,7 +552,7 @@ typedef struct walker {
 	string next_lambda;
 	token_stack* term_stack;
 	token_map* wrappers;
-	expr_map_stack* replacements;
+	term_map_stack* replacements;
 } walker;
 
 uint64_t push_binding(walker* const walk, scope* const s, token* const t, type_ast* const type);
@@ -696,5 +696,6 @@ expr_ast* standard_call_wrapper(walker* const walk, expr_ast* const func_binding
 
 uint8_t is_generic(walker* const walk, type_ast* const type);
 uint8_t is_generic_struct(walker* const walk, structure_ast* const s);
+expr_ast* deep_copy_expr_type_replace(walker* const walk, expr_ast* source, clash_relation* const relation);
 
 #endif

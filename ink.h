@@ -697,5 +697,9 @@ expr_ast* standard_call_wrapper(walker* const walk, expr_ast* const func_binding
 uint8_t is_generic(walker* const walk, type_ast* const type);
 uint8_t is_generic_struct(walker* const walk, structure_ast* const s);
 expr_ast* deep_copy_expr_type_replace(walker* const walk, expr_ast* source, clash_relation* const relation);
+expr_ast* deep_copy_expr_type_replace_worker(walker* const walk, expr_ast* source, clash_relation* const relation, token_map* const realias);
+pattern_ast* deep_copy_pattern_replace(walker* const walk, pattern_ast* const pattern, token_map* const realias);
+term_ast* is_tracked_generic(walker* const walk, token* const name);
+type_ast* try_monomorph(walker* const walk, expr_ast* expr, type_ast* const left, type_ast* expected);
 
 #endif

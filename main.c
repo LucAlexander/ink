@@ -2791,6 +2791,14 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, &relation, left_real->data.function.right);
 			walk_assert(type_equal(walk->parse, expected_type, reduce_alias_and_type(walk->parse, generic_applied_type)), nearest_token(expr), "Applied generic type did not match expected type");
 			walk_assert_prop();
+			//TODO monomorph
+			{
+				if (is_generic(walk, expr->data.appl.left->type) == 1){
+					type_ast* left_generic = deep_copy_type(walk, expr->data.appl.left->type);
+					try_monomorph(walk, expr->data.appl.left, left_generic, expected_type);
+					walk_assert_prop();
+				}
+			}
 			pop_binding(walk->local_scope, scope_pos);
 			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = generic_applied_type;
@@ -2855,6 +2863,14 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		else{
 			outer_depends->data.dependency.type = left->data.function.right;
 			generic_applied_type = deep_copy_type_replace(walk->parse->mem, &relation, outer_depends);
+		}
+		//TODO monomorph
+		{
+			if (is_generic(walk, expr->data.appl.left->type) == 1){
+				type_ast* left_generic = deep_copy_type(walk, expr->data.appl.left->type);
+				try_monomorph(walk, expr->data.appl.left, left_generic, expected_type);
+				walk_assert_prop();
+			}
 		}
 		pop_binding(walk->local_scope, scope_pos);
 		token_stack_pop(walk->term_stack, token_pos);
@@ -3140,6 +3156,14 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		expr->type = enum_type;
 		return enum_type;
 	case BINDING_EXPR:
+		term_ast* is_generic = is_tracked_generic(walk, &expr->data.binding);
+		if (is_generic != NULL){
+			*expr = *is_generic->expression;
+			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
+			expr->type = is_generic->type;
+			return is_generic->type;
+		}
 		type_ast* actual = in_scope(walk, &expr->data.binding, expected_type);
 		walk_assert(actual != NULL, nearest_token(expr), "Binding not found in scope");
 		if (expected_type == NULL){
@@ -3613,6 +3637,7 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type){
 					if (index == 0){
 						break;
 					}
+					index -= 1;
 				}
 				if (broke == 0){
 					return deep_copy_type(walk, term->type);
@@ -6984,23 +7009,33 @@ term_map_stack_pop(term_map_stack* const stack, uint64_t pos){
 
 expr_ast*
 deep_copy_expr_type_replace(walker* const walk, expr_ast* source, clash_relation* const relation){
+	token_map realias = token_map_init(walk->parse->mem);
+	return deep_copy_expr_type_replace_worker(walk, source, relation, &realias);
+}
+
+expr_ast*
+deep_copy_expr_type_replace_worker(walker* const walk, expr_ast* source, clash_relation* const relation, token_map* const realias){
 	expr_ast* new = pool_request(walk->parse->mem, sizeof(expr_ast));
 	*new = *source;
 	switch (source->tag){
 	case APPL_EXPR:
-		new->data.appl.left = deep_copy_expr_type_replace(walk, source->data.appl.left, relation);
-		new->data.appl.right = deep_copy_expr_type_replace(walk, source->data.appl.right, relation);
+		new->data.appl.left = deep_copy_expr_type_replace_worker(walk, source->data.appl.left, relation, realias);
+		new->data.appl.right = deep_copy_expr_type_replace_worker(walk, source->data.appl.right, relation, realias);
 		return new;
 	case LAMBDA_EXPR:
-		new->data.lambda.expression = deep_copy_expr_type_replace(walk, source->data.lambda.expression, relation);
+		new->data.lambda.args = pool_request(walk->parse->mem, sizeof(pattern_ast)*new->data.lambda.arg_count);
+		for (uint64_t i = 0;i<new->data.lambda.arg_count;++i){
+			new->data.lambda.args[i] = *deep_copy_pattern_replace(walk, &new->data.lambda.args[i], realias);
+		}
+		new->data.lambda.expression = deep_copy_expr_type_replace_worker(walk, source->data.lambda.expression, relation, realias);
 		if (new->data.lambda.alt != NULL){
-			new->data.lambda.alt = deep_copy_expr_type_replace(walk, source->data.lambda.alt, relation);
+			new->data.lambda.alt = deep_copy_expr_type_replace_worker(walk, source->data.lambda.alt, relation, realias);
 		}
 		return new;
 	case BLOCK_EXPR:
 		new->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast)*new->data.block.line_count);
 		for (uint64_t i = 0;i<new->data.block.line_count;++i){
-			new->data.block.lines[i] = *deep_copy_expr_type_replace(walk, &source->data.block.lines[i], relation);
+			new->data.block.lines[i] = *deep_copy_expr_type_replace_worker(walk, &source->data.block.lines[i], relation, realias);
 		}
 		return new;
 	case LIT_EXPR:
@@ -7009,64 +7044,81 @@ deep_copy_expr_type_replace(walker* const walk, expr_ast* source, clash_relation
 		new->data.term = pool_request(walk->parse->mem, sizeof(term_ast));
 		*new->data.term = *source->data.term;
 		new->data.term->type = deep_copy_type_replace(walk->parse->mem, relation, source->data.term->type);
-		new->data.term->expression = deep_copy_expr_type_replace(walk, source->data.term->expression, relation);
+		new->data.term->expression = deep_copy_expr_type_replace_worker(walk, source->data.term->expression, relation, realias);
 		return new;
 	case STRING_EXPR:
 		return new;
 	case LIST_EXPR:
 		new->data.list.lines = pool_request(walk->parse->mem, sizeof(expr_ast)*new->data.list.line_count);
 		for (uint64_t i = 0;i<new->data.list.line_count;++i){
-			new->data.list.lines[i] = *deep_copy_expr_type_replace(walk, &source->data.list.lines[i], relation);
+			new->data.list.lines[i] = *deep_copy_expr_type_replace_worker(walk, &source->data.list.lines[i], relation, realias);
 		}
 		return new;
 	case STRUCT_EXPR:
 		new->data.constructor.members = pool_request(walk->parse->mem, sizeof(expr_ast)*new->data.constructor.member_count);
 		for (uint64_t i = 0;i<new->data.constructor.member_count;++i){
-			new->data.constructor.members[i] = *deep_copy_expr_type_replace(walk, &source->data.constructor.members[i], relation);
+			new->data.constructor.members[i] = *deep_copy_expr_type_replace_worker(walk, &source->data.constructor.members[i], relation, realias);
 		}
 		return new;
 	case BINDING_EXPR:
+		token* alias = token_map_access(realias, new->data.binding.data.name);
+		if (alias != NULL){
+			new->data.binding = *alias;
+		}
 		return new;
 	case MUTATION_EXPR:
-		new->data.mutation.left = deep_copy_expr_type_replace(walk, source->data.mutation.left, relation);
-		new->data.mutation.right = deep_copy_expr_type_replace(walk, source->data.mutation.right, relation);
+		new->data.mutation.left = deep_copy_expr_type_replace_worker(walk, source->data.mutation.left, relation, realias);
+		new->data.mutation.right = deep_copy_expr_type_replace_worker(walk, source->data.mutation.right, relation, realias);
 		return new;
 	case RETURN_EXPR:
-		new->data.ret = deep_copy_expr_type_replace(walk, source->data.ret, relation);
+		new->data.ret = deep_copy_expr_type_replace_worker(walk, source->data.ret, relation, realias);
 		return new;
 	case SIZEOF_EXPR:
 		new->data.size_type = deep_copy_type_replace(walk->parse->mem, relation, source->data.size_type);
 		return new;
 	case REF_EXPR:
-		new->data.ref = deep_copy_expr_type_replace(walk, source->data.ref, relation);
+		new->data.ref = deep_copy_expr_type_replace_worker(walk, source->data.ref, relation, realias);
 		return new;
 	case DEREF_EXPR:
-		new->data.deref = deep_copy_expr_type_replace(walk, source->data.deref, relation);
+		new->data.deref = deep_copy_expr_type_replace_worker(walk, source->data.deref, relation, realias);
 		return new;
 	case IF_EXPR:
-		new->data.if_statement.pred = deep_copy_expr_type_replace(walk, source->data.if_statement.pred, relation);
-		new->data.if_statement.cons = deep_copy_expr_type_replace(walk, source->data.if_statement.cons, relation);
+		new->data.if_statement.pred = deep_copy_expr_type_replace_worker(walk, source->data.if_statement.pred, relation, realias);
+		new->data.if_statement.cons = deep_copy_expr_type_replace_worker(walk, source->data.if_statement.cons, relation, realias);
 		if (new->data.if_statement.alt != NULL){
-			new->data.if_statement.alt = deep_copy_expr_type_replace(walk, source->data.if_statement.alt, relation);
+			new->data.if_statement.alt = deep_copy_expr_type_replace_worker(walk, source->data.if_statement.alt, relation, realias);
 		}
 		return new;
 	case FOR_EXPR:
-		new->data.for_statement.initial= deep_copy_expr_type_replace(walk, source->data.for_statement.initial, relation);
-		new->data.for_statement.limit = deep_copy_expr_type_replace(walk, source->data.for_statement.limit, relation);
-		new->data.for_statement.cons = deep_copy_expr_type_replace(walk, source->data.for_statement.cons, relation);
+		token new_binding = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = walk->next_lambda
+		};
+		generate_new_lambda(walk);
+		token_map_insert(realias, new->data.for_statement.binding.data.name, new_binding);
+		new->data.for_statement.binding = new_binding;
+		new->data.for_statement.initial = deep_copy_expr_type_replace_worker(walk, source->data.for_statement.initial, relation, realias);
+		new->data.for_statement.limit = deep_copy_expr_type_replace_worker(walk, source->data.for_statement.limit, relation, realias);
+		new->data.for_statement.cons = deep_copy_expr_type_replace_worker(walk, source->data.for_statement.cons, relation, realias);
 		return new;
 	case WHILE_EXPR:
-		new->data.while_statement.pred = deep_copy_expr_type_replace(walk, source->data.while_statement.pred, relation);
-		new->data.while_statement.cons = deep_copy_expr_type_replace(walk, source->data.while_statement.cons, relation);
+		new->data.while_statement.pred = deep_copy_expr_type_replace_worker(walk, source->data.while_statement.pred, relation, realias);
+		new->data.while_statement.cons = deep_copy_expr_type_replace_worker(walk, source->data.while_statement.cons, relation, realias);
 		return new;
 	case MATCH_EXPR:
-		new->data.match.pred = deep_copy_expr_type_replace(walk, source->data.match.pred, relation);
+		new->data.match.patterns = pool_request(walk->parse->mem, sizeof(pattern_ast)*new->data.match.count);
+		for (uint64_t i = 0;i<new->data.match.count;++i){
+			new->data.match.patterns[i] = *deep_copy_pattern_replace(walk, &new->data.match.patterns[i], realias);
+		}
+		new->data.match.pred = deep_copy_expr_type_replace_worker(walk, source->data.match.pred, relation, realias);
 		new->data.match.cases = pool_request(walk->parse->mem, sizeof(expr_ast)*new->data.match.count);
 		for (uint64_t i = 0;i<new->data.match.count;++i){
-			new->data.match.cases[i] = *deep_copy_expr_type_replace(walk, &source->data.match.cases[i], relation);
+			new->data.match.cases[i] = *deep_copy_expr_type_replace_worker(walk, &source->data.match.cases[i], relation, realias);
 		}
 	case CAST_EXPR:
-		new->data.cast.source = deep_copy_expr_type_replace(walk, source->data.cast.source, relation);
+		new->data.cast.source = deep_copy_expr_type_replace_worker(walk, source->data.cast.source, relation, realias);
 		new->data.cast.target = deep_copy_type_replace(walk->parse->mem, relation, source->data.cast.target);
 		return new;
 	case BREAK_EXPR:
@@ -7075,15 +7127,125 @@ deep_copy_expr_type_replace(walker* const walk, expr_ast* source, clash_relation
 		return new;
 	case STRUCT_ACCESS_EXPR:
 	case ARRAY_ACCESS_EXPR:
-		new->data.access.left = deep_copy_expr_type_replace(walk, source->data.access.left, relation);
-		new->data.access.right= deep_copy_expr_type_replace(walk, source->data.access.right, relation);
+		new->data.access.left = deep_copy_expr_type_replace_worker(walk, source->data.access.left, relation, realias);
+		new->data.access.right = deep_copy_expr_type_replace_worker(walk, source->data.access.right, relation, realias);
 		return new;
 	case FAT_PTR_EXPR:
-		new->data.fat_ptr.left = deep_copy_expr_type_replace(walk, source->data.fat_ptr.left, relation);
-		new->data.fat_ptr.right = deep_copy_expr_type_replace(walk, source->data.fat_ptr.right, relation);
+		new->data.fat_ptr.left = deep_copy_expr_type_replace_worker(walk, source->data.fat_ptr.left, relation, realias);
+		new->data.fat_ptr.right = deep_copy_expr_type_replace_worker(walk, source->data.fat_ptr.right, relation, realias);
 		return new;
 	}
 	return new;
+}
+
+pattern_ast*
+deep_copy_pattern_replace(walker* const walk, pattern_ast* const pattern, token_map* const realias){
+	pattern_ast* new = pool_request(walk->parse->mem, sizeof(pattern_ast));
+	*new = *pattern;
+	switch (pattern->tag){
+	case NAMED_PATTERN:
+		token* alias = token_map_access(realias, pattern->data.named.name.data.name);
+		if (alias != NULL){
+			new->data.named.name = *alias;
+		}
+		new->data.named.inner = deep_copy_pattern_replace(walk, pattern->data.named.inner, realias);
+		return new;
+	case STRUCT_PATTERN:
+		new->data.structure.members = pool_request(walk->parse->mem, sizeof(pattern_ast)*new->data.structure.count);
+		for (uint64_t i = 0;i<new->data.structure.count;++i){
+			new->data.structure.members[i] = *deep_copy_pattern_replace(walk, &pattern->data.structure.members[i], realias);
+		}
+		return new;
+	case FAT_PTR_PATTERN:
+		new->data.fat_ptr.ptr = deep_copy_pattern_replace(walk, pattern->data.fat_ptr.ptr, realias);
+		new->data.fat_ptr.len = deep_copy_pattern_replace(walk, pattern->data.fat_ptr.len, realias);
+		return new;
+	case HOLE_PATTERN:
+		return new;
+	case BINDING_PATTERN:
+		token* balias = token_map_access(realias, pattern->data.binding.data.name);
+		if (balias != NULL){
+			new->data.binding = *balias;
+		}
+		return new;
+	case LITERAL_PATTERN:
+	case STRING_PATTERN:
+		return new;
+	case UNION_SELECTOR_PATTERN:
+		new->data.union_selector.nest = deep_copy_pattern_replace(walk, pattern->data.union_selector.nest, realias);
+		return new;
+	}
+	return new;
+}
+
+term_ast*
+is_tracked_generic(walker* const walk, token* const name){
+	for (uint64_t i = 0;i<walk->replacements->count;++i){
+		term_ast_map* replacements = &walk->replacements->map[i];
+		term_ast* replace = term_ast_map_access(replacements, name->data.name);
+		if (replace != NULL){
+			return replace;
+		}
+	}
+	return NULL;
+}
+
+type_ast*
+try_monomorph(walker* const walk, expr_ast* expr, type_ast* const left, type_ast* expected){
+	walk_assert(expected != NULL, nearest_token(expr), "Could not monomorph expression with unknown resultant type");
+	type_ast_map relation = type_ast_map_init(walk->parse->mem);
+	type_ast_map pointer_only = type_ast_map_init(walk->parse->mem);
+	uint64_t index = walk->outer_exprs->expr_count-1;
+	type_ast* focus = left;
+	if (focus->tag == DEPENDENCY_TYPE){
+		focus = focus->data.dependency.type;
+	}
+	type_ast* send = focus;
+	uint64_t send_index = index;
+	while (send->tag == FUNCTION_TYPE){
+		send = send->data.function.right;
+		if (send->tag == DEPENDENCY_TYPE){
+			send = send->data.dependency.type;
+		}
+		if (send_index == 0){
+			break;
+		}
+		send_index -= 1;
+	}
+	clash_types_worker(walk->parse, &relation, &pointer_only, send, expected);
+	while (focus->tag == FUNCTION_TYPE){
+		expr_ast* arg = walk->outer_exprs->exprs[index];
+		if (is_generic(walk, arg->type) == 1){
+			clash_relation clash = {
+				.relation = &relation,
+				.pointer_only = &pointer_only
+			};
+			type_ast* arg_type = deep_copy_type_replace(walk->parse->mem, &clash, arg->type);
+			*arg = *deep_copy_expr_type_replace(walk, expr, &clash);
+			type_ast* correct_type = walk_expr(walk, expr, arg_type, arg_type, 0);
+			walk_assert_prop();
+			walk_assert(correct_type != NULL, nearest_token(expr), "Could not monomorphize generic argument expression");
+		}
+		clash_types_worker(walk->parse, &relation, &pointer_only, focus->data.function.left, arg->type);
+		focus = focus->data.function.right;
+		if (focus->tag == DEPENDENCY_TYPE){
+			focus = focus->data.dependency.type;
+		}
+		if (index == 0){
+			break;
+		}
+		index -= 1;
+	}
+	clash_relation clash = {
+		.relation = &relation,
+		.pointer_only = &pointer_only
+	};
+	type_ast* new_expected = deep_copy_type_replace(walk->parse->mem, &clash, left);
+	*expr = *deep_copy_expr_type_replace(walk, expr, &clash);
+	type_ast* correct_type = walk_expr(walk, expr, new_expected, new_expected, 0);
+	walk_assert_prop();
+	walk_assert(correct_type != NULL, nearest_token(expr), "could not monomorphize generic expression");
+	return correct_type;
 }
 
 /*
@@ -7093,12 +7255,9 @@ deep_copy_expr_type_replace(walker* const walk, expr_ast* source, clash_relation
  *
  *		skip top levels, x
  *		skip nested, but gather as replacements x
- *		replace on find, deep copying the expression, synthesize type, replace types with relation, and and allow lift/walk to happen, using synthesized expected type without generics
- *			to synthesize:
- *				if its an arg, build the full type with a copy, and mutate tracked pointers to generics
- *				if func, use arg types
- *			combine deep copy with replacement for single pass algorithm, this means you need to synthesize the type first
- *		This should fully monomorphize, because only finished types are descended, meaning there will always be enough information for all generics to resolve
+ *		replace on find x, deep copying the expression x, synthesize type x, replace types with relation x, and and allow lift/walk to happen x, using synthesized expected type without generics x
+ *
+ *		realias lambda arg names
  *
  *		for T a = ... cases, descend like normal term with null expected type, if it cant synthesize, err
  *

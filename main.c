@@ -2737,7 +2737,8 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert(right != NULL, nearest_token(expr->data.appl.right), "Could not discern type");
 		if (expected_type != NULL){
 			push_expr(walk->outer_exprs, expr->data.appl.right);
-			type_ast* left_real = walk_expr(walk, expr->data.appl.left, NULL, outer_type, 0);
+			type_ast* expanded_type = mk_func(walk->parse->mem, right, expected_type);
+			type_ast* left_real = walk_expr(walk, expr->data.appl.left, expanded_type, outer_type, 0);
 			pop_expr(walk->outer_exprs, expr_count);
 			walk_assert_prop();
 			walk_assert(left_real != NULL, nearest_token(expr->data.appl.left), "Left type of application expression did not resolve to type");
@@ -2789,14 +2790,19 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			clash_relation relation = clash_types(walk->parse, left_real->data.function.left, right);
 			walk_assert(relation.relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application with known type did not match right side of application");
 			type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, &relation, left_real->data.function.right);
-			walk_assert(type_equal(walk->parse, expected_type, reduce_alias_and_type(walk->parse, generic_applied_type)), nearest_token(expr), "Applied generic type did not match expected type");
+			uint8_t applied_equal = type_equiv(walk->parse, reduce_alias_and_type(walk->parse, generic_applied_type), expected_type);
+			walk_assert(applied_equal == 1, nearest_token(expr), "Applied generic type did not match expected type");
 			walk_assert_prop();
 			//TODO monomorph
 			{
 				if (is_generic(walk, expr->data.appl.left->type) == 1){
 					type_ast* left_generic = deep_copy_type(walk, expr->data.appl.left->type);
-					try_monomorph(walk, expr->data.appl.left, left_generic, expected_type);
+					type_ast* real_type = try_monomorph(walk, expr->data.appl.left, expr->data.appl.right, left_generic, expected_type);
 					walk_assert_prop();
+					pop_binding(walk->local_scope, scope_pos);
+					token_stack_pop(walk->term_stack, token_pos);
+					expr->type = real_type;
+					return real_type;
 				}
 			}
 			pop_binding(walk->local_scope, scope_pos);
@@ -2868,8 +2874,12 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		{
 			if (is_generic(walk, expr->data.appl.left->type) == 1){
 				type_ast* left_generic = deep_copy_type(walk, expr->data.appl.left->type);
-				try_monomorph(walk, expr->data.appl.left, left_generic, expected_type);
+				type_ast* real_type = try_monomorph(walk, expr->data.appl.left, expr->data.appl.right, left_generic, expected_type);
 				walk_assert_prop();
+				pop_binding(walk->local_scope, scope_pos);
+				token_stack_pop(walk->term_stack, token_pos);
+				expr->type = real_type;
+				return real_type;
 			}
 		}
 		pop_binding(walk->local_scope, scope_pos);
@@ -3172,7 +3182,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			expr->type = actual;
 			return actual;
 		}
-		uint8_t bind_equal = type_equal(walk->parse, actual, expected_type);
+		uint8_t bind_equal = type_equiv(walk->parse, actual, expected_type);
 		walk_assert(bind_equal == 1, nearest_token(expr), "Binding was not the expected type");
 		pop_binding(walk->local_scope, scope_pos);
 		token_stack_pop(walk->term_stack, token_pos);
@@ -3897,7 +3907,13 @@ deep_copy_type_replace(pool* const mem, clash_relation* crelation, type_ast* con
 			}
 			return dest;
 		}
-		return replacement;
+		type_ast_map empty_relation = type_ast_map_init(mem);
+		type_ast_map empty_pointer = type_ast_map_init(mem);
+		clash_relation rel = {
+			.relation = &empty_relation,
+			.pointer_only = &empty_pointer
+		};
+		return deep_copy_type_replace(mem, &rel, replacement);
 	}
 	return NULL;
 }
@@ -4198,6 +4214,169 @@ clash_structure_worker(parser* const parse, type_ast_map* relation, type_ast_map
 		}
 		for (uint64_t i = 0;i<left->data.union_structure.count;++i){
 			if (clash_types_worker(parse, relation, pointer_only, &left->data.union_structure.members[i], &right->data.union_structure.members[i]) == 0){
+				return 0;
+			}
+		}
+		return 1;
+	case ENUM_STRUCT:
+		if (left->data.enumeration.count != right->data.enumeration.count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.enumeration.count;++i){
+			if (string_compare(&left->data.enumeration.names[i].data.name, &right->data.enumeration.names[i].data.name) != 0){
+				return 0;
+			}
+			if (left->data.enumeration.values[i] != right->data.enumeration.values[i]){
+				return 0;
+			}
+		}
+		return 1;
+	}
+	return 0;
+}
+
+//NOTE these next two function assume that type checking has already occured, and that everything lines up correctly
+uint8_t
+clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* pointer_only, type_ast* const left, type_ast* const right){
+	if (left->tag != right->tag){
+		if (left->tag == FAT_PTR_TYPE && right->tag == FUNCTION_TYPE){
+			if (left->data.fat_ptr.ptr->tag == NAMED_TYPE){
+				type_ast* existing_ptr = type_ast_map_access(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name);
+				if (existing_ptr != NULL){
+					if (is_generic(walk, existing_ptr) == 1){
+						type_ast_map_insert(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name, *right);
+					}
+					return 1;
+				}
+				typedef_ast** istypedef = typedef_ptr_map_access(walk->parse->types, left->data.fat_ptr.ptr->data.named.name.data.name);
+				alias_ast** isalias = alias_ptr_map_access(walk->parse->aliases, left->data.fat_ptr.ptr->data.named.name.data.name);
+				if (istypedef != NULL || isalias != NULL){
+					return 0;
+				}
+				type_ast_map_insert(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name, *right);
+				return 1;
+			}
+		}
+		if (left->tag != NAMED_TYPE){
+			return 0;
+		}
+		type_ast* confirm = type_ast_map_access(relation, left->data.named.name.data.name);
+		if (confirm != NULL){
+			if (is_generic(walk, confirm) == 1){
+				type_ast_map_insert(relation, left->data.named.name.data.name, *right);
+			}
+			clash_types_priority(walk, relation, pointer_only, right, confirm);
+			return 1;
+		}
+		type_ast_map_insert(relation, left->data.named.name.data.name, *right);
+		return 1;
+	}
+	switch (left->tag){
+	case DEPENDENCY_TYPE:
+		if (left->data.dependency.dependency_count != right->data.dependency.dependency_count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.dependency.dependency_count;++i){
+			if (string_compare(&left->data.dependency.typeclass_dependencies[i].data.name, &right->data.dependency.typeclass_dependencies[i].data.name) != 0){
+				return 0;
+			}
+			type_ast* synthetic = pool_request(walk->parse->mem, sizeof(type_ast));
+			synthetic->tag = NAMED_TYPE;
+			synthetic->data.named.name = right->data.dependency.dependency_typenames[i];
+			synthetic->data.named.args = NULL;
+			synthetic->data.named.arg_count = 0;
+			type_ast_map_insert(relation, left->data.dependency.dependency_typenames[i].data.name, *synthetic);
+		}
+		return clash_types_priority(walk, relation, pointer_only, left->data.dependency.type, right->data.dependency.type);
+	case FUNCTION_TYPE:
+		return clash_types_priority(walk, relation, pointer_only, left->data.function.left, right->data.function.left)
+		     & clash_types_priority(walk, relation, pointer_only, left->data.function.right, right->data.function.right);
+	case LIT_TYPE:
+		if (left->data.lit == INT_ANY || right->data.lit == INT_ANY){
+			return 1;
+		}
+		return left->data.lit == right->data.lit;
+		//TODO coersion? we'll experiment without for now, you can always explicit cast
+	case PTR_TYPE:
+		return clash_types_priority(walk, relation, pointer_only, left->data.ptr, right->data.ptr);
+	case FAT_PTR_TYPE:
+		return clash_types_priority(walk, relation, pointer_only, left->data.fat_ptr.ptr, right->data.fat_ptr.ptr);
+	case STRUCT_TYPE:
+		return clash_structure_priority(walk, relation, pointer_only, left->data.structure, right->data.structure);
+	case NAMED_TYPE:
+		type_ast* supposed_pointer = type_ast_map_access(pointer_only, left->data.named.name.data.name);
+		if (supposed_pointer != NULL){
+			return 0;
+		}
+		type_ast* confirm = type_ast_map_access(relation, left->data.named.name.data.name);
+		if (confirm != NULL){
+			if (is_generic(walk, confirm) == 1){
+				type_ast_map_insert(relation, left->data.named.name.data.name, *right);
+			}
+			clash_types_priority(walk, relation, pointer_only, right, confirm);
+		}
+		else{
+			typedef_ast** istypedef = typedef_ptr_map_access(walk->parse->types, left->data.named.name.data.name);
+			if (istypedef != NULL){
+				typedef_ast** isrighttypedef = typedef_ptr_map_access(walk->parse->types, right->data.named.name.data.name);
+				if (isrighttypedef == NULL){
+					return 0;
+				}
+				if ((*istypedef) != (*isrighttypedef)){
+					return 0;
+				}
+			}
+			else {
+				alias_ast** isalias = alias_ptr_map_access(walk->parse->aliases, left->data.named.name.data.name);
+				if (isalias != NULL){
+					alias_ast** isrightalias = alias_ptr_map_access(walk->parse->aliases, right->data.named.name.data.name);
+					if (isrightalias == NULL){
+						return 0;
+					}
+					if ((*isalias) != (*isrightalias)){
+						return 0;
+					}
+				}
+				else {
+					type_ast_map_insert(relation, left->data.named.name.data.name, *right);
+				}
+			}
+		}
+		if (left->data.named.arg_count != right->data.named.arg_count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.named.arg_count;++i){
+			if (clash_types_priority(walk, relation, pointer_only, &left->data.named.args[i], &right->data.named.args[i]) == 0){
+				return 0;
+			}
+		}
+		return 1;
+	}
+	return 0;
+}
+
+uint8_t
+clash_structure_priority(walker* const walk, type_ast_map* relation, type_ast_map* pointer_only, structure_ast* const left, structure_ast* const right){
+	if (left->tag != right->tag){
+		return 0;
+	}
+	switch (left->tag){
+	case STRUCT_STRUCT:
+		if (left->data.structure.count != right->data.structure.count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.structure.count;++i){
+			if (clash_types_priority(walk, relation, pointer_only, &left->data.structure.members[i], &right->data.structure.members[i]) == 0){
+				return 0;
+			}
+		}
+		return 1;
+	case UNION_STRUCT:
+		if (left->data.union_structure.count != right->data.union_structure.count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.union_structure.count;++i){
+			if (clash_types_priority(walk, relation, pointer_only, &left->data.union_structure.members[i], &right->data.union_structure.members[i]) == 0){
 				return 0;
 			}
 		}
@@ -7025,7 +7204,7 @@ deep_copy_expr_type_replace_worker(walker* const walk, expr_ast* source, clash_r
 	case LAMBDA_EXPR:
 		new->data.lambda.args = pool_request(walk->parse->mem, sizeof(pattern_ast)*new->data.lambda.arg_count);
 		for (uint64_t i = 0;i<new->data.lambda.arg_count;++i){
-			new->data.lambda.args[i] = *deep_copy_pattern_replace(walk, &new->data.lambda.args[i], realias);
+			new->data.lambda.args[i] = *deep_copy_pattern_replace(walk, &source->data.lambda.args[i], realias);
 		}
 		new->data.lambda.expression = deep_copy_expr_type_replace_worker(walk, source->data.lambda.expression, relation, realias);
 		if (new->data.lambda.alt != NULL){
@@ -7110,7 +7289,7 @@ deep_copy_expr_type_replace_worker(walker* const walk, expr_ast* source, clash_r
 	case MATCH_EXPR:
 		new->data.match.patterns = pool_request(walk->parse->mem, sizeof(pattern_ast)*new->data.match.count);
 		for (uint64_t i = 0;i<new->data.match.count;++i){
-			new->data.match.patterns[i] = *deep_copy_pattern_replace(walk, &new->data.match.patterns[i], realias);
+			new->data.match.patterns[i] = *deep_copy_pattern_replace(walk, &source->data.match.patterns[i], realias);
 		}
 		new->data.match.pred = deep_copy_expr_type_replace_worker(walk, source->data.match.pred, relation, realias);
 		new->data.match.cases = pool_request(walk->parse->mem, sizeof(expr_ast)*new->data.match.count);
@@ -7190,11 +7369,32 @@ is_tracked_generic(walker* const walk, token* const name){
 	return NULL;
 }
 
+//NOTE this function assumes all semantic stuff has been checked about the passed arguments, except for the monomorph target expression
 type_ast*
-try_monomorph(walker* const walk, expr_ast* expr, type_ast* const left, type_ast* expected){
-	walk_assert(expected != NULL, nearest_token(expr), "Could not monomorph expression with unknown resultant type");
+try_monomorph(walker* const walk, expr_ast* expr, expr_ast* const right, type_ast* const left, type_ast* expected){
 	type_ast_map relation = type_ast_map_init(walk->parse->mem);
 	type_ast_map pointer_only = type_ast_map_init(walk->parse->mem);
+	if (walk->outer_exprs->expr_count == 0){
+		if (expected != NULL){
+			clash_types_priority(walk, &relation, &pointer_only, left, expected);
+		}
+		clash_relation clash = {
+			.relation = &relation,
+			.pointer_only = &pointer_only
+		};
+		type_ast* new_expected = deep_copy_type_replace(walk->parse->mem, &clash, left);
+		uint8_t full = is_generic(walk, new_expected);
+		walk_assert(full == 0, nearest_token(expr), "Unable to monomorphize single expression, not enough type information");
+		*expr = *deep_copy_expr_type_replace(walk, expr, &clash);
+		expr->type = NULL;
+		type_ast* correct_type = walk_expr(walk, expr, new_expected, new_expected, 0);
+		walk_assert_prop();
+		walk_assert(correct_type != NULL, nearest_token(expr), "could not monomorphize generic expression");
+		if (new_expected->tag == FUNCTION_TYPE){
+			return new_expected->data.function.right;
+		}
+		return new_expected;
+	}
 	uint64_t index = walk->outer_exprs->expr_count-1;
 	type_ast* focus = left;
 	if (focus->tag == DEPENDENCY_TYPE){
@@ -7212,21 +7412,46 @@ try_monomorph(walker* const walk, expr_ast* expr, type_ast* const left, type_ast
 		}
 		send_index -= 1;
 	}
-	clash_types_worker(walk->parse, &relation, &pointer_only, send, expected);
+	if (expected != NULL){
+		clash_types_priority(walk, &relation, &pointer_only, send, expected);
+	}
+	clash_types_priority(walk, &relation, &pointer_only, focus->data.function.left, right->type);
+	if (is_generic(walk, right->type) == 1){
+		clash_relation clash = {
+			.relation = &relation,
+			.pointer_only = &pointer_only
+		};
+		type_ast* arg_type = deep_copy_type_replace(walk->parse->mem, &clash, right->type);
+		uint8_t first_full = is_generic(walk, arg_type);
+		walk_assert(first_full == 0, nearest_token(expr), "Unable to monomorphize first argument, not enough type information");
+		*right = *deep_copy_expr_type_replace(walk, right, &clash);
+		right->type = NULL;
+		type_ast* correct_type = walk_expr(walk, right, arg_type, arg_type, 0);
+		walk_assert_prop();
+		walk_assert(correct_type != NULL, nearest_token(expr), "Could not monomorphize first generic argument expression");
+		if (focus->tag == FUNCTION_TYPE){
+			focus = focus->data.function.right;
+			if (focus->tag == DEPENDENCY_TYPE){
+				focus = focus->data.dependency.type;
+			}
+		}
+	}	
 	while (focus->tag == FUNCTION_TYPE){
 		expr_ast* arg = walk->outer_exprs->exprs[index];
+		clash_types_priority(walk, &relation, &pointer_only, focus->data.function.left, arg->type);
 		if (is_generic(walk, arg->type) == 1){
 			clash_relation clash = {
 				.relation = &relation,
 				.pointer_only = &pointer_only
 			};
 			type_ast* arg_type = deep_copy_type_replace(walk->parse->mem, &clash, arg->type);
-			*arg = *deep_copy_expr_type_replace(walk, expr, &clash);
-			type_ast* correct_type = walk_expr(walk, expr, arg_type, arg_type, 0);
+			walk_assert(is_generic(walk, arg_type) == 0, nearest_token(expr), "Unable to monomorphize argument, not enough type information");
+			*arg = *deep_copy_expr_type_replace(walk, walk->outer_exprs->exprs[index], &clash);
+			arg->type = NULL;
+			type_ast* correct_type = walk_expr(walk, arg, arg_type, arg_type, 0);
 			walk_assert_prop();
 			walk_assert(correct_type != NULL, nearest_token(expr), "Could not monomorphize generic argument expression");
 		}
-		clash_types_worker(walk->parse, &relation, &pointer_only, focus->data.function.left, arg->type);
 		focus = focus->data.function.right;
 		if (focus->tag == DEPENDENCY_TYPE){
 			focus = focus->data.dependency.type;
@@ -7241,23 +7466,44 @@ try_monomorph(walker* const walk, expr_ast* expr, type_ast* const left, type_ast
 		.pointer_only = &pointer_only
 	};
 	type_ast* new_expected = deep_copy_type_replace(walk->parse->mem, &clash, left);
+	if (is_generic(walk, new_expected) == 1){
+		walk_assert(index > 0, nearest_token(expr), "Unable to monomorphize application, not enough type information");
+		type_ast* crawl = new_expected;
+		while (index > 0){
+			expr_ast* arg = walk->outer_exprs->exprs[index];
+			clash_types_priority(walk, &relation, &pointer_only, crawl->data.function.left, arg->type);
+			crawl = crawl->data.function.right;
+			if (crawl->tag == DEPENDENCY_TYPE){
+				crawl = crawl->data.dependency.type;
+			}
+			index -= 1;
+		}
+		new_expected = deep_copy_type_replace(walk->parse->mem, &clash, left);
+	}
 	*expr = *deep_copy_expr_type_replace(walk, expr, &clash);
+	expr->type = NULL;
 	type_ast* correct_type = walk_expr(walk, expr, new_expected, new_expected, 0);
 	walk_assert_prop();
 	walk_assert(correct_type != NULL, nearest_token(expr), "could not monomorphize generic expression");
-	return correct_type;
+	if (new_expected->tag == FUNCTION_TYPE){
+		return new_expected->data.function.right;
+	}
+	return new_expected;
 }
 
 /*
  *	Monomorphization
  *	
+ *		types need to propogate properly
+ *
  *		make sure that on monomorph lifts, the top level binding is tracked and set somehow so that recursive calls are set correctly
+ *		make sure that you remember to make top level functions expand too
  *
  *		skip top levels, x
  *		skip nested, but gather as replacements x
  *		replace on find x, deep copying the expression x, synthesize type x, replace types with relation x, and and allow lift/walk to happen x, using synthesized expected type without generics x
  *
- *		realias lambda arg names
+ *		realias lambda arg names x
  *
  *		for T a = ... cases, descend like normal term with null expected type, if it cant synthesize, err
  *

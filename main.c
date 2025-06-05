@@ -2570,6 +2570,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 	uint64_t expr_count = walk->outer_exprs->expr_count;
 	structure_ast* inner;
 	type_ast* inner_struct;
+	type_ast* original = expected_type;
 	if (expected_type != NULL){
 		if (expr->tag != BINDING_EXPR){
 			expected_type = reduce_alias_and_type(walk->parse, expected_type);
@@ -2737,7 +2738,13 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert(right != NULL, nearest_token(expr->data.appl.right), "Could not discern type");
 		if (expected_type != NULL){
 			push_expr(walk->outer_exprs, expr->data.appl.right);
-			type_ast* expanded_type = mk_func(walk->parse->mem, right, expected_type);
+			type_ast* expanded_type;
+			if (right->tag == DEPENDENCY_TYPE){
+				expanded_type = mk_func(walk->parse->mem, right->data.dependency.type, original);
+			}
+			else{
+				expanded_type = mk_func(walk->parse->mem, right, original);
+			}
 			type_ast* left_real = walk_expr(walk, expr->data.appl.left, expanded_type, outer_type, 0);
 			pop_expr(walk->outer_exprs, expr_count);
 			walk_assert_prop();
@@ -2790,21 +2797,19 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			clash_relation relation = clash_types(walk->parse, left_real->data.function.left, right);
 			walk_assert(relation.relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application with known type did not match right side of application");
 			type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, &relation, left_real->data.function.right);
-			uint8_t applied_equal = type_equiv(walk->parse, reduce_alias_and_type(walk->parse, generic_applied_type), expected_type);
+			type_ast* reduced_generic = reduce_alias_and_type(walk->parse, generic_applied_type);
+			uint8_t applied_equal = type_equiv(walk->parse, reduced_generic, expected_type);
 			walk_assert(applied_equal == 1, nearest_token(expr), "Applied generic type did not match expected type");
 			walk_assert_prop();
-			//TODO monomorph
-			{
-				if (is_generic(walk, expr->data.appl.left->type) == 1){
-					type_ast* left_generic = deep_copy_type(walk, expr->data.appl.left->type);
-					type_ast* expected_generic = deep_copy_type(walk, expanded_type);
-					type_ast* real_type = try_monomorph(walk, expr->data.appl.left, expr->data.appl.right, left_generic, expected_generic);
-					walk_assert_prop();
-					pop_binding(walk->local_scope, scope_pos);
-					token_stack_pop(walk->term_stack, token_pos);
-					expr->type = real_type;
-					return real_type;
-				}
+			if (is_generic(walk, expr->data.appl.left->type) == 1){
+				type_ast* left_generic = deep_copy_type(walk, expr->data.appl.left->type);
+				type_ast* expected_generic = deep_copy_type(walk, expanded_type);
+				type_ast* real_type = try_monomorph(walk, expr->data.appl.left, expr->data.appl.right, left_generic, expected_generic);
+				walk_assert_prop();
+				pop_binding(walk->local_scope, scope_pos);
+				token_stack_pop(walk->term_stack, token_pos);
+				expr->type = real_type;
+				return real_type;
 			}
 			pop_binding(walk->local_scope, scope_pos);
 			token_stack_pop(walk->term_stack, token_pos);
@@ -2871,17 +2876,14 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			outer_depends->data.dependency.type = left->data.function.right;
 			generic_applied_type = deep_copy_type_replace(walk->parse->mem, &relation, outer_depends);
 		}
-		//TODO monomorph
-		{
-			if (is_generic(walk, expr->data.appl.left->type) == 1){
-				type_ast* left_generic = deep_copy_type(walk, expr->data.appl.left->type);
-				type_ast* real_type = try_monomorph(walk, expr->data.appl.left, expr->data.appl.right, left_generic, NULL);
-				walk_assert_prop();
-				pop_binding(walk->local_scope, scope_pos);
-				token_stack_pop(walk->term_stack, token_pos);
-				expr->type = real_type;
-				return real_type;
-			}
+		if (is_generic(walk, expr->data.appl.left->type) == 1){
+			type_ast* left_generic = deep_copy_type(walk, expr->data.appl.left->type);
+			type_ast* real_type = try_monomorph(walk, expr->data.appl.left, expr->data.appl.right, left_generic, NULL);
+			walk_assert_prop();
+			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
+			expr->type = real_type;
+			return real_type;
 		}
 		pop_binding(walk->local_scope, scope_pos);
 		token_stack_pop(walk->term_stack, token_pos);
@@ -3167,7 +3169,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		expr->type = enum_type;
 		return enum_type;
 	case BINDING_EXPR:
-		term_ast* is_generic = is_tracked_generic(walk, &expr->data.binding);
+		term_ast* is_generic = is_tracked_generic(walk, &expr->data.binding, expected_type);
 		if (is_generic != NULL){
 			*expr = *is_generic->expression;
 			pop_binding(walk->local_scope, scope_pos);
@@ -5251,6 +5253,20 @@ type_equiv_worker(parser* const parse, token_map* const generics, type_ast_map* 
 		if (right->tag == NAMED_TYPE){
 			token* isgeneric = token_map_access(generics, left->data.named.name.data.name);
 			if (isgeneric != NULL){
+				typedef_ast** isrighttypedef = typedef_ptr_map_access(parse->types, right->data.named.name.data.name);
+				alias_ast** isrightalias = alias_ptr_map_access(parse->aliases, right->data.named.name.data.name);
+				if (isrighttypedef != NULL || isrightalias != NULL){
+					type_ast* exists = type_ast_map_access(relation, left->data.named.name.data.name);
+					if (exists == NULL){
+						type_ast_map_insert(relation, left->data.named.name.data.name, *right);
+					}
+					else{
+						if (type_equal(parse, exists, right) == 0){
+							return 0;
+						}
+					}
+					return 1;
+				}
 				if (string_compare(&isgeneric->data.name, &right->data.named.name.data.name) != 0){
 					return 0;
 				}
@@ -7367,20 +7383,62 @@ deep_copy_pattern_replace(walker* const walk, pattern_ast* const pattern, token_
 }
 
 term_ast*
-is_tracked_generic(walker* const walk, token* const name){
+is_tracked_generic(walker* const walk, token* const name, type_ast* const expected_type){
 	for (uint64_t i = 0;i<walk->replacements->count;++i){
 		term_ast_map* replacements = &walk->replacements->map[i];
 		term_ast* replace = term_ast_map_access(replacements, name->data.name);
 		if (replace != NULL){
 			if (replace->expression->tag == BINDING_EXPR){
-				return is_tracked_generic(walk, &replace->expression->data.binding);
+				return is_tracked_generic(walk, &replace->expression->data.binding, expected_type);
 			}
 			return replace;
 		}
 	}
 	term_ast** term = term_ptr_map_access(walk->parse->terms, name->data.name);
 	if (term != NULL){
-		return *term;
+		if (is_generic(walk, (*term)->type) == 1){
+			return *term;
+		}
+	}
+	term_ptr_buffer* poly_funcs = term_ptr_buffer_map_access(walk->parse->implemented_terms, name->data.name);
+	if (poly_funcs != NULL){
+		for (uint64_t i = 0;i<poly_funcs->count;++i){
+			term_ast* term = poly_funcs->buffer[i];
+			type_ast* type = term->type;
+			if (expected_type == NULL){
+				uint64_t index = walk->outer_exprs->expr_count-1;
+				uint8_t broke = 0;
+				while (type->tag == FUNCTION_TYPE){
+					expr_ast* arg = walk->outer_exprs->exprs[index];
+					type_ast* candidate = walk_expr(walk, arg, NULL, NULL, 0);
+					if (candidate == NULL){
+						broke = 1;
+						break;
+					}
+					if (type_equal(walk->parse, candidate, type->data.function.left) == 0){
+						broke = 1;
+						break;
+					}
+					type = type->data.function.right;
+					if (index == 0){
+						break;
+					}
+					index -= 1;
+				}
+				if (broke == 0){
+					if (is_generic(walk, term->type) == 1){
+						return term;
+					}
+				}
+			}
+			else{
+				if (type_equal(walk->parse, expected_type, type) == 1){
+					if (is_generic(walk, term->type) == 1){
+						return term;
+					}
+				}
+			}
+		}
 	}
 	return NULL;
 }
@@ -7389,6 +7447,9 @@ is_tracked_generic(walker* const walk, token* const name){
 //NOTE left and expected are already deep copies
 type_ast*
 try_monomorph(walker* const walk, expr_ast* expr, expr_ast* const right, type_ast* left, type_ast* expected){
+	if (left->tag == DEPENDENCY_TYPE){
+		left = left->data.dependency.type;
+	}
 	type_ast_map relation = type_ast_map_init(walk->parse->temp_mem);
 	type_ast_map pointer_only = type_ast_map_init(walk->parse->temp_mem);
 	if (expected == NULL){

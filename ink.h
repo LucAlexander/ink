@@ -699,7 +699,7 @@ uint8_t is_generic_struct(walker* const walk, structure_ast* const s);
 expr_ast* deep_copy_expr_type_replace(walker* const walk, expr_ast* source, clash_relation* const relation);
 expr_ast* deep_copy_expr_type_replace_worker(walker* const walk, expr_ast* source, clash_relation* const relation, token_map* const realias);
 pattern_ast* deep_copy_pattern_replace(walker* const walk, pattern_ast* const pattern, token_map* const realias);
-term_ast* is_tracked_generic(walker* const walk, token* const name);
+term_ast* is_tracked_generic(walker* const walk, token* const name, type_ast* const expected_type);
 type_ast* try_monomorph(walker* const walk, expr_ast* expr, expr_ast* const right, type_ast* const left, type_ast* expected);
 void clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* pointer_only, type_ast* const left, type_ast* const right);
 void clash_structure_priority(walker* const walk, type_ast_map* relation, type_ast_map* pointer_only, structure_ast* const left, structure_ast* const right);

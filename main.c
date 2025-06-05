@@ -2744,7 +2744,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			walk_assert(left_real != NULL, nearest_token(expr->data.appl.left), "Left type of application expression did not resolve to type");
 			walk_assert(left_real->tag == FUNCTION_TYPE || (left_real->tag == DEPENDENCY_TYPE && left_real->data.dependency.type->tag == FUNCTION_TYPE), nearest_token(expr->data.appl.left), "Left side of application expression was not a function");
 			left_real = deep_copy_type(walk, left_real);
-			right = deep_copy_type(walk, right);
+			right = deep_copy_type(walk, expr->data.appl.right->type);
 			type_ast* left_outer = NULL;
 			if (left_real->tag == DEPENDENCY_TYPE){
 				left_outer = left_real;
@@ -2818,7 +2818,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert(left != NULL, nearest_token(expr->data.appl.left), "Unable to infer type of left of application");
 		walk_assert(left->tag == FUNCTION_TYPE || (left->tag == DEPENDENCY_TYPE && left->data.dependency.type->tag == FUNCTION_TYPE), nearest_token(expr->data.appl.left), "Left of application type needs to be function");
 		left = deep_copy_type(walk, left);
-		right = deep_copy_type(walk, right);
+		right = deep_copy_type(walk, expr->data.appl.right->type);
 		type_ast* left_outer = NULL;
 		if (left->tag == DEPENDENCY_TYPE){
 			left_outer = left;
@@ -2874,10 +2874,8 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		//TODO monomorph
 		{
 			if (is_generic(walk, expr->data.appl.left->type) == 1){
-				walk_assert(0, nearest_token(expr), "Tried to monomorph with no type information");
 				type_ast* left_generic = deep_copy_type(walk, expr->data.appl.left->type);
-				type_ast* expected_generic = deep_copy_type(walk, expected_type);
-				type_ast* real_type = try_monomorph(walk, expr->data.appl.left, expr->data.appl.right, left_generic, expected_generic);
+				type_ast* real_type = try_monomorph(walk, expr->data.appl.left, expr->data.appl.right, left_generic, NULL);
 				walk_assert_prop();
 				pop_binding(walk->local_scope, scope_pos);
 				token_stack_pop(walk->term_stack, token_pos);
@@ -7320,6 +7318,15 @@ deep_copy_pattern_replace(walker* const walk, pattern_ast* const pattern, token_
 		if (alias != NULL){
 			new->data.named.name = *alias;
 		}
+		token newname = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = walk->next_lambda
+		};
+		generate_new_lambda(walk);
+		token_map_insert(realias, pattern->data.named.name.data.name, newname);
+		new->data.named.name = newname;
 		new->data.named.inner = deep_copy_pattern_replace(walk, pattern->data.named.inner, realias);
 		return new;
 	case STRUCT_PATTERN:
@@ -7339,6 +7346,15 @@ deep_copy_pattern_replace(walker* const walk, pattern_ast* const pattern, token_
 		if (balias != NULL){
 			new->data.binding = *balias;
 		}
+		token newbinding = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = walk->next_lambda
+		};
+		generate_new_lambda(walk);
+		token_map_insert(realias, pattern->data.binding.data.name, newbinding);
+		new->data.binding = newbinding;
 		return new;
 	case LITERAL_PATTERN:
 	case STRING_PATTERN:
@@ -7356,8 +7372,15 @@ is_tracked_generic(walker* const walk, token* const name){
 		term_ast_map* replacements = &walk->replacements->map[i];
 		term_ast* replace = term_ast_map_access(replacements, name->data.name);
 		if (replace != NULL){
+			if (replace->expression->tag == BINDING_EXPR){
+				return is_tracked_generic(walk, &replace->expression->data.binding);
+			}
 			return replace;
 		}
+	}
+	term_ast** term = term_ptr_map_access(walk->parse->terms, name->data.name);
+	if (term != NULL){
+		return *term;
 	}
 	return NULL;
 }
@@ -7368,6 +7391,44 @@ type_ast*
 try_monomorph(walker* const walk, expr_ast* expr, expr_ast* const right, type_ast* left, type_ast* expected){
 	type_ast_map relation = type_ast_map_init(walk->parse->temp_mem);
 	type_ast_map pointer_only = type_ast_map_init(walk->parse->temp_mem);
+	if (expected == NULL){
+		uint64_t index = walk->outer_exprs->expr_count;
+		type_ast* focus = left;
+		if (focus->tag == DEPENDENCY_TYPE){
+			focus = focus->data.dependency.type;
+		}
+		expected = mk_func(walk->parse->mem, NULL, NULL);
+		type_ast* exp_focus = expected;
+		{
+			expr_ast* arg = right;
+			exp_focus->data.function.left = arg->type;
+			exp_focus->data.function.right = mk_func(walk->parse->mem, NULL, NULL);
+			exp_focus = exp_focus->data.function.right;
+			focus = focus->data.function.right;
+			if (focus->tag == DEPENDENCY_TYPE){
+				focus = focus->data.dependency.type;
+			}
+		}
+		if (index != 0){
+			while (focus->tag == FUNCTION_TYPE){
+				type_ast_map_clear(&relation);
+				type_ast_map_clear(&pointer_only);
+				expr_ast* arg = walk->outer_exprs->exprs[index-1];
+				exp_focus->data.function.left = arg->type;
+				exp_focus->data.function.right = mk_func(walk->parse->mem, NULL, NULL);
+				exp_focus = exp_focus->data.function.right;
+				focus = focus->data.function.right;
+				if (focus->tag == DEPENDENCY_TYPE){
+					focus = focus->data.dependency.type;
+				}
+				if (index-1 == 0){
+					break;
+				}
+				index -= 1;
+			}
+		}
+		*exp_focus = *focus;
+	}
 	clash_relation clash = {
 		.relation = &relation,
 		.pointer_only = &pointer_only
@@ -7387,14 +7448,18 @@ try_monomorph(walker* const walk, expr_ast* expr, expr_ast* const right, type_as
 		expected = deep_copy_type_replace(walk->parse->mem, &clash, expected);
 	}
 	walk_assert(is_generic(walk, left) == 0, nearest_token(expr), "Not enough type information to monmorphize expression");
-	uint64_t index = walk->outer_exprs->expr_count-1;
+	uint64_t index = walk->outer_exprs->expr_count;
 	type_ast* focus = left;
 	if (focus->tag == DEPENDENCY_TYPE){
 		focus = focus->data.dependency.type;
 	}
-	while (focus->tag == FUNCTION_TYPE){
-		expr_ast* arg = walk->outer_exprs->exprs[index];
+	{
+		expr_ast* arg = right;
 		if (is_generic(walk, arg->type)){
+			type_ast_map_clear(&relation);
+			type_ast_map_clear(&pointer_only);
+			clash_types_priority(walk, &relation, &pointer_only, arg->type, focus->data.function.left);
+			*arg = *deep_copy_expr_type_replace(walk, arg, &clash);
 			arg->type = NULL;
 			type_ast* correct_type = walk_expr(walk, arg, focus->data.function.left, focus->data.function.left, 0);
 			walk_assert_prop();
@@ -7404,11 +7469,34 @@ try_monomorph(walker* const walk, expr_ast* expr, expr_ast* const right, type_as
 		if (focus->tag == DEPENDENCY_TYPE){
 			focus = focus->data.dependency.type;
 		}
-		if (index == 0){
-			break;
-		}
-		index -= 1;
 	}
+	if (index != 0){
+		while (focus->tag == FUNCTION_TYPE){
+			expr_ast* arg = walk->outer_exprs->exprs[index-1];
+			if (is_generic(walk, arg->type)){
+				type_ast_map_clear(&relation);
+				type_ast_map_clear(&pointer_only);
+				clash_types_priority(walk, &relation, &pointer_only, arg->type, focus->data.function.left);
+				*arg = *deep_copy_expr_type_replace(walk, arg, &clash);
+				arg->type = NULL;
+				type_ast* correct_type = walk_expr(walk, arg, focus->data.function.left, focus->data.function.left, 0);
+				walk_assert_prop();
+				walk_assert(correct_type != NULL, nearest_token(expr), "Could not monomorphize generic argument expression");
+			}
+			focus = focus->data.function.right;
+			if (focus->tag == DEPENDENCY_TYPE){
+				focus = focus->data.dependency.type;
+			}
+			if (index-1 == 0){
+				break;
+			}
+			index -= 1;
+		}
+	}
+	type_ast_map_clear(&relation);
+	type_ast_map_clear(&pointer_only);
+	clash_types_priority(walk, &relation, &pointer_only, expr->type, left);
+	*expr = *deep_copy_expr_type_replace(walk, expr, &clash);
 	expr->type = NULL;
 	type_ast* correct_type = walk_expr(walk, expr, left, left, 0);
 	walk_assert_prop();

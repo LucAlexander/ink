@@ -382,6 +382,7 @@ typedef const_ast* const_ptr;
 typedef typeclass_ast* typeclass_ptr;
 typedef implementation_ast* implementation_ptr;
 typedef term_ast* term_ptr;
+typedef expr_ast* expr_ptr;
 
 MAP_DECL(typedef_ptr);
 MAP_DECL(alias_ptr);
@@ -394,6 +395,7 @@ MAP_DECL(type_ast);
 MAP_DECL(uint64_t);
 MAP_DECL(token);
 MAP_DECL(term_ast);
+MAP_DECL(expr_ptr);
 
 #define GROWABLE_BUFFER_DECL(type)\
 	typedef struct type##_buffer {\
@@ -553,6 +555,7 @@ typedef struct walker {
 	token_stack* term_stack;
 	token_map* wrappers;
 	term_map_stack* replacements;
+	expr_ptr_map* memoized_monomorphs;
 } walker;
 
 uint64_t push_binding(walker* const walk, scope* const s, token* const t, type_ast* const type);
@@ -703,5 +706,6 @@ term_ast* is_tracked_generic(walker* const walk, token* const name, type_ast* co
 type_ast* try_monomorph(walker* const walk, expr_ast* expr, expr_ast* const right, type_ast* const left, type_ast* expected);
 void clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* pointer_only, type_ast* const left, type_ast* const right);
 void clash_structure_priority(walker* const walk, type_ast_map* relation, type_ast_map* pointer_only, structure_ast* const left, structure_ast* const right);
+type_ast* monomorph(walker* const walk, expr_ast* const expr, type_ast_map* const relation, type_ast_map* const pointer_only, type_ast* newtype);
 
 #endif

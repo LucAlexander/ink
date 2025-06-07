@@ -18,6 +18,7 @@ MAP_IMPL(type_ast);
 MAP_IMPL(uint64_t);
 MAP_IMPL(token);
 MAP_IMPL(term_ast);
+MAP_IMPL(expr_ptr);
 
 GROWABLE_BUFFER_IMPL(typedef_ast);
 GROWABLE_BUFFER_IMPL(alias_ast);
@@ -3018,6 +3019,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 	case TERM_EXPR:
 		if (is_generic(walk, expr->data.term->type) == 1){
 			term_map_stack_push_relation(walk->replacements, expr->data.term->name.data.name, expr->data.term);
+			push_binding(walk, walk->local_scope, &expr->data.term->name, expr->data.term->type);
 			return expected_type;
 		}
 		type_ast* term_type = walk_term(walk, expr->data.term, expected_type, 0);
@@ -3169,14 +3171,14 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		expr->type = enum_type;
 		return enum_type;
 	case BINDING_EXPR:
-		term_ast* is_generic = is_tracked_generic(walk, &expr->data.binding, expected_type);
-		if (is_generic != NULL){
-			*expr = *is_generic->expression;
-			pop_binding(walk->local_scope, scope_pos);
-			token_stack_pop(walk->term_stack, token_pos);
-			expr->type = is_generic->type;
-			return is_generic->type;
-		}
+		//term_ast* is_generic = is_tracked_generic(walk, &expr->data.binding, expected_type);
+		//if (is_generic != NULL){
+			//*expr = *is_generic->expression;
+			//pop_binding(walk->local_scope, scope_pos);
+			//token_stack_pop(walk->term_stack, token_pos);
+			//expr->type = is_generic->type;
+			//return is_generic->type;
+		//}
 		type_ast* actual = in_scope(walk, &expr->data.binding, expected_type);
 		walk_assert(actual != NULL, nearest_token(expr), "Binding not found in scope");
 		if (expected_type == NULL){
@@ -4433,6 +4435,7 @@ check_program(parser* const parse){
 	for (uint64_t i = 0;i<replacements.capacity;++i){
 		replacements.map[i] = term_ast_map_init(parse->mem);
 	}
+	expr_ptr_map mem_morphs = expr_ptr_map_init(parse->mem);
 	walker walk = {
 		.parse = parse,
 		.local_scope = &local_scope,
@@ -4441,7 +4444,8 @@ check_program(parser* const parse){
 		.next_lambda = string_init(parse->mem, "#A"),
 		.term_stack = &term_stack,
 		.wrappers = &wrappers,
-		.replacements = &replacements
+		.replacements = &replacements,
+		.memoized_monomorphs = &mem_morphs
 	};
 	realias_walker realias = {
 		.parse = parse,
@@ -5209,7 +5213,7 @@ scrape_deps(realias_walker* const walk, type_ast* const term_type){
 
 //NOTE left has generics, right has applied types
 uint8_t
-type_equiv(parser* const parse, type_ast* const left, type_ast* const right){
+type_equiv(parser* const parse, type_ast* left, type_ast* right){
 	type_ast_map relation = type_ast_map_init(parse->mem);
 	token_map generics = token_map_init(parse->mem);
 	return type_equiv_worker(parse, &generics, &relation, left, right);
@@ -5261,7 +5265,7 @@ type_equiv_worker(parser* const parse, token_map* const generics, type_ast_map* 
 						type_ast_map_insert(relation, left->data.named.name.data.name, *right);
 					}
 					else{
-						if (type_equal(parse, exists, right) == 0){
+						if (type_equiv(parse, exists, right) == 0){
 							return 0;
 						}
 					}
@@ -5281,7 +5285,7 @@ type_equiv_worker(parser* const parse, token_map* const generics, type_ast_map* 
 							type_ast_map_insert(relation, left->data.named.name.data.name, *right);
 						}
 						else{
-							if (type_equal(parse, exists, right) == 0){
+							if (type_equiv(parse, exists, right) == 0){
 								return 0;
 							}
 						}
@@ -5301,7 +5305,7 @@ type_equiv_worker(parser* const parse, token_map* const generics, type_ast_map* 
 								type_ast_map_insert(relation, left->data.named.name.data.name, *right);
 							}
 							else{
-								if (type_equal(parse, exists, right) == 0){
+								if (type_equiv(parse, exists, right) == 0){
 									return 0;
 								}
 							}
@@ -5336,7 +5340,7 @@ type_equiv_worker(parser* const parse, token_map* const generics, type_ast_map* 
 				type_ast_map_insert(relation, left->data.named.name.data.name, *right);
 			}
 			else{
-				if (type_equal(parse, exists, right) == 0){
+				if (type_equiv(parse, exists, right) == 0){
 					return 0;
 				}
 			}
@@ -7517,14 +7521,8 @@ try_monomorph(walker* const walk, expr_ast* expr, expr_ast* const right, type_as
 	{
 		expr_ast* arg = right;
 		if (is_generic(walk, arg->type)){
-			type_ast_map_clear(&relation);
-			type_ast_map_clear(&pointer_only);
-			clash_types_priority(walk, &relation, &pointer_only, arg->type, focus->data.function.left);
-			*arg = *deep_copy_expr_type_replace(walk, arg, &clash);
-			arg->type = NULL;
-			type_ast* correct_type = walk_expr(walk, arg, focus->data.function.left, focus->data.function.left, 0);
+			monomorph(walk, arg, &relation, &pointer_only, focus->data.function.left);
 			walk_assert_prop();
-			walk_assert(correct_type != NULL, nearest_token(expr), "Could not monomorphize generic argument expression");
 		}
 		focus = focus->data.function.right;
 		if (focus->tag == DEPENDENCY_TYPE){
@@ -7535,14 +7533,8 @@ try_monomorph(walker* const walk, expr_ast* expr, expr_ast* const right, type_as
 		while (focus->tag == FUNCTION_TYPE){
 			expr_ast* arg = walk->outer_exprs->exprs[index-1];
 			if (is_generic(walk, arg->type)){
-				type_ast_map_clear(&relation);
-				type_ast_map_clear(&pointer_only);
-				clash_types_priority(walk, &relation, &pointer_only, arg->type, focus->data.function.left);
-				*arg = *deep_copy_expr_type_replace(walk, arg, &clash);
-				arg->type = NULL;
-				type_ast* correct_type = walk_expr(walk, arg, focus->data.function.left, focus->data.function.left, 0);
+				monomorph(walk, arg, &relation, &pointer_only, focus->data.function.left);
 				walk_assert_prop();
-				walk_assert(correct_type != NULL, nearest_token(expr), "Could not monomorphize generic argument expression");
 			}
 			focus = focus->data.function.right;
 			if (focus->tag == DEPENDENCY_TYPE){
@@ -7554,32 +7546,42 @@ try_monomorph(walker* const walk, expr_ast* expr, expr_ast* const right, type_as
 			index -= 1;
 		}
 	}
-	type_ast_map_clear(&relation);
-	type_ast_map_clear(&pointer_only);
-	clash_types_priority(walk, &relation, &pointer_only, expr->type, left);
-	*expr = *deep_copy_expr_type_replace(walk, expr, &clash);
-	expr->type = NULL;
-	type_ast* correct_type = walk_expr(walk, expr, left, left, 0);
-	walk_assert_prop();
-	walk_assert(correct_type != NULL, nearest_token(expr), "could not monomorphize generic expression");
+	monomorph(walk, expr, &relation, &pointer_only, left);
 	if (left->tag == FUNCTION_TYPE){
 		return left->data.function.right;
 	}
 	return left;
 }
 
+type_ast*
+monomorph(walker* const walk, expr_ast* const expr, type_ast_map* const relation, type_ast_map* const pointer_only, type_ast* left){
+	if (expr->tag == BINDING_EXPR){
+		term_ast* is_generic = is_tracked_generic(walk, &expr->data.binding, left);
+		if (is_generic != NULL){
+			*expr = *is_generic->expression;
+			expr->type = is_generic->type;
+		}
+	}
+	clash_relation clash = {
+		.relation = relation,
+		.pointer_only = pointer_only
+	};
+	type_ast_map_clear(relation);
+	type_ast_map_clear(pointer_only);
+	clash_types_priority(walk, relation, pointer_only, expr->type, left);
+	*expr = *deep_copy_expr_type_replace(walk, expr, &clash);
+	expr->type = NULL;
+	type_ast* correct_type = walk_expr(walk, expr, left, left, 0);
+	walk_assert_prop();
+	walk_assert(correct_type != NULL, nearest_token(expr), "could not monomorphize generic expression");
+	return correct_type;
+}
+
 /*
  *	Monomorphization
- *	
- *		make sure that on monomorph lifts, the top level binding is tracked and set somehow so that recursive calls are set correctly
- *		make sure that you remember to make top level functions expand too
  *
- *		skip top levels, x
- *		skip nested, but gather as replacements x
- *		replace on find x, deep copying the expression x, synthesize type x, replace types with relation x, and and allow lift/walk to happen x, using synthesized expected type without generics x
- *
- *		realias lambda arg names x
- *
+ *		type_equiv doesnt work
+ *		recursive monomorphs cause infinite nesting, were moving the generic binding expansion to the monomorph function, so that we have all the term information there to use to replace recursive calls to the function we are monomorphing, for that we have to get back to broken recursive case, which means we need to fix type_equiv, which is a hard problem
  *		for T a = ... cases, descend like normal term with null expected type, if it cant synthesize, err
  *
  * mk_closure_ptr still uses u8^ rather than [u8], see what it effects and correct

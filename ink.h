@@ -683,6 +683,7 @@ expr_ast* mk_ref(pool* const mem, expr_ast* const inner);
 expr_ast* mk_cast(pool* const mem, expr_ast* const source, type_ast* const target);
 expr_ast* mk_binding(pool* const mem, token* const tok);
 expr_ast* mk_term(pool* const mem, type_ast* const type, token* const name, expr_ast* const expr);
+expr_ast* mk_mutation(pool* const mem, expr_ast* const left, expr_ast* const right);
 expr_ast* mk_return(pool* const mem, expr_ast* const ret);
 expr_ast* mk_sizeof(pool* const mem, type_ast* const type);
 expr_ast* mk_fptr_cons(pool* const mem, expr_ast* left, expr_ast* right);
@@ -707,5 +708,7 @@ type_ast* try_monomorph(walker* const walk, expr_ast* expr, expr_ast* const righ
 void clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* pointer_only, type_ast* const left, type_ast* const right);
 void clash_structure_priority(walker* const walk, type_ast_map* relation, type_ast_map* pointer_only, structure_ast* const left, structure_ast* const right);
 type_ast* monomorph(walker* const walk, expr_ast* const expr, type_ast_map* const relation, type_ast_map* const pointer_only, type_ast* newtype);
+
+void replace_return_with_setter(walker* const walk, expr_ast* const expr, token setter);
 
 #endif

@@ -5979,11 +5979,23 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			expr->data.block.lines = lines;
 			return expr;
 		}
-		//TODO this is a u8 x = {} or g {} b case,
-		//turns into expr->type A; { ... A = (unwrapped from return)};, A // thats for all returns in the block too..... nested in blocks and statements, we also have to ensure the block is escaped from on return and doesnt continue computation
-		return expr;
+		token setter_name = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = walk->next_lambda
+		};
+		generate_new_lambda(walk);
+		expr_ast* outer_setter = mk_term(walk->parse->mem, expr->type, &setter_name, NULL);
+		line_relay_append(newlines, outer_setter);
+		replace_return_with_setter(walk, expr, setter_name);
+		expr_ast* walked = transform_expr(walk, expr, 0, NULL);
+		line_relay_append(newlines, walked);
+		expr_ast* setter_binding = mk_binding(walk->parse->mem, &setter_name);
+		return setter_binding;
 	case FAT_PTR_EXPR:
-		//TODO
+		expr->data.fat_ptr.left = transform_expr(walk, expr->data.fat_ptr.left, 0, newlines);
+		expr->data.fat_ptr.right = transform_expr(walk, expr->data.fat_ptr.right, 0, newlines);
 		return expr;
 	case LIT_EXPR:
 		return expr;
@@ -6089,6 +6101,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		}
 		return expr;
 	case MUTATION_EXPR:
+		expr->data.mutation.left = transform_expr(walk, expr->data.mutation.left, 0, newlines);
 		expr->data.mutation.right = transform_expr(walk, expr->data.mutation.right, 0, newlines);
 		return expr;
 	case RETURN_EXPR:
@@ -6683,6 +6696,16 @@ mk_term(pool* const mem, type_ast* const type, token* const name, expr_ast* cons
 	term->data.term->type = type;
 	term->data.term->expression = expr;
 	return term;
+}
+
+expr_ast*
+mk_mutation(pool* const mem, expr_ast* const left, expr_ast* const right){
+	expr_ast* mut = pool_request(mem, sizeof(expr_ast));
+	mut->tag = MUTATION_EXPR;
+	mut->type = left->type;
+	mut->data.mutation.left = left;
+	mut->data.mutation.right = right;
+	return mut;
 }
 
 expr_ast*
@@ -7630,19 +7653,77 @@ monomorph(walker* const walk, expr_ast* const expr, type_ast_map* const relation
 	return correct_type;
 }
 
+void
+replace_return_with_setter(walker* const walk, expr_ast* const expr, token setter){
+	switch (expr->tag){
+	case APPL_EXPR:
+	case LAMBDA_EXPR:
+		return;
+	case BLOCK_EXPR:
+		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
+			replace_return_with_setter(walk, &expr->data.block.lines[i], setter);
+		}
+		return;
+	case LIT_EXPR:
+	case TERM_EXPR:
+	case STRING_EXPR:
+	case LIST_EXPR:
+	case STRUCT_EXPR:
+	case BINDING_EXPR:
+	case MUTATION_EXPR:
+		return;
+	case RETURN_EXPR:
+		expr_ast* old = expr->data.ret;
+		expr_ast* replacement = mk_mutation(walk->parse->mem,
+			mk_binding(walk->parse->mem, &setter),
+			old
+		);
+		*expr = *replacement;
+		return;
+	case SIZEOF_EXPR:
+	case REF_EXPR:
+	case DEREF_EXPR:
+		return;
+	case IF_EXPR:
+		replace_return_with_setter(walk, expr->data.if_statement.cons, setter);
+		if (expr->data.if_statement.alt != NULL){
+			replace_return_with_setter(walk, expr->data.if_statement.alt, setter);
+		}
+		return;
+	case FOR_EXPR:
+		replace_return_with_setter(walk, expr->data.for_statement.cons, setter);
+		return;
+	case WHILE_EXPR:
+		replace_return_with_setter(walk, expr->data.while_statement.cons, setter);
+		return;
+	case MATCH_EXPR:
+		for (uint64_t i = 0;i<expr->data.match.count;++i){
+			replace_return_with_setter(walk, &expr->data.match.cases[i], setter);
+		}
+		return;
+	case CAST_EXPR:
+	case BREAK_EXPR:
+	case CONTINUE_EXPR:
+	case NOP_EXPR:
+	case STRUCT_ACCESS_EXPR:
+	case ARRAY_ACCESS_EXPR:
+	case FAT_PTR_EXPR:
+		return;
+	}
+}
+
 /*
- *	Structure monomorphs
+ * Structure monomorphs
  *
- * mk_closure_ptr still uses u8^ rather than [u8], see what it effects and correct
  * test closure size init and total size for optimizing arg move
  *
  * transform patterns into checks
- * assert that structures are nonrecursive, must be done after monomorph
-	 * then you can validate sizeof, evaluate the closure offsets with sizeof_type
+ *
+ * assert that structures are nonrecursive, must be done after structure monomorph
+ * after monomorph you can validate sizeof, evaluate the closure offsets with sizeof_type
  * more mem optimizations on the normal walk pass since its basically done for now
  * expression block flattening? might be a code generation thing
 	* u8 x = {u8 y = 7; return y;} -> u8 x; {u8 y = 7; x = y};
- * structure/defined type monomorphization
  * only monomorph full defined parametric non generic types
  *
  * global and local assertions, probably with other system calls and C level invocations

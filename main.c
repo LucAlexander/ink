@@ -7607,8 +7607,7 @@ monomorph(walker* const walk, expr_ast* const expr, type_ast_map* const relation
 }
 
 /*
- *	Monomorphization
- *lk		for T a = ... cases, descend like normal term with null expected type, if it cant synthesize, err, otherwise, replace type with synthetic type and move forward as if its a normal non generic term definition
+ *	Structure monomorphs
  *
  * mk_closure_ptr still uses u8^ rather than [u8], see what it effects and correct
  * dissolve dependencies, and generics during transformation

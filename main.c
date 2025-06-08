@@ -3174,14 +3174,6 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		expr->type = enum_type;
 		return enum_type;
 	case BINDING_EXPR:
-		//term_ast* is_generic = is_tracked_generic(walk, &expr->data.binding, expected_type);
-		//if (is_generic != NULL){
-			//*expr = *is_generic->expression;
-			//pop_binding(walk->local_scope, scope_pos);
-			//token_stack_pop(walk->term_stack, token_pos);
-			//expr->type = is_generic->type;
-			//return is_generic->type;
-		//}
 		type_ast* actual = in_scope(walk, &expr->data.binding, expected_type);
 		walk_assert(actual != NULL, nearest_token(expr), "Binding not found in scope");
 		if (expected_type == NULL){
@@ -3624,7 +3616,9 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type){
 	for (uint64_t i = 0;i<walk->local_scope->binding_count;++i){
 		if (string_compare(&bind->data.name, &walk->local_scope->bindings[i].name->data.name) == 0){
 			if (i < walk->scope_ptrs->ptrs[walk->scope_ptrs->count-1]){
-				scrape_binding(walk, &walk->local_scope->bindings[i]);
+				if (is_generic(walk, walk->local_scope->bindings[i].type) == 0){
+					scrape_binding(walk, &walk->local_scope->bindings[i]);
+				}
 			}
 			type_ast_map empty = type_ast_map_init(walk->parse->mem);
 			type_ast_map ptr_empty = type_ast_map_init(walk->parse->mem);
@@ -7598,9 +7592,7 @@ monomorph(walker* const walk, expr_ast* const expr, type_ast_map* const relation
 
 /*
  *	Monomorphization
- *
- * 		recursive monomorphization doesnt work :/
- * 			the recursive bindings arent being scraped beacuse they already have their correct type and are not walked as a result
+ *		one of the monomorph cases still breaks
  *
  *		for T a = ... cases, descend like normal term with null expected type, if it cant synthesize, err, otherwise, replace type with synthetic type and move forward as if its a normal non generic term definition
  *

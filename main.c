@@ -2557,14 +2557,10 @@ lex_err(parser* const parse, uint64_t goal, string filename){
 //NOTE every case uses the outer type from a term or the outer type from a mutation and passes it along, outer_type is set to null once, when lambdas dont know their return type
 type_ast*
 walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, type_ast* const outer_type, uint8_t is_outer){
-	if (expr->tag == APPL_EXPR){
-		if (expr->data.appl.left->tag == BINDING_EXPR){
-			if (cstring_compare(&expr->data.appl.left->data.binding.data.name, "squid") == 0){
-				printf("hi\n");
-			}
-		}
-	}
 	if (expr->type != NULL){
+		if (expr->tag == BINDING_EXPR){
+			in_scope(walk, &expr->data.binding, expr->type);
+		}
 		return expr->type;
 	}
 	uint64_t token_pos = walk->term_stack->count;
@@ -4448,7 +4444,6 @@ check_program(parser* const parse){
 	for (uint64_t i = 0;i<replacements.capacity;++i){
 		replacements.map[i] = term_ast_map_init(parse->mem);
 	}
-	expr_ptr_map mem_morphs = expr_ptr_map_init(parse->mem);
 	walker walk = {
 		.parse = parse,
 		.local_scope = &local_scope,
@@ -4458,7 +4453,6 @@ check_program(parser* const parse){
 		.term_stack = &term_stack,
 		.wrappers = &wrappers,
 		.replacements = &replacements,
-		.memoized_monomorphs = &mem_morphs
 	};
 	realias_walker realias = {
 		.parse = parse,
@@ -7579,9 +7573,11 @@ monomorph(walker* const walk, expr_ast* const expr, type_ast_map* const relation
 			clash_types_priority(walk, relation, pointer_only, expr->type, left);
 			*expr = *deep_copy_expr_type_replace_prevent_recursion(walk, expr, &clash, &is_generic->name, left);
 			expr->type = NULL;
+			uint64_t pos = token_stack_push(walk->term_stack, is_generic->name);
 			type_ast* correct_type = walk_expr(walk, expr, left, left, 0);
 			walk_assert_prop();
 			walk_assert(correct_type != NULL, nearest_token(expr), "Could not monomorphize generic expression");
+			token_stack_pop(walk->term_stack, pos);
 			return correct_type;
 		}
 	}
@@ -7603,7 +7599,9 @@ monomorph(walker* const walk, expr_ast* const expr, type_ast_map* const relation
 /*
  *	Monomorphization
  *
- *		recursive monomorphs cause infinite nesting, were moving the generic binding expansion to the monomorph function, so that we have all the term information there to use to replace recursive calls to the function we are monomorphing, for that we have to get back to broken recursive case, which means we need to fix type_equiv, which is a hard problem
+ * 		recursive monomorphization doesnt work :/
+ * 			the recursive bindings arent being scraped beacuse they already have their correct type and are not walked as a result
+ *
  *		for T a = ... cases, descend like normal term with null expected type, if it cant synthesize, err, otherwise, replace type with synthetic type and move forward as if its a normal non generic term definition
  *
  * mk_closure_ptr still uses u8^ rather than [u8], see what it effects and correct

@@ -555,7 +555,6 @@ typedef struct walker {
 	token_stack* term_stack;
 	token_map* wrappers;
 	term_map_stack* replacements;
-	expr_ptr_map* memoized_monomorphs;
 } walker;
 
 uint64_t push_binding(walker* const walk, scope* const s, token* const t, type_ast* const type);

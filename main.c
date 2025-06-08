@@ -2559,7 +2559,7 @@ type_ast*
 walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, type_ast* const outer_type, uint8_t is_outer){
 	if (expr->type != NULL){
 		if (expr->tag == BINDING_EXPR){
-			in_scope(walk, &expr->data.binding, expr->type);
+			in_scope(walk, &expr->data.binding, expected_type, expr->type);
 		}
 		return expr->type;
 	}
@@ -3169,7 +3169,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		expr->type = enum_type;
 		return enum_type;
 	case BINDING_EXPR:
-		type_ast* actual = in_scope(walk, &expr->data.binding, expected_type);
+		type_ast* actual = in_scope(walk, &expr->data.binding, expected_type, NULL);
 		walk_assert(actual != NULL, nearest_token(expr), "Binding not found in scope");
 		if (expected_type == NULL){
 			pop_binding(walk->local_scope, scope_pos);
@@ -3603,7 +3603,7 @@ reduce_alias_and_type(parser* const parse, type_ast* start_type){
 }
 
 type_ast*
-in_scope(walker* const walk, token* const bind, type_ast* expected_type){
+in_scope(walker* const walk, token* const bind, type_ast* expected_type, type_ast* const real_type){
 	if (expected_type != NULL){
 		expected_type = reduce_alias(walk->parse, expected_type);
 	}
@@ -3630,8 +3630,15 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type){
 	for (uint64_t i = 0;i<walk->local_scope->binding_count;++i){
 		if (string_compare(&bind->data.name, &walk->local_scope->bindings[i].name->data.name) == 0){
 			if (i < walk->scope_ptrs->ptrs[walk->scope_ptrs->count-1]){
-				if (is_generic(walk, walk->local_scope->bindings[i].type) == 0){
-					scrape_binding(walk, &walk->local_scope->bindings[i]);
+				if (real_type != NULL){
+					if (is_generic(walk, real_type) == 0){
+						scrape_binding(walk, &walk->local_scope->bindings[i]);
+					}
+				}
+				else{
+					if (is_generic(walk, walk->local_scope->bindings[i].type) == 0){
+						scrape_binding(walk, &walk->local_scope->bindings[i]);
+					}
 				}
 			}
 			type_ast_map empty = type_ast_map_init(walk->parse->mem);

@@ -604,7 +604,7 @@ void scrape_deps(realias_walker* const walk, type_ast* const term_type);
 
 type_ast* reduce_alias(parser* const parse, type_ast* start);
 type_ast* reduce_alias_and_type(parser* const parse, type_ast* start);
-type_ast* in_scope(walker* const walk, token* const bind, type_ast* const expected_type);
+type_ast* in_scope(walker* const walk, token* const bind, type_ast* const expected_type, type_ast* const real_type);
 uint8_t type_equal(parser* const parse, type_ast* const left, type_ast* const right);
 uint8_t type_equal_worker(parser* const parse, token_map* const generics, type_ast* const left, type_ast* const right);
 uint8_t structure_equal(parser* const parse, token_map* const generics, structure_ast* const left, structure_ast* const right);

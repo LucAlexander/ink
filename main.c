@@ -4591,21 +4591,26 @@ check_program(parser* const parse){
 		printf("\n");
 #endif
 	}
-	if (0){ // NOTE begin transform if statement
 #ifdef DEBUG
-	printf("Transformations:\n");
+	printf("--------------------Transformations--------------------:\n");
 #endif
 	uint64_t pre_transform_limit = parse->term_list.count;
 	pool_empty(parse->temp_mem);
 	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 		implementation_ast* impl = &parse->implementation_list.buffer[i];
 		for (uint64_t t = 0;t<impl->member_count;++t){
+			if (is_generic(&walk, impl->members[t].type) == 1){
+				continue;
+			}
 			pool_empty(parse->temp_mem);
 			transform_term(&walk, &impl->members[t], 1);
 			assert_prop();
 		}
 	}
 	for (uint64_t i = 0;i<pre_transform_limit;++i){
+		if (is_generic(&walk, parse->term_list.buffer[i].type) == 1){
+			continue;
+		}
 		pool_empty(parse->temp_mem);
 		transform_term(&walk, &parse->term_list.buffer[i], 1);
 		assert_prop();
@@ -4613,10 +4618,16 @@ check_program(parser* const parse){
 	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 		implementation_ast* impl = &parse->implementation_list.buffer[i];
 		for (uint64_t t = 0;t<impl->member_count;++t){
+			if (is_generic(&walk, impl->members[t].type) == 1){
+				continue;
+			}
 			function_to_structure_type(&walk, &impl->members[t]);
 		}
 	}
-	for (uint64_t i = 0;i<pre_transform_limit;++i){
+	for (uint64_t i = 0;i<parse->term_list.count;++i){
+		if (is_generic(&walk, parse->term_list.buffer[i].type) == 1){
+			continue;
+		}
 		function_to_structure_type(&walk, &parse->term_list.buffer[i]);
 	}
 #ifdef DEBUG
@@ -4631,7 +4642,6 @@ check_program(parser* const parse){
 		printf("\n");
 	}
 #endif
-	} // NOTE end transform if statement
 }
 
 type_ast*
@@ -4711,7 +4721,7 @@ generate_new_lambda(walker* const walk){
 	if (i < old.len){
 		old = string_copy(walk->parse->mem, &walk->next_lambda);
 		for (uint64_t k = 1;k<i;++k){
-			old.str[i] += 1;
+			old.str[k] = 'A';
 		}
 		old.str[i] += 1;
 	}
@@ -5312,7 +5322,11 @@ clash_types_equiv_worker(walker* const walk, type_ast_map* const relation, type_
 		}
 		return clash_types_equiv_worker(walk, relation, pointer_only, left->data.function.right, right->data.function.right);
 	case LIT_TYPE:
-		return 1;
+		if (left->data.lit == INT_ANY || right->data.lit == INT_ANY){
+			return 1;
+		}
+		return left->data.lit == right->data.lit;
+		//TODO coersion? we'll experiment without for now, you can always explicit cast
 	case PTR_TYPE:
 		return clash_types_equiv_worker(walk, relation, pointer_only, left->data.ptr, right->data.ptr);
 	case FAT_PTR_TYPE:
@@ -5845,7 +5859,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		type_ast* current_arg_type_info = refind_root->type;
 		for (uint64_t i = arg_count;i>0;--i){
 			expr_ast* arg_set = arg_vars[i-1];
-			arg_set->data.term->type = current_arg_type_info->data.function.left; // TODO UH OH : id gid y, or id u8id 4 <- int, not u8, this might only work after monomorphization
+			arg_set->data.term->type = current_arg_type_info->data.function.left;
 			expr_ast* arg_binding = mk_binding(walk->parse->mem, &arg_set->data.term->name);
 			line_relay_append(newlines, arg_set);
 			expr_ast* copy_arg = mk_appl(walk->parse->mem,
@@ -5974,6 +5988,9 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 	case LIT_EXPR:
 		return expr;
 	case TERM_EXPR:
+		if (is_generic(walk, expr->data.term->type) == 1){
+			return expr;
+		}
 		if (expr->data.term->type->tag == FUNCTION_TYPE || expr->data.term->type->tag == DEPENDENCY_TYPE){
 			expr->data.term->type = mk_closure_type(walk->parse->mem);
 		}
@@ -7118,7 +7135,7 @@ standard_call_wrapper(walker* const walk, expr_ast* const func_binding, type_ast
 
 type_ast*
 mk_closure_type(pool* const mem){
-	return mk_ptr(mem, mk_lit(mem, U8_TYPE));
+	return mk_fat_ptr(mem, mk_lit(mem, U8_TYPE));
 }
 
 uint8_t
@@ -7617,7 +7634,6 @@ monomorph(walker* const walk, expr_ast* const expr, type_ast_map* const relation
  *	Structure monomorphs
  *
  * mk_closure_ptr still uses u8^ rather than [u8], see what it effects and correct
- * dissolve dependencies, and generics during transformation
  * test closure size init and total size for optimizing arg move
  *
  * transform patterns into checks

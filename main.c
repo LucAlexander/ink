@@ -2799,7 +2799,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			walk_assert(relation.relation != NULL, nearest_token(expr->data.appl.left), "First argument of left side of application with known type did not match right side of application");
 			type_ast* generic_applied_type = deep_copy_type_replace(walk->parse->mem, &relation, left_real->data.function.right);
 			type_ast* reduced_generic = reduce_alias_and_type(walk->parse, generic_applied_type);
-			uint8_t applied_equal = type_equiv(walk->parse, reduced_generic, expected_type);
+			uint8_t applied_equal = type_equiv(walk, reduced_generic, expected_type);
 			walk_assert(applied_equal == 1, nearest_token(expr), "Applied generic type did not match expected type");
 			walk_assert_prop();
 			if (is_generic(walk, expr->data.appl.left->type) == 1){
@@ -3187,7 +3187,10 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			expr->type = actual;
 			return actual;
 		}
-		uint8_t bind_equal = type_equiv(walk->parse, actual, expected_type);
+		uint8_t bind_equal = type_equiv(walk, actual, expected_type);
+		if (bind_equal == 0){
+			printf("hi\n");
+		}
 		walk_assert(bind_equal == 1, nearest_token(expr), "Binding was not the expected type");
 		pop_binding(walk->local_scope, scope_pos);
 		token_stack_pop(walk->term_stack, token_pos);
@@ -4524,7 +4527,7 @@ check_program(parser* const parse){
 				}
 				found = 1;
 				assert_local(class->members[k].type->tag == DEPENDENCY_TYPE, , "class definition functions should have had dependencies distributed over them by now...");
-				assert_local(type_equiv(parse, impl->members[t].type, class->members[k].type->data.dependency.type) == 1, , "Type of implemented typeclass function did not match definition in typeclass");
+				assert_local(type_equiv(&walk, impl->members[t].type, class->members[k].type->data.dependency.type) == 1, , "Type of implemented typeclass function did not match definition in typeclass");
 			}
 			assert_local(found == 1, , "Unable to find implementated function in source typeclass");
 			term_ptr_buffer* impls = term_ptr_buffer_map_access(parse->implemented_terms, impl->members[t].name.data.name);
@@ -5211,138 +5214,102 @@ scrape_deps(realias_walker* const walk, type_ast* const term_type){
 	}
 }
 
-//NOTE left has generics, right has applied types
-uint8_t
-type_equiv(parser* const parse, type_ast* left, type_ast* right){
-	type_ast_map relation = type_ast_map_init(parse->mem);
-	token_map generics = token_map_init(parse->mem);
-	return type_equiv_worker(parse, &generics, &relation, left, right);
+clash_relation
+clash_types_equiv(walker* const walk, type_ast* const left, type_ast* const right){
+	type_ast_map relation = type_ast_map_init(walk->parse->temp_mem);
+	type_ast_map pointer_only = type_ast_map_init(walk->parse->temp_mem);
+	if (clash_types_equiv_worker(walk, &relation, &pointer_only, left, right) == 0){
+		return (clash_relation){
+			.relation = NULL,
+			.pointer_only = NULL
+		};
+	}
+	return (clash_relation){
+		.relation = &relation,
+		.pointer_only = &pointer_only
+	};
 }
 
 uint8_t
-type_equiv_worker(parser* const parse, token_map* const generics, type_ast_map* const relation, type_ast* const left, type_ast* const right){
-	if (left->tag != right->tag){
-		if (left->tag != NAMED_TYPE){
-			return 0;
+clash_types_equiv_worker(walker* const walk, type_ast_map* const relation, type_ast_map* const pointer_only, type_ast* const left, type_ast* const right){
+	if (left->tag == NAMED_TYPE){
+		if (is_generic(walk, left) == 1){
+			type_ast* exists = type_ast_map_access(relation, left->data.named.name.data.name);
+			if (exists != NULL){
+				if (exists->tag == NAMED_TYPE){
+					if (is_generic(walk, exists) == 1){
+						if (is_generic(walk, right) == 0){
+							type_ast_map_insert(relation, left->data.named.name.data.name, *right);
+							return 1;
+						}
+					}
+				}
+				if (type_equiv(walk, exists, right) == 0){
+					return 0;
+				}
+				return 1;
+			}
+			type_ast_map_insert(relation, left->data.named.name.data.name, *right);
+		}
+		return 1;
+	}
+	if (left->tag == FAT_PTR_TYPE){
+		if (left->data.fat_ptr.ptr->tag == NAMED_TYPE){
+			if (right->tag == FUNCTION_TYPE){
+				if (is_generic(walk, left) == 1){
+					type_ast* exists = type_ast_map_access(pointer_only, left->data.named.name.data.name);
+					if (exists != NULL){
+						if (type_equiv(walk, exists, right) == 0){
+							return 0;
+						}
+						return 1;
+					}
+					type_ast_map_insert(pointer_only, left->data.named.name.data.name, *right);
+					return 1;
+				}
+				return 0;
+			}
 		}
 	}
-	switch(left->tag){
+	if (left->tag != right->tag){
+		if (right->tag == NAMED_TYPE){
+			if (is_generic(walk, right) == 1){
+				return 1;
+			}
+		}
+		return 0;
+	}
+	switch (left->tag){
 	case DEPENDENCY_TYPE:
 		if (left->data.dependency.dependency_count != right->data.dependency.dependency_count){
 			return 0;
 		}
-		for (uint64_t i = 0;i<left->data.dependency.dependency_count;++i){
-			if (string_compare(&left->data.dependency.typeclass_dependencies[i].data.name, &right->data.dependency.typeclass_dependencies[i].data.name) != 0){
-				return 0;
-			}
-			token_map_insert(generics, left->data.dependency.dependency_typenames[i].data.name, right->data.dependency.dependency_typenames[i]);
-		}
-		return type_equiv_worker(parse, generics, relation, left->data.dependency.type, right->data.dependency.type);
+		return clash_types_equiv_worker(walk, relation, pointer_only, left->data.dependency.type, right->data.dependency.type);
 	case FUNCTION_TYPE:
-		return type_equiv_worker(parse, generics, relation, left->data.function.left, right->data.function.left)
-		     & type_equiv_worker(parse, generics, relation, left->data.function.right, right->data.function.right);
+		if (clash_types_equiv_worker(walk, relation, pointer_only, left->data.function.left, right->data.function.left) == 0){
+			return 0;
+		}
+		return clash_types_equiv_worker(walk, relation, pointer_only, left->data.function.right, right->data.function.right);
 	case LIT_TYPE:
-		if (left->data.lit == INT_ANY || right->data.lit == INT_ANY){
-			return 1;
-		}
-		return left->data.lit == right->data.lit;
-		//TODO coersion? we'll experiment without for now, you can always explicit cast
+		return 1;
 	case PTR_TYPE:
-		return type_equiv_worker(parse, generics, relation, left->data.ptr, right->data.ptr);
+		return clash_types_equiv_worker(walk, relation, pointer_only, left->data.ptr, right->data.ptr);
 	case FAT_PTR_TYPE:
-		return type_equiv_worker(parse, generics, relation, left->data.fat_ptr.ptr, right->data.fat_ptr.ptr);
+		return clash_types_equiv_worker(walk, relation, pointer_only, left->data.fat_ptr.ptr, right->data.fat_ptr.ptr);
 	case STRUCT_TYPE:
-		return struct_equiv_worker(parse, generics, relation, left->data.structure, right->data.structure);
+		return clash_struct_equiv_worker(walk, relation, pointer_only, left->data.structure, right->data.structure);
 	case NAMED_TYPE:
-		if (right->tag == NAMED_TYPE){
-			token* isgeneric = token_map_access(generics, left->data.named.name.data.name);
-			if (isgeneric != NULL){
-				typedef_ast** isrighttypedef = typedef_ptr_map_access(parse->types, right->data.named.name.data.name);
-				alias_ast** isrightalias = alias_ptr_map_access(parse->aliases, right->data.named.name.data.name);
-				if (isrighttypedef != NULL || isrightalias != NULL){
-					type_ast* exists = type_ast_map_access(relation, left->data.named.name.data.name);
-					if (exists == NULL){
-						type_ast_map_insert(relation, left->data.named.name.data.name, *right);
-					}
-					else{
-						if (type_equiv(parse, exists, right) == 0){
-							return 0;
-						}
-					}
-					return 1;
-				}
-				if (string_compare(&isgeneric->data.name, &right->data.named.name.data.name) != 0){
-					return 0;
-				}
-			}
-			else {
-				typedef_ast** isrighttypedef = typedef_ptr_map_access(parse->types, right->data.named.name.data.name);
-				if (isrighttypedef != NULL){
-					typedef_ast** istypedef = typedef_ptr_map_access(parse->types, left->data.named.name.data.name);
-					if (istypedef == NULL){
-						type_ast* exists = type_ast_map_access(relation, left->data.named.name.data.name);
-						if (exists == NULL){
-							type_ast_map_insert(relation, left->data.named.name.data.name, *right);
-						}
-						else{
-							if (type_equiv(parse, exists, right) == 0){
-								return 0;
-							}
-						}
-						return 1;
-					}
-					if ((*istypedef) != (*isrighttypedef)){
-						return 0;
-					}
-				}
-				else {
-					alias_ast** isrightalias = alias_ptr_map_access(parse->aliases, right->data.named.name.data.name);
-					if (isrightalias != NULL){
-						alias_ast** isalias = alias_ptr_map_access(parse->aliases, left->data.named.name.data.name);
-						if (isalias == NULL){
-							type_ast* exists = type_ast_map_access(relation, left->data.named.name.data.name);
-							if (exists == NULL){
-								type_ast_map_insert(relation, left->data.named.name.data.name, *right);
-							}
-							else{
-								if (type_equiv(parse, exists, right) == 0){
-									return 0;
-								}
-							}
-							return 1;
-						}
-						if ((*isalias) != (*isrightalias)){
-							return 0;
-						}
-					}
-					else {
-						typedef_ast** istypedef = typedef_ptr_map_access(parse->types, right->data.named.name.data.name);
-						alias_ast** isalias = alias_ptr_map_access(parse->aliases, right->data.named.name.data.name);
-						if (isalias != NULL || istypedef != NULL){
-							return 0;
-						}
-						token_map_insert(generics, left->data.named.name.data.name, right->data.named.name);
-					}
-				}
-			}
-			if (left->data.named.arg_count != right->data.named.arg_count){
-				return 0;
-			}
-			for (uint64_t i = 0;i<left->data.named.arg_count;++i){
-				if (type_equiv_worker(parse, generics, relation, &left->data.named.args[i], &right->data.named.args[i]) == 0){
-					return 0;
-				}
-			}
+		type_ast* reduce_left = reduce_alias(walk->parse, left);
+		type_ast* reduce_right = reduce_alias(walk->parse, right);
+		if (type_equal(walk->parse, reduce_left, reduce_right) == 0){
+			return 0;
 		}
-		else{
-			type_ast* exists = type_ast_map_access(relation, left->data.named.name.data.name);
-			if (exists == NULL){
-				type_ast_map_insert(relation, left->data.named.name.data.name, *right);
-			}
-			else{
-				if (type_equiv(parse, exists, right) == 0){
-					return 0;
-				}
+		if (left->data.named.arg_count != right->data.named.arg_count){
+			return 0;
+		}
+		for (uint64_t i = 0;i<left->data.named.arg_count;++i){
+			if (clash_types_equiv_worker(walk, relation, pointer_only, &left->data.named.args[i], &right->data.named.args[i]) == 0){
+				return 0;
 			}
 		}
 		return 1;
@@ -5351,7 +5318,7 @@ type_equiv_worker(parser* const parse, token_map* const generics, type_ast_map* 
 }
 
 uint8_t
-struct_equiv_worker(parser* const parse, token_map* const generics,  type_ast_map* const relation, structure_ast* const left, structure_ast* const right){
+clash_struct_equiv_worker(walker* const walk, type_ast_map* relation, type_ast_map* pointer_only, structure_ast* const left, structure_ast* const right){
 	if (left->tag != right->tag){
 		return 0;
 	}
@@ -5361,7 +5328,7 @@ struct_equiv_worker(parser* const parse, token_map* const generics,  type_ast_ma
 			return 0;
 		}
 		for (uint64_t i = 0;i<left->data.structure.count;++i){
-			if (type_equiv_worker(parse, generics, relation, &left->data.structure.members[i], &right->data.structure.members[i]) == 0){
+			if (clash_types_equiv_worker(walk, relation, pointer_only, &left->data.structure.members[i], &right->data.structure.members[i]) == 0){
 				return 0;
 			}
 		}
@@ -5371,7 +5338,7 @@ struct_equiv_worker(parser* const parse, token_map* const generics,  type_ast_ma
 			return 0;
 		}
 		for (uint64_t i = 0;i<left->data.union_structure.count;++i){
-			if (type_equiv_worker(parse, generics, relation, &left->data.union_structure.members[i], &right->data.union_structure.members[i]) == 0){
+			if (clash_types_equiv_worker(walk, relation, pointer_only, &left->data.union_structure.members[i], &right->data.union_structure.members[i]) == 0){
 				return 0;
 			}
 		}
@@ -5381,9 +5348,6 @@ struct_equiv_worker(parser* const parse, token_map* const generics,  type_ast_ma
 			return 0;
 		}
 		for (uint64_t i = 0;i<left->data.enumeration.count;++i){
-			if (string_compare(&left->data.enumeration.names[i].data.name, &right->data.enumeration.names[i].data.name) != 0){
-				return 0;
-			}
 			if (left->data.enumeration.values[i] != right->data.enumeration.values[i]){
 				return 0;
 			}
@@ -5391,6 +5355,38 @@ struct_equiv_worker(parser* const parse, token_map* const generics,  type_ast_ma
 		return 1;
 	}
 	return 0;
+}
+
+//NOTE left has generics, right has applied types
+uint8_t
+type_equiv(walker* const walk, type_ast* left, type_ast* right){
+	if (left->tag == DEPENDENCY_TYPE){
+		left = left->data.dependency.type;
+	}
+	if (right->tag == DEPENDENCY_TYPE){
+		right = right->data.dependency.type;
+	}
+	while (type_equal(walk->parse, left, right) == 0){
+		type_ast* last_left = left;
+		type_ast* last_right = right;
+		clash_relation rel = clash_types_equiv(walk, left, right);
+		if (rel.relation == NULL){
+			return 0;
+		}
+		left = deep_copy_type_replace(walk->parse->temp_mem, &rel, left);
+		if (type_equal(walk->parse, left, last_left) == 1){
+			return 1;
+		}
+		rel = clash_types_equiv(walk, right, left);
+		if (rel.relation == NULL){
+			return 0;
+		}
+		right = deep_copy_type_replace(walk->parse->temp_mem, &rel, right);
+		if (type_equal(walk->parse, right, last_right) == 1){
+			return 1;
+		}
+	}
+	return 1;
 }
 
 uint64_t
@@ -7582,7 +7578,7 @@ monomorph(walker* const walk, expr_ast* const expr, type_ast_map* const relation
  *
  *		type_equiv doesnt work
  *		recursive monomorphs cause infinite nesting, were moving the generic binding expansion to the monomorph function, so that we have all the term information there to use to replace recursive calls to the function we are monomorphing, for that we have to get back to broken recursive case, which means we need to fix type_equiv, which is a hard problem
- *		for T a = ... cases, descend like normal term with null expected type, if it cant synthesize, err
+ *		for T a = ... cases, descend like normal term with null expected type, if it cant synthesize, err, otherwise, replace type with synthetic type and move forward as if its a normal non generic term definition
  *
  * mk_closure_ptr still uses u8^ rather than [u8], see what it effects and correct
  * dissolve dependencies, and generics during transformation

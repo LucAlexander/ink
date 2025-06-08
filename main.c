@@ -3020,11 +3020,6 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		expr->type = lit_type;
 		return lit_type;
 	case TERM_EXPR:
-		if (is_generic(walk, expr->data.term->type) == 1){
-			term_map_stack_push_relation(walk->replacements, expr->data.term->name.data.name, expr->data.term);
-			push_binding(walk, walk->local_scope, &expr->data.term->name, expr->data.term->type);
-			return expected_type;
-		}
 		type_ast* term_type = walk_term(walk, expr->data.term, expected_type, 0);
 		expr->type = term_type;
 		return term_type;
@@ -3438,6 +3433,25 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 
 type_ast*
 walk_term(walker* const walk, term_ast* const term, type_ast* expected_type, uint8_t is_outer){
+	if (is_generic(walk, term->type) == 1){
+		if (term->type->tag == NAMED_TYPE && term->type->data.named.arg_count == 0){
+			uint64_t pos = push_binding(walk, walk->local_scope, &term->name, term->type);
+			walk_assert_prop();
+			uint64_t token_pos = token_stack_push(walk->term_stack, term->name);
+			uint64_t mapstack_pos = term_map_stack_push(walk->replacements);
+			type_ast* real_type = walk_expr(walk, term->expression, NULL, NULL, is_outer);
+			term_map_stack_pop(walk->replacements, mapstack_pos);
+			token_stack_pop(walk->term_stack, token_pos);
+			pop_binding(walk->local_scope, pos);
+			walk_assert_prop();
+			walk_assert(real_type != NULL, nearest_token(term->expression), "Term type did not match declared type");
+			term->type = real_type;
+			return term->type;
+		}
+		term_map_stack_push_relation(walk->replacements, term->name.data.name, term);
+		push_binding(walk, walk->local_scope, &term->name, term->type);
+		return expected_type;
+	}
 	uint64_t pos = push_binding(walk, walk->local_scope, &term->name, term->type);
 	walk_assert_prop();
 	uint64_t token_pos = token_stack_push(walk->term_stack, term->name);
@@ -5214,17 +5228,19 @@ scrape_deps(realias_walker* const walk, type_ast* const term_type){
 
 clash_relation
 clash_types_equiv(walker* const walk, type_ast* const left, type_ast* const right){
-	type_ast_map relation = type_ast_map_init(walk->parse->temp_mem);
-	type_ast_map pointer_only = type_ast_map_init(walk->parse->temp_mem);
-	if (clash_types_equiv_worker(walk, &relation, &pointer_only, left, right) == 0){
+	type_ast_map* relation = pool_request(walk->parse->temp_mem, sizeof(type_ast_map));
+	*relation = type_ast_map_init(walk->parse->temp_mem);
+	type_ast_map* pointer_only = pool_request(walk->parse->temp_mem, sizeof(type_ast_map));
+	*pointer_only = type_ast_map_init(walk->parse->temp_mem);
+	if (clash_types_equiv_worker(walk, relation, pointer_only, left, right) == 0){
 		return (clash_relation){
 			.relation = NULL,
 			.pointer_only = NULL
 		};
 	}
 	return (clash_relation){
-		.relation = &relation,
-		.pointer_only = &pointer_only
+		.relation = relation,
+		.pointer_only = pointer_only
 	};
 }
 
@@ -7592,9 +7608,7 @@ monomorph(walker* const walk, expr_ast* const expr, type_ast_map* const relation
 
 /*
  *	Monomorphization
- *		one of the monomorph cases still breaks
- *
- *		for T a = ... cases, descend like normal term with null expected type, if it cant synthesize, err, otherwise, replace type with synthetic type and move forward as if its a normal non generic term definition
+ *lk		for T a = ... cases, descend like normal term with null expected type, if it cant synthesize, err, otherwise, replace type with synthetic type and move forward as if its a normal non generic term definition
  *
  * mk_closure_ptr still uses u8^ rather than [u8], see what it effects and correct
  * dissolve dependencies, and generics during transformation

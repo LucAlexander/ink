@@ -3903,7 +3903,13 @@ deep_copy_type_replace(pool* const mem, clash_relation* crelation, type_ast* con
 		if (dest->data.fat_ptr.ptr->tag == NAMED_TYPE){
 			type_ast* replacement = type_ast_map_access(pointer_only, dest->data.fat_ptr.ptr->data.named.name.data.name);
 			if (replacement != NULL){
-				return replacement;
+				type_ast_map empty_relation = type_ast_map_init(mem);
+				type_ast_map empty_pointer = type_ast_map_init(mem);
+				clash_relation rel = {
+					.relation = &empty_relation,
+					.pointer_only = &empty_pointer
+				};
+				return deep_copy_type_replace(mem, &rel, replacement);
 			}
 		}
 		dest->data.fat_ptr.ptr = deep_copy_type_replace(mem, crelation, source->data.fat_ptr.ptr);

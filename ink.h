@@ -710,5 +710,6 @@ void clash_structure_priority(walker* const walk, type_ast_map* relation, type_a
 type_ast* monomorph(walker* const walk, expr_ast* const expr, type_ast_map* const relation, type_ast_map* const pointer_only, type_ast* newtype);
 
 void replace_return_with_setter(walker* const walk, expr_ast* const expr, token setter);
+void try_structure_monomorph(walker* const walk, type_ast* const type);
 
 #endif

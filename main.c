@@ -5697,6 +5697,7 @@ token_stack_top(token_stack* const stack){
 //NOTE This function generates uninitialized expressions in the form T f;
 expr_ast*
 transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_relay* const newlines){
+	try_structure_monomorph(walk, expr->type);
 	switch (expr->tag){
 	case APPL_EXPR:
 		expr_ast* root = expr;
@@ -5706,6 +5707,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			arg_count += 1;
 			root = root->data.appl.left;
 		}
+		try_structure_monomorph(walk, root->type);
 		if (root->tag == BINDING_EXPR){
 			scope_info info = in_scope_transform(walk, &root->data.binding, root->type);
 			if (info.top_level == 1){
@@ -7712,8 +7714,65 @@ replace_return_with_setter(walker* const walk, expr_ast* const expr, token sette
 	}
 }
 
+void
+try_structure_monomorph(walker* const walk, type_ast* const type){
+	if (type == NULL){
+		return ;
+	}
+	type_ast* reduced = NULL;
+	switch (type->tag){
+	case DEPENDENCY_TYPE:
+		*type = *type->data.dependency.type;
+		try_structure_monomorph(walk, type);
+		return;
+	case FUNCTION_TYPE:
+		try_structure_monomorph(walk, type->data.function.left);
+		try_structure_monomorph(walk, type->data.function.right);
+		return;
+	case LIT_TYPE:
+		return;
+	case PTR_TYPE:
+		try_structure_monomorph(walk, type->data.ptr);
+		return;
+	case FAT_PTR_TYPE:
+		try_structure_monomorph(walk, type->data.fat_ptr.ptr);
+		return;
+	case STRUCT_TYPE:
+		if (is_generic(walk, type) == 1){
+			return;
+		}
+		reduced = type;
+		break;
+	case NAMED_TYPE:
+		if (is_generic(walk, type) == 1){
+			return;
+		}
+		reduced = reduce_alias_and_type(walk->parse, type);
+		break;
+	}
+	token newname = {
+		.content_tag = STRING_TOKEN_TYPE,
+		.tag = IDENTIFIER_TOKEN,
+		.index = 0,
+		.data.name = walk->next_lambda
+	};
+	generate_new_lambda(walk);
+	typedef_ast newdef = {
+		.name = newname,
+		.params = NULL,
+		.param_count = 0,
+		.type = deep_copy_type(walk, reduced)
+	};
+	typedef_ast_buffer_insert(&walk->parse->type_list, newdef);
+	typedef_ptr_map_insert(walk->parse->types, newdef.name.data.name, typedef_ast_buffer_top(&walk->parse->type_list));
+	type->tag = NAMED_TYPE;
+	type->data.named.name = newname;
+	type->data.named.args = NULL;
+	type->data.named.arg_count = 0;
+}
+
 /*
- * Structure monomorphs
+ * the way we have been detecting if its a generic parameter is flawed, because we dont check if it has parameters?
  *
  * test closure size init and total size for optimizing arg move
  *
@@ -7722,8 +7781,6 @@ replace_return_with_setter(walker* const walk, expr_ast* const expr, token sette
  * assert that structures are nonrecursive, must be done after structure monomorph
  * after monomorph you can validate sizeof, evaluate the closure offsets with sizeof_type
  * more mem optimizations on the normal walk pass since its basically done for now
- * expression block flattening? might be a code generation thing
-	* u8 x = {u8 y = 7; return y;} -> u8 x; {u8 y = 7; x = y};
  * only monomorph full defined parametric non generic types
  *
  * global and local assertions, probably with other system calls and C level invocations

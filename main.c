@@ -3818,12 +3818,22 @@ type_equal_worker(parser* const parse, token_map* const generics, type_ast* cons
 		}
 		else {
 			typedef_ast** istypedef = typedef_ptr_map_access(parse->types, left->data.named.name.data.name);
+			typedef_ast** isextern = typedef_ptr_map_access(parse->extern_types, left->data.named.name.data.name);
 			if (istypedef != NULL){
 				typedef_ast** isrighttypedef = typedef_ptr_map_access(parse->types, right->data.named.name.data.name);
 				if (isrighttypedef == NULL){
 					return 0;
 				}
 				if ((*istypedef) != (*isrighttypedef)){
+					return 0;
+				}
+			}
+			else if (isextern != NULL){
+				typedef_ast** isrighttypedef = typedef_ptr_map_access(parse->extern_types, right->data.named.name.data.name);
+				if (isrighttypedef == NULL){
+					return 0;
+				}
+				if ((*isextern) != (*isrighttypedef)){
 					return 0;
 				}
 			}
@@ -3840,8 +3850,9 @@ type_equal_worker(parser* const parse, token_map* const generics, type_ast* cons
 				}
 				else {
 					typedef_ast** righttypedef = typedef_ptr_map_access(parse->types, right->data.named.name.data.name);
+					typedef_ast** right_extern = typedef_ptr_map_access(parse->extern_types, right->data.named.name.data.name);
 					alias_ast** rightalias = alias_ptr_map_access(parse->aliases, right->data.named.name.data.name);
-					if (rightalias != NULL || righttypedef != NULL){
+					if (rightalias != NULL || righttypedef != NULL || right_extern != NULL){
 						return 0;
 					}
 					token_map_insert(generics, left->data.named.name.data.name, right->data.named.name);
@@ -4202,8 +4213,9 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* po
 					return 1;
 				}
 				typedef_ast** istypedef = typedef_ptr_map_access(parse->types, left->data.fat_ptr.ptr->data.named.name.data.name);
+				typedef_ast** isextern = typedef_ptr_map_access(parse->extern_types, left->data.fat_ptr.ptr->data.named.name.data.name);
 				alias_ast** isalias = alias_ptr_map_access(parse->aliases, left->data.fat_ptr.ptr->data.named.name.data.name);
-				if (istypedef != NULL || isalias != NULL){
+				if (istypedef != NULL || isalias != NULL || isextern != NULL){
 					return 0;
 				}
 				type_ast_map_insert(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name, *right);
@@ -4214,8 +4226,9 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* po
 			return 0;
 		}
 		typedef_ast** istypedef = typedef_ptr_map_access(parse->types, left->data.named.name.data.name);
+		typedef_ast** isextern = typedef_ptr_map_access(parse->extern_types, left->data.named.name.data.name);
 		alias_ast** isalias = alias_ptr_map_access(parse->aliases, left->data.named.name.data.name);
-		if (istypedef != NULL || isalias != NULL){
+		if (istypedef != NULL || isalias != NULL || isextern != NULL){
 			return 0;
 		}
 		type_ast* confirm = type_ast_map_access(relation, left->data.named.name.data.name);
@@ -4273,12 +4286,22 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* po
 		}
 		else{
 			typedef_ast** istypedef = typedef_ptr_map_access(parse->types, left->data.named.name.data.name);
+			typedef_ast** isextern = typedef_ptr_map_access(parse->extern_types, left->data.named.name.data.name);
 			if (istypedef != NULL){
 				typedef_ast** isrighttypedef = typedef_ptr_map_access(parse->types, right->data.named.name.data.name);
 				if (isrighttypedef == NULL){
 					return 0;
 				}
 				if ((*istypedef) != (*isrighttypedef)){
+					return 0;
+				}
+			}
+			else if (isextern != NULL){
+				typedef_ast** isrighttypedef = typedef_ptr_map_access(parse->types, right->data.named.name.data.name);
+				if (isrighttypedef == NULL){
+					return 0;
+				}
+				if ((*isextern) != (*isrighttypedef)){
 					return 0;
 				}
 			}
@@ -4371,8 +4394,9 @@ clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* p
 					return;
 				}
 				typedef_ast** istypedef = typedef_ptr_map_access(walk->parse->types, left->data.fat_ptr.ptr->data.named.name.data.name);
+				typedef_ast** isextern = typedef_ptr_map_access(walk->parse->extern_types, left->data.fat_ptr.ptr->data.named.name.data.name);
 				alias_ast** isalias = alias_ptr_map_access(walk->parse->aliases, left->data.fat_ptr.ptr->data.named.name.data.name);
-				if (istypedef != NULL || isalias != NULL){
+				if (istypedef != NULL || isalias != NULL || isextern != NULL){
 					return;
 				}
 				type_ast_map_insert(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name, *right);
@@ -4386,8 +4410,9 @@ clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* p
 			return;
 		}
 		typedef_ast** istypedef = typedef_ptr_map_access(walk->parse->types, left->data.named.name.data.name);
+		typedef_ast** isextern = typedef_ptr_map_access(walk->parse->extern_types, left->data.named.name.data.name);
 		alias_ast** isalias = alias_ptr_map_access(walk->parse->aliases, left->data.named.name.data.name);
-		if (istypedef != NULL || isalias != NULL){
+		if (istypedef != NULL || isalias != NULL || isextern != NULL){
 			return;
 		}
 		type_ast* confirm = type_ast_map_access(relation, left->data.named.name.data.name);
@@ -4447,12 +4472,22 @@ clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* p
 		}
 		else{
 			typedef_ast** istypedef = typedef_ptr_map_access(walk->parse->types, left->data.named.name.data.name);
+			typedef_ast** isextern = typedef_ptr_map_access(walk->parse->extern_types, left->data.named.name.data.name);
 			if (istypedef != NULL){
 				typedef_ast** isrighttypedef = typedef_ptr_map_access(walk->parse->types, right->data.named.name.data.name);
 				if (isrighttypedef == NULL){
 					return;
 				}
 				if ((*istypedef) != (*isrighttypedef)){
+					return;
+				}
+			}
+			else if (isextern != NULL){
+				typedef_ast** isrighttypedef = typedef_ptr_map_access(walk->parse->types, right->data.named.name.data.name);
+				if (isrighttypedef == NULL){
+					return;
+				}
+				if ((*isextern) != (*isrighttypedef)){
 					return;
 				}
 			}
@@ -4892,7 +4927,10 @@ type_valid(parser* const parse, type_ast* const type){
 		if (def == NULL){
 			alias_ast** alias = alias_ptr_map_access(parse->aliases, type->data.named.name.data.name);
 			if (alias == NULL){
-				return 0; // this means generics are not valid normal form types
+				typedef_ast** ext = typedef_ptr_map_access(parse->extern_types, type->data.named.name.data.name);
+				if (ext == NULL){
+					return 0; // this means generics are not valid normal form types
+			   }
 			}
 		}
 		for (uint64_t i = 0;i<type->data.named.arg_count;++i){
@@ -5169,23 +5207,26 @@ realias_type(realias_walker* const walk, type_ast* const type){
 		if (istype == NULL){
 			alias_ast** alias = alias_ptr_map_access(walk->parse->aliases, type->data.named.name.data.name);
 			if (alias == NULL){
-				map_stack* relation = walk->relations;
-				uint8_t found = 0;
-				while (relation != NULL){
-					token* exists = token_map_access(&relation->map, type->data.named.name.data.name);
-					if (exists != NULL){
-						type->data.named.name = *exists;
-						found = 1;
-						break;
+				typedef_ast** isext = typedef_ptr_map_access(walk->parse->extern_types, type->data.named.name.data.name);
+				if (isext == NULL){
+					map_stack* relation = walk->relations;
+					uint8_t found = 0;
+					while (relation != NULL){
+						token* exists = token_map_access(&relation->map, type->data.named.name.data.name);
+						if (exists != NULL){
+							type->data.named.name = *exists;
+							found = 1;
+							break;
+						}
+						relation = relation->prev;
 					}
-					relation = relation->prev;
-				}
-				if (found == 0){
-					token new_token = type->data.named.name;
-					new_token.data.name = walk->next_generic;
-					token_map_insert(&walk->relations->map, type->data.named.name.data.name, new_token);
-					type->data.named.name = new_token;
-					generate_new_generic(walk);
+					if (found == 0){
+						token new_token = type->data.named.name;
+						new_token.data.name = walk->next_generic;
+						token_map_insert(&walk->relations->map, type->data.named.name.data.name, new_token);
+						type->data.named.name = new_token;
+						generate_new_generic(walk);
+					}
 				}
 			}
 		}
@@ -5310,7 +5351,10 @@ collect_dependencies(realias_walker* const walk, type_ast* const type){
 		if (istype == NULL){
 			alias_ast** alias = alias_ptr_map_access(walk->parse->aliases, type->data.named.name.data.name);
 			if (alias == NULL){
-				token_buffer_insert(&walk->generic_collection_buffer, type->data.named.name);
+				typedef_ast** isext = typedef_ptr_map_access(walk->parse->extern_types, type->data.named.name.data.name);
+				if (isext == NULL){
+					token_buffer_insert(&walk->generic_collection_buffer, type->data.named.name);
+				}
 			}
 		}
 		for (uint64_t i = 0;i<type->data.named.arg_count;++i){
@@ -7346,6 +7390,10 @@ is_generic(walker* const walk, type_ast* const type){
 				}
 				return 0;
 			}
+			istypedef = typedef_ptr_map_access(walk->parse->extern_types, reduced->data.named.name.data.name);
+			if (istypedef != NULL){
+				return 0;
+			}
 			return 1;
 		}
 		return is_generic(walk, reduced);
@@ -7896,6 +7944,9 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 		if (is_generic(walk, type) == 1){
 			return;
 		}
+		if (type->data.named.arg_count == 0){
+			return;
+		}
 		reduced = reduce_alias_and_type(walk->parse, type);
 		break;
 	}
@@ -7938,8 +7989,6 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 /* TODO
  * memoize structure monomorph
  * packed structs
- * extern types arent being detected
- * 	anything that ever checks typedef map needs to also check extern map
  * floats
  * the way we have been detecting if its a generic parameter may be flawed, because we dont check if it has parameters?
  * transform patterns into checks

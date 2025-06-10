@@ -7834,19 +7834,37 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 
 /*
  * the way we have been detecting if its a generic parameter is may be flawed, because we dont check if it has parameters?
- *
  * transform patterns into checks
- *
  * global and local assertions, probably with other system calls and C level invocations
  * error reporting as logging rather than single report
  * nearest type token function
- *
  * ensure term definitions only happen in blocks, one of the only algebraic restrictions
+ * c code generation pass
  *
  */
 
 int
 main(int argc, char** argv){
-	compile_file("semantics.w", "test");
+	if (argc <= 1){
+		printf(" -h for help\n");
+		return 0;
+	}
+	if (strncmp(argv[1], "-h", ERROR_STRING_MAX) == 0){
+		printf(" compile program : ink infile.w -o outfile\n");
+		return 0;
+	}
+	if (argc < 4){
+		printf(" not enough arguments, -h for help");
+		return 0;
+	}
+	if (strncmp(argv[1], "-o", ERROR_STRING_MAX) == 0){
+		compile_file(argv[3], argv[2]);
+		return 0;
+	}
+	if (strncmp(argv[2], "-o", ERROR_STRING_MAX) != 0){
+		printf("Expected -o to specify output file");
+		return 0;
+	}
+	compile_file(argv[1], argv[3]);
 	return 0;
 }

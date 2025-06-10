@@ -4630,6 +4630,15 @@ check_program(parser* const parse){
 		}
 		function_to_structure_type(&walk, &parse->term_list.buffer[i]);
 	}
+	for (uint64_t i = 0;i<parse->alias_list.count;++i){
+		assert_local(type_recursive(parse, parse->alias_list.buffer[i].name, parse->alias_list.buffer[i].type) == 0, , "Detected recursive alias definition");
+	}
+	for (uint64_t i = 0;i<parse->type_list.count;++i){
+		if (parse->type_list.buffer[i].param_count > 0){
+			continue;
+		}
+		assert_local(type_recursive(parse, parse->type_list.buffer[i].name, parse->type_list.buffer[i].type) == 0, , "Detected recursive type definition");
+	}
 #ifdef DEBUG
 	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 		implementation_ast* impl = &parse->implementation_list.buffer[i];
@@ -5952,7 +5961,6 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		transform_expr(walk, expr->data.lambda.expression, 0, NULL);
 		pop_binding(walk->local_scope, scope_pos);
 		if (expr->data.lambda.alt != NULL){
-			transform_expr(walk, expr->data.lambda.alt, 0, NULL);
 		}
 		return expr;
 	case BLOCK_EXPR:
@@ -7189,7 +7197,7 @@ is_generic(walker* const walk, type_ast* const type){
 			}
 		}
 		type_ast* reduced = reduce_alias(walk->parse, type);
-		if (type->tag == NAMED_TYPE){
+		if (reduced->tag == NAMED_TYPE){
 			typedef_ast** istypedef = typedef_ptr_map_access(walk->parse->types, reduced->data.named.name.data.name);
 			if (istypedef != NULL){
 				if (type->data.named.arg_count < (*istypedef)->param_count){
@@ -7787,7 +7795,6 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 }
 
 /*
- * mnomorph nested types
  * the way we have been detecting if its a generic parameter is flawed, because we dont check if it has parameters?
  *
  * transform patterns into checks

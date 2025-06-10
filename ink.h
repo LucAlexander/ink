@@ -67,6 +67,7 @@ typedef enum TOKEN {
 	IMPORT_TOKEN,
 	SIZEOF_TOKEN,
 	EFFECT_TOKEN,
+	EXTERNAL_TOKEN,
 	TOKEN_COUNT
 } TOKEN;
 
@@ -107,6 +108,7 @@ void compile_file(char* input, const char* output);
 void compile_str(string input);
 uint8_t issymbol(char c);
 void lex_string(parser* const parse);
+void parse_external_symbols(parser* const parse);
 void parse_program(parser* const parse);
 type_ast* parse_type(parser* const parse, uint8_t named, TOKEN end);
 type_ast* parse_type_worker(parser* const parse, uint8_t named, TOKEN end);
@@ -487,6 +489,10 @@ typedef struct parser {
 	string mainfile;
 	uint64_t_map* enumerated_values;
 	term_ptr_buffer_map* implemented_terms;
+	term_ptr_map* extern_terms;
+	typedef_ptr_map* extern_types;
+	term_ast_buffer extern_term_list;
+	typedef_ast_buffer extern_type_list;
 } parser;
 
 typedef struct binding {
@@ -710,9 +716,5 @@ void clash_structure_priority(walker* const walk, type_ast_map* relation, type_a
 type_ast* monomorph(walker* const walk, expr_ast* const expr, type_ast_map* const relation, type_ast_map* const pointer_only, type_ast* newtype);
 void replace_return_with_setter(walker* const walk, expr_ast* const expr, token setter);
 void try_structure_monomorph(walker* const walk, type_ast* const type);
-
-void add_builtin_wrappers(parser* const parse);
-void create_builtin(parser* const parse, type_ast* const type, char* external, char* binding);
-term_ast* create_term(pool* const mem, type_ast* const type, token name, expr_ast* const expr);
 
 #endif

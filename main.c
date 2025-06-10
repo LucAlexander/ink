@@ -105,6 +105,8 @@ compile_file(char* input, const char* output){
 	uint64_t_map imported = uint64_t_map_init(&mem);
 	uint64_t_map enum_vals = uint64_t_map_init(&mem);
 	term_ptr_buffer_map impl_terms = term_ptr_buffer_map_init(&mem);
+	term_ptr_map extern_terms = term_ptr_map_init(&mem);
+	typedef_ptr_map extern_types = typedef_ptr_map_init(&mem);
 	parser parse = {
 		.mem = &mem,
 		.temp_mem = &temp_mem,
@@ -137,7 +139,11 @@ compile_file(char* input, const char* output){
 		.mainfile.str = input,
 		.mainfile.len = strnlen(input, ERROR_STRING_MAX),
 		.enumerated_values = &enum_vals,
-		.implemented_terms = &impl_terms
+		.implemented_terms = &impl_terms,
+		.extern_terms = &extern_terms,
+		.extern_types = &extern_types,
+		.extern_term_list = term_ast_buffer_init(&mem),
+		.extern_type_list = typedef_ast_buffer_init(&mem)
 	};
 	parse.tokens = pool_request(parse.token_mem, sizeof(token));
 	lex_string(&parse);
@@ -151,7 +157,6 @@ compile_file(char* input, const char* output){
 	show_tokens(parse.tokens, parse.token_count);
 	printf("\n");
 #endif
-	add_builtin_wrappers(&parse);
 	parse_program(&parse);
 	if (parse.err.len != 0){
 		printf("\033[1m[!] Failed to parse, \033[0m");
@@ -204,6 +209,7 @@ keymap_fill(TOKEN_map* const map){
 	TOKEN_map_insert(map, string_init(map->mem, "import"), IMPORT_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "sizeof"), SIZEOF_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "~>"), EFFECT_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "external"), EXTERNAL_TOKEN);
 }
 
 uint8_t
@@ -1184,12 +1190,79 @@ show_structure(structure_ast* const s){
 }
 
 void
+parse_external_symbols(parser* const parse){
+	parse->token_index += 1;
+	token* t = &parse->tokens[parse->token_index];
+	parse->token_index += 1;
+	assert_local(t->tag == BRACE_OPEN_TOKEN, , "Expected block of external definitions");
+	while (parse->token_index < parse->token_count){
+		t = &parse->tokens[parse->token_index];
+		switch (t->tag){
+		case TYPE_TOKEN:
+			typedef_ast* type = parse_typedef(parse);
+			if (parse->err.len == 0){
+				assert_local(type->param_count == 0, , "External symbol types cannot be parametric");
+				parse->token_index += 1;
+				typedef_ast_buffer_insert(&parse->extern_type_list, *type);
+				uint8_t dup = typedef_ptr_map_insert(parse->extern_types, type->name.data.name, typedef_ast_buffer_top(&parse->extern_type_list));
+				assert_local(dup==0, , "Duplicate external type definition");
+#ifdef DEBUG
+				printf("extern ");
+				show_typedef(type);
+				printf("\n");
+#endif
+				t = &parse->tokens[parse->token_index];
+				if (t->tag == BRACE_CLOSE_TOKEN){
+					parse->token_index += 1;
+					return;
+				}
+				continue;
+			}
+			break;
+		default:
+			type_ast* term_type = parse_type(parse, 1, SEMI_TOKEN);
+			if (parse->err.len == 0){
+				t = &parse->tokens[parse->token_index];
+				parse->token_index += 2;
+				term_ast term = {
+					.type = term_type,
+					.name = *t,
+					.expression = NULL
+				};
+				term_ast_buffer_insert(&parse->extern_term_list, term);
+				uint8_t dup = term_ptr_map_insert(parse->extern_terms, term.name.data.name, term_ast_buffer_top(&parse->extern_term_list));
+				assert_local(dup == 0, , "Duplicate external term definition");
+#ifdef DEBUG
+				printf("extern ");
+				show_term(&term);
+				printf("\n");
+#endif
+				t = &parse->tokens[parse->token_index];
+				if (t->tag == BRACE_CLOSE_TOKEN){
+					parse->token_index += 1;
+					return;
+				}
+				continue;
+			}
+			break;
+		}
+		assert_prop();
+	}
+}
+
+void
 parse_program(parser* const parse){
 	while (parse->token_index < parse->token_count){
 		token* t = &parse->tokens[parse->token_index];
 		switch (t->tag){
 		case IMPORT_TOKEN:
 			parse_import(parse);
+			if (parse->err.len == 0){
+				continue;
+			}
+			break;
+		case EXTERNAL_TOKEN:
+			parse_external_symbols(parse);
 			if (parse->err.len == 0){
 				continue;
 			}
@@ -1204,6 +1277,7 @@ parse_program(parser* const parse){
 				show_constant(constant);
 				printf("\n");
 #endif
+				continue;
 			}
 			break;
 		case ALIAS_TOKEN:
@@ -4477,6 +4551,12 @@ check_program(parser* const parse){
 		.next_generic = string_init(parse->mem, "@A"),
 		.generic_collection_buffer = token_buffer_init(parse->mem)
 	};
+	for (uint64_t i = 0;i<parse->extern_term_list.count;++i){
+		assert_local(type_valid(parse, parse->extern_term_list.buffer[i].type) == 1, , "Invalid type for external term definition");
+	}
+	for (uint64_t i = 0;i<parse->extern_type_list.count;++i){
+		assert_local(type_valid(parse, parse->extern_type_list.buffer[i].type) == 1, , "Invalid type for external type definition");
+	}
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
 		pool_empty(parse->temp_mem);
 		realias_type_term(&realias, &parse->term_list.buffer[i]);
@@ -7835,120 +7915,11 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 	type->data.named.arg_count = 0;
 }
 
-void
-add_builtin_wrappers(parser* const parse){
-	create_builtin(parse,
-		mk_func(parse->mem,
-			mk_ptr(parse->mem, mk_lit(parse->mem, U8_TYPE)),
-			mk_func(parse->mem,
-				mk_ptr(parse->mem, mk_lit(parse->mem, U8_TYPE)),
-				mk_func(parse->mem,
-					mk_lit(parse->mem, U64_TYPE),
-					mk_lit(parse->mem, U8_TYPE)
-				)
-			)
-		),
-		"!builtin_memcpy",
-		"memcpy"
-	);
-	create_builtin(parse,
-		mk_func(parse->mem,
-			mk_ptr(parse->mem, mk_lit(parse->mem, U8_TYPE)),
-			mk_func(parse->mem,
-				mk_lit(parse->mem, U8_TYPE),
-				mk_func(parse->mem,
-					mk_lit(parse->mem, U64_TYPE),
-					mk_lit(parse->mem, U8_TYPE)
-				)
-			)
-		),
-		"!builtin_memset",
-		"memset"
-	);
-	create_builtin(parse,
-		mk_func(parse->mem,
-			mk_lit(parse->mem, U64_TYPE),
-			mk_func(parse->mem,
-				mk_ptr(parse->mem, mk_lit(parse->mem, U8_TYPE)),
-				mk_func(parse->mem,
-					mk_lit(parse->mem, U64_TYPE),
-					mk_lit(parse->mem, U64_TYPE)
-				)
-			)
-		),
-		"!builtin_write",
-		"write"
-	);
-	create_builtin(parse,
-		mk_func(parse->mem,
-			mk_ptr(parse->mem, mk_lit(parse->mem, U8_TYPE)),
-			mk_func(parse->mem,
-				mk_lit(parse->mem, U64_TYPE),
-				mk_func(parse->mem,
-					mk_lit(parse->mem, U64_TYPE),
-					mk_func(parse->mem,
-						mk_lit(parse->mem, U64_TYPE),
-						mk_func(parse->mem,
-							mk_lit(parse->mem, U64_TYPE),
-							mk_func(parse->mem,
-								mk_lit(parse->mem, U64_TYPE),
-								mk_ptr(parse->mem, mk_lit(parse->mem, U8_TYPE))
-							)
-						)
-					)
-				)
-			)
-		),
-		"!builtin_mmap",
-		"mmap"
-	);
-	create_builtin(parse,
-		mk_func(parse->mem,
-			mk_ptr(parse->mem, mk_lit(parse->mem, U8_TYPE)),
-			mk_func(parse->mem,
-				mk_lit(parse->mem, U64_TYPE),
-				mk_lit(parse->mem, U64_TYPE)
-			)
-		),
-		"!builtin_munmap",
-		"munmap"
-	);
-}
-
-void
-create_builtin(parser* const parse, type_ast* const type, char* external, char* binding){
-	token extern_binding = {
-		.tag = IDENTIFIER_TOKEN,
-		.content_tag = STRING_TOKEN_TYPE,
-		.index = 0,
-		.data.name = string_init(parse->mem, external)
-	};
-	token inner_binding = {
-		.tag = IDENTIFIER_TOKEN,
-		.content_tag = STRING_TOKEN_TYPE,
-		.index = 0,
-		.data.name = string_init(parse->mem, binding)
-	};
-	term_ast* term = create_term(parse->mem,
-		type,
-		inner_binding,
-		mk_binding(parse->mem, &extern_binding)
-	);
-	term->expression->type = term->type;
-	term_ast_buffer_insert(&parse->term_list, *term);
-	term_ptr_map_insert(parse->terms, inner_binding.data.name, term_ast_buffer_top(&parse->term_list));
-}
-
-term_ast*
-create_term(pool* const mem, type_ast* const type, token name, expr_ast* const expr){
-	term_ast* term = pool_request(mem, sizeof(term));
-	term->type = type;
-	term->name = name;
-	term->expression = expr;
-	return term;
-}
-
 /* TODO
+ * packed structs
+ * externs
+ * 	validate types instantly
+ * 	check for them in_scope/in_scope_transform
  * floats
  * the way we have been detecting if its a generic parameter may be flawed, because we dont check if it has parameters?
  * transform patterns into checks

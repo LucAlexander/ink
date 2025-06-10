@@ -3665,6 +3665,11 @@ reduce_alias_and_type(parser* const parse, type_ast* start_type){
 			start_type = (*type)->type;
 			continue;
 		}
+		type = typedef_ptr_map_access(parse->extern_types, start_type->data.named.name.data.name);
+		if (type != NULL){
+			assert_local(start_type->data.named.arg_count == 0, NULL, "External type symbols must be nonparametric");
+			start_type = (*type)->type;
+		}
 		if (outer_type != NULL){
 			outer_type->data.dependency.type = start_type;
 			return outer_type;
@@ -3684,6 +3689,10 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type, type_as
 		expected_type = reduce_alias(walk->parse, expected_type);
 	}
 	term_ast** term = term_ptr_map_access(walk->parse->terms, bind->data.name);
+	if (term != NULL){
+		return (*term)->type;
+	}
+	term = term_ptr_map_access(walk->parse->extern_terms, bind->data.name);
 	if (term != NULL){
 		return (*term)->type;
 	}
@@ -6380,6 +6389,9 @@ function_to_structure_type(walker* const walk, term_ast* const term){
 		term->type = term->type->data.dependency.type;
 	}
 	type_ast* focus = term->type;
+	if (term->expression == NULL){
+		return;
+	}
 	if (term->expression->tag == LAMBDA_EXPR){
 		uint64_t arg_c = term->expression->data.lambda.arg_count;
 		while (arg_c > 0){
@@ -6681,6 +6693,14 @@ in_scope_transform(walker* const walk, token* const bind, type_ast* expected_typ
 		expected_type = reduce_alias(walk->parse, expected_type);
 	}
 	term_ast** term = term_ptr_map_access(walk->parse->terms, bind->data.name);
+	if (term != NULL){
+		scope_info ret = {
+			.top_level = 1,
+			.term = *term
+		};
+		return ret;
+	}
+	term = term_ptr_map_access(walk->parse->extern_terms, bind->data.name);
 	if (term != NULL){
 		scope_info ret = {
 			.top_level = 1,
@@ -7916,10 +7936,10 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 }
 
 /* TODO
+ * memoize structure monomorph
  * packed structs
- * externs
- * 	validate types instantly
- * 	check for them in_scope/in_scope_transform
+ * extern types arent being detected
+ * 	anything that ever checks typedef map needs to also check extern map
  * floats
  * the way we have been detecting if its a generic parameter may be flawed, because we dont check if it has parameters?
  * transform patterns into checks

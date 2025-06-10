@@ -708,8 +708,11 @@ type_ast* try_monomorph(walker* const walk, expr_ast* expr, expr_ast* const righ
 void clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* pointer_only, type_ast* const left, type_ast* const right);
 void clash_structure_priority(walker* const walk, type_ast_map* relation, type_ast_map* pointer_only, structure_ast* const left, structure_ast* const right);
 type_ast* monomorph(walker* const walk, expr_ast* const expr, type_ast_map* const relation, type_ast_map* const pointer_only, type_ast* newtype);
-
 void replace_return_with_setter(walker* const walk, expr_ast* const expr, token setter);
 void try_structure_monomorph(walker* const walk, type_ast* const type);
+
+void add_builtin_wrappers(parser* const parse);
+void create_builtin(parser* const parse, type_ast* const type, char* external, char* binding);
+term_ast* create_term(pool* const mem, type_ast* const type, token name, expr_ast* const expr);
 
 #endif

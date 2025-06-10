@@ -151,6 +151,7 @@ compile_file(char* input, const char* output){
 	show_tokens(parse.tokens, parse.token_count);
 	printf("\n");
 #endif
+	add_builtin_wrappers(&parse);
 	parse_program(&parse);
 	if (parse.err.len != 0){
 		printf("\033[1m[!] Failed to parse, \033[0m");
@@ -839,8 +840,9 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 				base->data.named.arg_count += 1;
 				break;
 			case PAREN_OPEN_TOKEN:
-				*arg = *parse_type_worker(parse, 0, PAREN_CLOSE_TOKEN);
+				type_ast* interm_arg = parse_type_worker(parse, 0, PAREN_CLOSE_TOKEN);
 				assert_prop(NULL);
+				*arg = *interm_arg;
 				base->data.named.arg_count += 1;
 				break;
 			case BRACK_OPEN_TOKEN:
@@ -7831,6 +7833,119 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 	type->data.named.name = newname;
 	type->data.named.args = NULL;
 	type->data.named.arg_count = 0;
+}
+
+void
+add_builtin_wrappers(parser* const parse){
+	create_builtin(parse,
+		mk_func(parse->mem,
+			mk_ptr(parse->mem, mk_lit(parse->mem, U8_TYPE)),
+			mk_func(parse->mem,
+				mk_ptr(parse->mem, mk_lit(parse->mem, U8_TYPE)),
+				mk_func(parse->mem,
+					mk_lit(parse->mem, U64_TYPE),
+					mk_lit(parse->mem, U8_TYPE)
+				)
+			)
+		),
+		"!builtin_memcpy",
+		"memcpy"
+	);
+	create_builtin(parse,
+		mk_func(parse->mem,
+			mk_ptr(parse->mem, mk_lit(parse->mem, U8_TYPE)),
+			mk_func(parse->mem,
+				mk_lit(parse->mem, U8_TYPE),
+				mk_func(parse->mem,
+					mk_lit(parse->mem, U64_TYPE),
+					mk_lit(parse->mem, U8_TYPE)
+				)
+			)
+		),
+		"!builtin_memset",
+		"memset"
+	);
+	create_builtin(parse,
+		mk_func(parse->mem,
+			mk_lit(parse->mem, U64_TYPE),
+			mk_func(parse->mem,
+				mk_ptr(parse->mem, mk_lit(parse->mem, U8_TYPE)),
+				mk_func(parse->mem,
+					mk_lit(parse->mem, U64_TYPE),
+					mk_lit(parse->mem, U64_TYPE)
+				)
+			)
+		),
+		"!builtin_write",
+		"write"
+	);
+	create_builtin(parse,
+		mk_func(parse->mem,
+			mk_ptr(parse->mem, mk_lit(parse->mem, U8_TYPE)),
+			mk_func(parse->mem,
+				mk_lit(parse->mem, U64_TYPE),
+				mk_func(parse->mem,
+					mk_lit(parse->mem, U64_TYPE),
+					mk_func(parse->mem,
+						mk_lit(parse->mem, U64_TYPE),
+						mk_func(parse->mem,
+							mk_lit(parse->mem, U64_TYPE),
+							mk_func(parse->mem,
+								mk_lit(parse->mem, U64_TYPE),
+								mk_ptr(parse->mem, mk_lit(parse->mem, U8_TYPE))
+							)
+						)
+					)
+				)
+			)
+		),
+		"!builtin_mmap",
+		"mmap"
+	);
+	create_builtin(parse,
+		mk_func(parse->mem,
+			mk_ptr(parse->mem, mk_lit(parse->mem, U8_TYPE)),
+			mk_func(parse->mem,
+				mk_lit(parse->mem, U64_TYPE),
+				mk_lit(parse->mem, U64_TYPE)
+			)
+		),
+		"!builtin_munmap",
+		"munmap"
+	);
+}
+
+void
+create_builtin(parser* const parse, type_ast* const type, char* external, char* binding){
+	token extern_binding = {
+		.tag = IDENTIFIER_TOKEN,
+		.content_tag = STRING_TOKEN_TYPE,
+		.index = 0,
+		.data.name = string_init(parse->mem, external)
+	};
+	token inner_binding = {
+		.tag = IDENTIFIER_TOKEN,
+		.content_tag = STRING_TOKEN_TYPE,
+		.index = 0,
+		.data.name = string_init(parse->mem, binding)
+	};
+	term_ast* term = create_term(parse->mem,
+		type,
+		inner_binding,
+		mk_binding(parse->mem, &extern_binding)
+	);
+	term->expression->type = term->type;
+	term_ast_buffer_insert(&parse->term_list, *term);
+	term_ptr_map_insert(parse->terms, inner_binding.data.name, term_ast_buffer_top(&parse->term_list));
+}
+
+term_ast*
+create_term(pool* const mem, type_ast* const type, token name, expr_ast* const expr){
+	term_ast* term = pool_request(mem, sizeof(term));
+	term->type = type;
+	term->name = name;
+	term->expression = expr;
+	return term;
 }
 
 /* TODO

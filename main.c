@@ -6118,6 +6118,8 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		expr->data.ret = transform_expr(walk, expr->data.ret, 0, newlines);
 		return expr;
 	case SIZEOF_EXPR:
+		try_structure_monomorph(walk, expr->data.size_type);
+		walk_assert(type_valid(walk->parse, expr->data.size_type) == 1, nearest_token(expr), "Type invalid in sizeof expression");
 		return expr;
 	case REF_EXPR:
 		expr->data.ref = transform_expr(walk, expr->data.ref, 0, newlines);
@@ -6172,6 +6174,8 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		return expr;
 	case CAST_EXPR:
 		expr->data.cast.source = transform_expr(walk, expr->data.cast.source, 0, newlines);
+		try_structure_monomorph(walk, expr->data.cast.target);
+		walk_assert(type_valid(walk->parse, expr->data.cast.target) == 1, nearest_token(expr), "Cast target type invalid");
 		return expr;
 	case BREAK_EXPR:
 		return expr;
@@ -7799,10 +7803,8 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
  *
  * transform patterns into checks
  *
- * assert that structures are nonrecursive, must be done after structure monomorph
- * after monomorph you can validate sizeof, evaluate the closure offsets with sizeof_type
+ * after monomorph you can validate sizeof
  * more mem optimizations on the normal walk pass since its basically done for now
- * only monomorph full defined parametric non generic types
  *
  * global and local assertions, probably with other system calls and C level invocations
  * validate cast and sizeof expressionas after monomorphization (because generics are gone) to validate that they are correct types [ type_valid() ]

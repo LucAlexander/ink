@@ -6592,7 +6592,8 @@ line_relay_concat(line_relay* const left, line_relay* const right){
 	left->len += right->len;
 }
 
-scope_info // TODO doing it this way means we need to transform term types as we go, before we add them to the scope
+// NOTE doing it this way means we need to transform term types as we go, before we add them to the scope
+scope_info
 in_scope_transform(walker* const walk, token* const bind, type_ast* expected_type){
 	if (expected_type != NULL){
 		expected_type = reduce_alias(walk->parse, expected_type);
@@ -7832,8 +7833,9 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 	type->data.named.arg_count = 0;
 }
 
-/*
- * the way we have been detecting if its a generic parameter is may be flawed, because we dont check if it has parameters?
+/* TODO
+ * floats
+ * the way we have been detecting if its a generic parameter may be flawed, because we dont check if it has parameters?
  * transform patterns into checks
  * global and local assertions, probably with other system calls and C level invocations
  * error reporting as logging rather than single report

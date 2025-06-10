@@ -7750,6 +7750,21 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 		reduced = reduce_alias_and_type(walk->parse, type);
 		break;
 	}
+	structure_ast* nested = reduced->data.structure;
+	switch (nested->tag){
+	case STRUCT_STRUCT:
+		for (uint64_t i = 0;i<nested->data.structure.count;++i){
+			try_structure_monomorph(walk, &nested->data.structure.members[i]);
+		}
+		break;
+	case UNION_STRUCT:
+		for (uint64_t i = 0;i<nested->data.union_structure.count;++i){
+			try_structure_monomorph(walk, &nested->data.union_structure.members[i]);
+		}
+		break;
+	case ENUM_STRUCT:
+		break;
+	}
 	token newname = {
 		.content_tag = STRING_TOKEN_TYPE,
 		.tag = IDENTIFIER_TOKEN,
@@ -7772,9 +7787,8 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 }
 
 /*
+ * mnomorph nested types
  * the way we have been detecting if its a generic parameter is flawed, because we dont check if it has parameters?
- *
- * test closure size init and total size for optimizing arg move
  *
  * transform patterns into checks
  *

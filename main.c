@@ -3688,7 +3688,7 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type, type_as
 
 uint8_t
 type_equal(parser* const parse, type_ast* const left, type_ast* const right){
-	token_map generics = token_map_init(parse->mem);
+	token_map generics = token_map_init(parse->temp_mem);
 	return type_equal_worker(parse, &generics, left, right);
 }
 
@@ -4579,6 +4579,7 @@ check_program(parser* const parse){
 		}
 	}
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
+		pool_empty(parse->temp_mem);
 		if (is_generic(&walk, parse->term_list.buffer[i].type) == 1){
 			continue;
 		}
@@ -4608,6 +4609,7 @@ check_program(parser* const parse){
 		}
 	}
 	for (uint64_t i = 0;i<pre_transform_limit;++i){
+		pool_empty(parse->temp_mem);
 		if (is_generic(&walk, parse->term_list.buffer[i].type) == 1){
 			continue;
 		}
@@ -4625,6 +4627,7 @@ check_program(parser* const parse){
 		}
 	}
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
+		pool_empty(parse->temp_mem);
 		if (is_generic(&walk, parse->term_list.buffer[i].type) == 1){
 			continue;
 		}
@@ -5713,6 +5716,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		uint64_t arg_count = 0;
 		while (root->tag == APPL_EXPR){
 			root->data.appl.right = transform_expr(walk, root->data.appl.right, 0, newlines);
+			walk_assert_prop();
 			arg_count += 1;
 			root = root->data.appl.left;
 		}
@@ -5936,6 +5940,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		return expr;
 	case ARRAY_ACCESS_EXPR:
 		expr->data.access.left = transform_expr(walk, expr->data.access.left, 0, newlines);
+		walk_assert_prop();
 		expr->data.access.right->data.list.lines[0] = *transform_expr(walk, &expr->data.access.right->data.list.lines[0], 0, newlines);
 		return expr;
 	case LAMBDA_EXPR:
@@ -5959,6 +5964,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			transform_pattern(walk, &expr->data.lambda.args[i], NULL);
 		}
 		transform_expr(walk, expr->data.lambda.expression, 0, NULL);
+		walk_assert_prop();
 		pop_binding(walk->local_scope, scope_pos);
 		if (expr->data.lambda.alt != NULL){
 		}
@@ -5970,10 +5976,12 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				line_relay linelines = line_relay_init(walk->parse->temp_mem);
 				if (expr->data.block.lines[i].tag == BLOCK_EXPR){
 					expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, NULL);
+					walk_assert_prop();
 					line_relay_append(&outer_lines, line);
 					continue;
 				}
 				expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, &linelines);
+				walk_assert_prop();
 				line_relay_append(&linelines, line);
 				line_relay_concat(&outer_lines, &linelines);
 			}
@@ -6000,11 +6008,13 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		line_relay_append(newlines, outer_setter);
 		replace_return_with_setter(walk, expr, setter_name);
 		expr_ast* walked = transform_expr(walk, expr, 0, NULL);
+		walk_assert_prop();
 		line_relay_append(newlines, walked);
 		expr_ast* setter_binding = mk_binding(walk->parse->mem, &setter_name);
 		return setter_binding;
 	case FAT_PTR_EXPR:
 		expr->data.fat_ptr.left = transform_expr(walk, expr->data.fat_ptr.left, 0, newlines);
+		walk_assert_prop();
 		expr->data.fat_ptr.right = transform_expr(walk, expr->data.fat_ptr.right, 0, newlines);
 		return expr;
 	case LIT_EXPR:
@@ -6021,6 +6031,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		}
 		uint64_t pos = push_binding(walk, walk->local_scope, &expr->data.term->name, expr->data.term->type);
 		expr->data.term->expression = transform_expr(walk, expr->data.term->expression, 0, newlines);
+		walk_assert_prop();
 		pop_binding(walk->local_scope, pos);
 		return expr;
 	case STRING_EXPR:
@@ -6028,11 +6039,13 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 	case LIST_EXPR:
 		for (uint64_t i = 0;i<expr->data.list.line_count;++i){
 			expr->data.list.lines[i] = *transform_expr(walk, &expr->data.list.lines[i], 0, newlines);
+			walk_assert_prop();
 		}
 		return expr;
 	case STRUCT_EXPR: // TODO optimization for term = {}, can remain the same, theres also one where a mutation decomposes to a.x = ...; a.y = ....; etc
 		for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
 			expr->data.constructor.members[i] = *transform_expr(walk, &expr->data.constructor.members[i], 0, newlines);
+			walk_assert_prop();
 		}
 		expr_ast* struct_wrapper = new_term(walk, expr->type, expr);
 		line_relay_append(newlines, struct_wrapper);
@@ -6112,6 +6125,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		return expr;
 	case MUTATION_EXPR:
 		expr->data.mutation.left = transform_expr(walk, expr->data.mutation.left, 0, newlines);
+		walk_assert_prop();
 		expr->data.mutation.right = transform_expr(walk, expr->data.mutation.right, 0, newlines);
 		return expr;
 	case RETURN_EXPR:
@@ -6129,24 +6143,31 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		return expr;
 	case IF_EXPR:
 		expr->data.if_statement.pred = transform_expr(walk, expr->data.if_statement.pred, 0, newlines);
+		walk_assert_prop();
 		expr->data.if_statement.cons = transform_expr(walk, expr->data.if_statement.cons, 0, NULL);
+		walk_assert_prop();
 		if (expr->data.if_statement.alt != NULL){
 			expr->data.if_statement.alt = transform_expr(walk, expr->data.if_statement.alt, 0, NULL);
 		}
 		return expr;
 	case FOR_EXPR:
 		expr->data.for_statement.initial = transform_expr(walk, expr->data.for_statement.initial, 0, newlines);
+		walk_assert_prop();
 		uint64_t for_scope_pos = push_binding(walk, walk->local_scope, &expr->data.for_statement.initial->data.binding, expr->data.for_statement.initial->type);
 		expr->data.for_statement.limit = transform_expr(walk, expr->data.for_statement.limit, 0, newlines);
+		walk_assert_prop();
 		expr->data.for_statement.cons = transform_expr(walk, expr->data.for_statement.cons, 0, NULL);
+		walk_assert_prop();
 		pop_binding(walk->local_scope, for_scope_pos-1);
 		return expr;
 	case WHILE_EXPR:
 		expr->data.while_statement.pred = transform_expr(walk, expr->data.while_statement.pred, 0, newlines);
+		walk_assert_prop();
 		expr->data.while_statement.cons = transform_expr(walk, expr->data.while_statement.cons, 0, NULL);
 		return expr;
 	case MATCH_EXPR:
 		expr->data.match.pred = transform_expr(walk, expr->data.match.pred, 0, newlines);
+		walk_assert_prop();
 		for (uint64_t i = 0;i<expr->data.match.count;++i){
 			uint64_t match_scope_pos = walk->local_scope->binding_count;
 			transform_pattern(walk, &expr->data.match.patterns[i], NULL);
@@ -6169,11 +6190,13 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				expr->data.match.cases[i] = *block;
 			}
 			expr->data.match.cases[i] = *transform_expr(walk, &expr->data.match.cases[i], 0, NULL);
+			walk_assert_prop();
 			pop_binding(walk->local_scope, match_scope_pos);
 		}
 		return expr;
 	case CAST_EXPR:
 		expr->data.cast.source = transform_expr(walk, expr->data.cast.source, 0, newlines);
+		walk_assert_prop();
 		try_structure_monomorph(walk, expr->data.cast.target);
 		walk_assert(type_valid(walk->parse, expr->data.cast.target) == 1, nearest_token(expr), "Cast target type invalid");
 		return expr;
@@ -7269,7 +7292,7 @@ term_map_stack_pop(term_map_stack* const stack, uint64_t pos){
 
 expr_ast*
 deep_copy_expr_type_replace_prevent_recursion(walker* const walk, expr_ast* source, clash_relation* const relation, token* const rec_name, type_ast* const rec_type){
-	token_map realias = token_map_init(walk->parse->mem);
+	token_map realias = token_map_init(walk->parse->temp_mem);
 	return deep_copy_expr_type_replace_worker(walk, source, relation, &realias, rec_name, rec_type);
 }
 
@@ -7799,15 +7822,13 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 }
 
 /*
- * the way we have been detecting if its a generic parameter is flawed, because we dont check if it has parameters?
+ * the way we have been detecting if its a generic parameter is may be flawed, because we dont check if it has parameters?
  *
  * transform patterns into checks
  *
- * after monomorph you can validate sizeof
  * more mem optimizations on the normal walk pass since its basically done for now
  *
  * global and local assertions, probably with other system calls and C level invocations
- * validate cast and sizeof expressionas after monomorphization (because generics are gone) to validate that they are correct types [ type_valid() ]
  * error reporting as logging rather than single report
  * nearest type token function
  *

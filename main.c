@@ -4634,19 +4634,30 @@ check_program(parser* const parse){
 		function_to_structure_type(&walk, &parse->term_list.buffer[i]);
 	}
 	for (uint64_t i = 0;i<parse->alias_list.count;++i){
+		function_to_structure_recursive(&walk, parse->alias_list.buffer[i].type);
 		assert_local(type_recursive(parse, parse->alias_list.buffer[i].name, parse->alias_list.buffer[i].type) == 0, , "Detected recursive alias definition");
 	}
 	for (uint64_t i = 0;i<parse->type_list.count;++i){
 		if (parse->type_list.buffer[i].param_count > 0){
 			continue;
 		}
+		function_to_structure_recursive(&walk, parse->type_list.buffer[i].type);
 		assert_local(type_recursive(parse, parse->type_list.buffer[i].name, parse->type_list.buffer[i].type) == 0, , "Detected recursive type definition");
 	}
 #ifdef DEBUG
+	for (uint64_t i = 0;i<parse->alias_list.count;++i){
+		show_alias(&parse->alias_list.buffer[i]);
+		printf("\n");
+	}
+	for (uint64_t i = 0;i<parse->type_list.count;++i){
+		show_typedef(&parse->type_list.buffer[i]);
+		printf("\n");
+	}
 	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 		implementation_ast* impl = &parse->implementation_list.buffer[i];
 		for (uint64_t t = 0;t<impl->member_count;++t){
 			show_term(&impl->members[t]);
+			printf("\n");
 		}
 	}
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
@@ -7826,13 +7837,12 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
  *
  * transform patterns into checks
  *
- * more mem optimizations on the normal walk pass since its basically done for now
- *
  * global and local assertions, probably with other system calls and C level invocations
  * error reporting as logging rather than single report
  * nearest type token function
  *
  * ensure term definitions only happen in blocks, one of the only algebraic restrictions
+ *
  */
 
 int

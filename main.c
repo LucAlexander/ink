@@ -1163,7 +1163,7 @@ show_structure(structure_ast* const s){
 		}
 		printf("}");
 		break;
-	case UNION_STRUCT:
+case UNION_STRUCT:
 		printf("union {");
 		for (uint64_t i = 0;i<s->data.structure.count;++i){
 			if (i != 0){
@@ -7969,9 +7969,16 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 		.content_tag = STRING_TOKEN_TYPE,
 		.tag = IDENTIFIER_TOKEN,
 		.index = 0,
-		.data.name = walk->next_lambda
+		.data.name = generate_mono_struct_name(walk, type)
 	};
-	generate_new_lambda(walk);
+	typedef_ast** olddef = typedef_ptr_map_access(walk->parse->types, newname.data.name);
+	if (olddef != NULL){
+		type->tag = NAMED_TYPE;
+		type->data.named.name = newname;
+		type->data.named.args = NULL;
+		type->data.named.arg_count = 0;
+		return;
+	}
 	typedef_ast newdef = {
 		.name = newname,
 		.params = NULL,
@@ -7986,13 +7993,139 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 	type->data.named.arg_count = 0;
 }
 
+string
+generate_mono_struct_name(walker* const walk, type_ast* const type){
+	string val = string_init(walk->parse->mem, "!");
+	stringify_type(walk->parse->mem, &val, type);
+	return val;
+}
+
+void
+stringify_type(pool* const mem, string* const acc, type_ast* const x){
+	string lval = string_init(mem, " ");
+	switch (x->tag){
+	case DEPENDENCY_TYPE:
+		if (x->data.dependency.dependency_count > 0){
+			string_set(mem, &lval, "(");
+			string_cat(mem, acc, &lval);
+			for (uint64_t i = 0;i<x->data.dependency.dependency_count;++i){
+				string_cat(mem, acc, &x->data.dependency.typeclass_dependencies[i].data.name);
+				string_set(mem, &lval, " ");
+				string_cat(mem, acc, &lval);
+				string_cat(mem, acc, &x->data.dependency.dependency_typenames[i].data.name);
+				string_set(mem, &lval, ".");
+				string_cat(mem, acc, &lval);
+			}
+			string_set(mem, &lval, ")=>");
+			string_cat(mem, acc, &lval);
+		}
+		stringify_type(mem, acc, x->data.dependency.type);
+		return;
+	case FUNCTION_TYPE:
+		string_set(mem, &lval, "(");
+		string_cat(mem, acc, &lval);
+		stringify_type(mem, acc, x->data.function.left);
+		string_set(mem, &lval, ":");
+		string_cat(mem, acc, &lval);
+		stringify_type(mem, acc, x->data.function.right);
+		string_set(mem, &lval, ")");
+		string_cat(mem, acc, &lval);
+		return;
+	case LIT_TYPE:
+		if (x->data.lit == U8_TYPE)       string_set(mem, &lval,"u8");
+		else if (x->data.lit == U16_TYPE) string_set(mem, &lval,"u16");
+		else if (x->data.lit == U32_TYPE) string_set(mem, &lval,"u32");
+		else if (x->data.lit == U64_TYPE) string_set(mem, &lval,"u64");
+		else if (x->data.lit == I8_TYPE)  string_set(mem, &lval,"i8");
+		else if (x->data.lit == I16_TYPE) string_set(mem, &lval,"i16");
+		else if (x->data.lit == I32_TYPE) string_set(mem, &lval,"i32");
+		else if (x->data.lit == I64_TYPE) string_set(mem, &lval,"i64");
+		else if (x->data.lit == INT_ANY)  string_set(mem, &lval,"int");
+		string_cat(mem, acc, &lval);
+		return;
+	case PTR_TYPE:
+		stringify_type(mem, acc, x->data.ptr);
+		string_set(mem, &lval, "^");
+		string_cat(mem, acc, &lval);
+		return;
+	case FAT_PTR_TYPE:
+		string_set(mem, &lval, "[");
+		string_cat(mem, acc, &lval);
+		stringify_type(mem, acc, x->data.fat_ptr.ptr);
+		string_set(mem, &lval, "]");
+		string_cat(mem, acc, &lval);
+		return;
+	case STRUCT_TYPE:
+		stringify_struct(mem, acc, x->data.structure);
+		return;
+	case NAMED_TYPE:
+		string_set(mem, &lval, "<");
+		string_cat(mem, acc, &lval);
+		string_cat(mem, acc, &x->data.named.name.data.name);
+		if (x->data.named.arg_count > 0){
+			string_set(mem, &lval, ",");
+			for (uint64_t i = 0;i<x->data.named.arg_count;++i){
+				string_cat(mem, acc, &lval);
+				stringify_type(mem, acc, &x->data.named.args[i]);
+			}
+		}
+		string_set(mem, &lval, ">");
+		string_cat(mem, acc, &lval);
+		return;
+	}
+}
+
+void
+stringify_struct(pool* const mem, string* const acc, structure_ast* const x){
+	string lval = string_init(mem, " ");
+	switch (x->tag){
+	case STRUCT_STRUCT:
+		string_set(mem, &lval, "struct{");
+		string_cat(mem, acc, &lval);
+		for (uint64_t i = 0;i<x->data.structure.count;++i){
+			stringify_type(mem, acc, &x->data.structure.members[i]);
+			string_set(mem, &lval, " ");
+			string_cat(mem, acc, &lval);
+			string_cat(mem, acc, &x->data.structure.names[i].data.name);
+			string_set(mem, &lval, ";");
+			string_cat(mem, acc, &lval);
+		}
+		string_set(mem, &lval, "}");
+		string_cat(mem, acc, &lval);
+		return;
+	case UNION_STRUCT:
+		string_set(mem, &lval, "union{");
+		string_cat(mem, acc, &lval);
+		for (uint64_t i = 0;i<x->data.union_structure.count;++i){
+			stringify_type(mem, acc, &x->data.union_structure.members[i]);
+			string_set(mem, &lval, " ");
+			string_cat(mem, acc, &lval);
+			string_cat(mem, acc, &x->data.union_structure.names[i].data.name);
+			string_set(mem, &lval, ";");
+			string_cat(mem, acc, &lval);
+		}
+		string_set(mem, &lval, "}");
+		string_cat(mem, acc, &lval);
+		return;
+	case ENUM_STRUCT:
+		string_set(mem, &lval, "enum{");
+		string_cat(mem, acc, &lval);
+		for (uint64_t i = 0;i<x->data.enumeration.count;++i){
+			string_cat(mem, acc, &x->data.enumeration.names[i].data.name);
+			string_set(mem, &lval, ",");
+			string_cat(mem, acc, &lval);
+		}
+		string_set(mem, &lval, "}");
+		string_cat(mem, acc, &lval);
+		return;
+	}
+}
+
 /* TODO
- * memoize structure monomorph
  * packed structs
  * floats
  * the way we have been detecting if its a generic parameter may be flawed, because we dont check if it has parameters?
  * transform patterns into checks
- * global and local assertions, probably with other system calls and C level invocations
  * error reporting as logging rather than single report
  * nearest type token function
  * ensure term definitions only happen in blocks, one of the only algebraic restrictions

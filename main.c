@@ -210,6 +210,7 @@ keymap_fill(TOKEN_map* const map){
 	TOKEN_map_insert(map, string_init(map->mem, "sizeof"), SIZEOF_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "~>"), EFFECT_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "external"), EXTERNAL_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "pack"), PACKED_TOKEN);
 }
 
 uint8_t
@@ -639,6 +640,9 @@ case COMPOSE_TOKEN:
 		case STRUCT_TOKEN:
 			printf("STRUCT ");
 			break;
+		case PACKED_TOKEN:
+			printf("PACKED STRUCT");
+			break;
 		case ENUM_TOKEN:
 			printf("ENUM ");
 			break;
@@ -778,6 +782,7 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 		base->tag = LIT_TYPE;
 		base->data.lit = t->tag - U8_TOKEN;
 		break;
+	case PACKED_TOKEN:
 	case STRUCT_TOKEN:
 	case UNION_TOKEN:
 	case ENUM_TOKEN:
@@ -837,6 +842,7 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 				arg->data.lit = t->tag-U8_TOKEN;
 				base->data.named.arg_count += 1;
 				break;
+			case PACKED_TOKEN:
 			case STRUCT_TOKEN:
 			case UNION_TOKEN:
 			case ENUM_TOKEN:
@@ -943,6 +949,8 @@ parse_struct_type(parser* const parse){
 	parse->token_index += 1;
 	uint64_t capacity = 2;
 	switch (t->tag){
+	case PACKED_TOKEN:
+		structure->data.structure.packed = 1;
 	case STRUCT_TOKEN:
 		structure->tag = STRUCT_STRUCT;
 		t = &parse->tokens[parse->token_index];
@@ -6466,6 +6474,7 @@ function_to_structure_recursive(walker* const walk, type_ast* const type){
 		type->data.structure = pool_request(walk->parse->mem, sizeof(structure_ast));
 		structure_ast* s = type->data.structure;
 		s->tag = STRUCT_STRUCT;
+		s->data.structure.packed = 1;
 		s->data.structure.names = pool_request(walk->parse->mem, sizeof(token)*member_count);
 		s->data.structure.members = pool_request(walk->parse->mem, sizeof(type_ast)*member_count);
 		s->data.structure.count = member_count;
@@ -8124,11 +8133,13 @@ stringify_struct(pool* const mem, string* const acc, structure_ast* const x){
 /* TODO
  * packed structs
  * floats
+ * -------------------------------
  * the way we have been detecting if its a generic parameter may be flawed, because we dont check if it has parameters?
  * transform patterns into checks
+ * -------------------------------
  * error reporting as logging rather than single report
- * nearest type token function
- * ensure term definitions only happen in blocks, one of the only algebraic restrictions
+	 * nearest type token function?
+ * -------------------------------
  * c code generation pass
  *
  */

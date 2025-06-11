@@ -68,6 +68,7 @@ typedef enum TOKEN {
 	SIZEOF_TOKEN,
 	EFFECT_TOKEN,
 	EXTERNAL_TOKEN,
+	PACKED_TOKEN,
 	TOKEN_COUNT
 } TOKEN;
 
@@ -178,6 +179,7 @@ typedef struct structure_ast {
 			token* names;
 			type_ast* members;
 			uint64_t count;
+			uint8_t packed;
 		} structure, union_structure;
 		struct {
 			token* names;

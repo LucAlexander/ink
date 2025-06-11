@@ -7,6 +7,5 @@ Ink is a heavily WIP language project. I am writing this entirely from my own he
 
 # Current tasks
 * finish transformation pass for various expression types
-* external symbol definitions, c level invocations
 * C code generation pass
 * Better error reporting system

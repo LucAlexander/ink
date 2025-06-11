@@ -196,6 +196,8 @@ keymap_fill(TOKEN_map* const map){
 	TOKEN_map_insert(map, string_init(map->mem, "i16"), I16_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "i32"), I32_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "i64"), I64_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "f32"), F32_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "f64"), F64_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "var"), VAR_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "alias"), ALIAS_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "type"), TYPE_TOKEN);
@@ -393,11 +395,12 @@ lex_string(parser* const parse){
 			t = &parse->tokens[parse->token_count];
 			continue;
 		}
-		else if (isdigit(c) || c == '-'){ // TODO floats
+		else if (isdigit(c) || c == '-'){
 			t->tag = INTEGER_TOKEN;
 			t->content_tag = UINT_TOKEN_TYPE;
 			t->data.pos = 0;
 			uint8_t neg = 0;
+			uint64_t start_float = parse->text_index-1;
 			if (c == '-'){
 				t->content_tag = INT_TOKEN_TYPE;
 				neg = 1;
@@ -478,7 +481,68 @@ lex_string(parser* const parse){
 					continue;
 				}
 			}
+			uint8_t is_float = 0;
+			uint64_t end_float = parse->text_index;
 			while (parse->text_index < parse->text.len){
+				if (c == '.'){
+					is_float = 1;
+					while (parse->text_index < parse->text.len){
+						c = parse->text.str[parse->text_index];
+						parse->text_index += 1;
+						if (c == 'f'){
+							end_float = parse->text_index;
+							break;
+						}
+						if (c == 'e' || c == 'E'){
+							c = parse->text.str[parse->text_index];
+							parse->text_index += 1;
+							if (c == '-'){
+								c = parse->text.str[parse->text_index];
+								parse->text_index += 1;
+							}
+							while (parse->text_index < parse->text.len){
+								c = parse->text.str[parse->text_index];
+								parse->text_index += 1;
+								if (isdigit(c) == 0){
+									parse->text_index -= 1;
+									break;
+								}
+							}
+							end_float = parse->text_index+1;
+							break;
+						}
+						if (isdigit(c) == 0){
+							end_float = parse->text_index;
+							parse->text_index -= 1;
+							break;
+						}
+					}
+					break;
+				}
+				else if (c == 'f'){
+					is_float = 1;
+					end_float = parse->text_index;
+					break;
+				}
+				else if (c == 'e' || c == 'E'){
+					is_float = 1;
+					c = parse->text.str[parse->text_index];
+					parse->text_index += 1;
+					if (c == '-'){
+						c = parse->text.str[parse->text_index];
+						parse->text_index += 1;
+					}
+					while (parse->text_index < parse->text.len){
+						c = parse->text.str[parse->text_index];
+						parse->text_index += 1;
+						if (isdigit(c) == 0){
+							parse->text_index -= 1;
+							break;
+						}
+					}
+					end_float = parse->text_index+1;
+					break;
+				}
 				if (isdigit(c) == 0){
 					parse->text_index -= 1;
 					break;
@@ -487,6 +551,19 @@ lex_string(parser* const parse){
 				t->data.pos += (c-48);
 				c = parse->text.str[parse->text_index];
 				parse->text_index += 1;
+			}
+			if (is_float == 1){
+				t->tag = FLOAT_TOKEN;
+				t->content_tag = FLOAT_TOKEN_TYPE;
+				char save = parse->text.str[end_float];
+				parse->text.str[end_float] = '\0';
+				printf("%s\n", &parse->text.str[start_float]);
+				t->data.flt = atof(&parse->text.str[start_float]);
+				parse->text.str[end_float] = save;
+				pool_request(parse->token_mem, sizeof(token));
+				parse->token_count += 1;
+				t = &parse->tokens[parse->token_count];
+				continue;
 			}
 			if (neg == 1){
 				uint64_t pos = t->data.pos;
@@ -586,6 +663,9 @@ case COMPOSE_TOKEN:
 		case INTEGER_TOKEN:
 			printf("INTEGER %lu (%ld) ", t.data.pos, t.data.neg);
 			break;
+		case FLOAT_TOKEN:
+			printf("FLOAT %lf ", t.data.flt);
+			break;
 		case ARROW_TOKEN:
 			printf("ARROW -> ");
 			break;
@@ -627,6 +707,12 @@ case COMPOSE_TOKEN:
 			break;
 		case I64_TOKEN:
 			printf("I64 ");
+			break;
+		case F32_TOKEN:
+			printf("F32 ");
+			break;
+		case F64_TOKEN:
+			printf("F64 ");
 			break;
 		case VAR_TOKEN:
 			printf("VAR ");
@@ -779,6 +865,8 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 	case I16_TOKEN:
 	case I32_TOKEN:
 	case I64_TOKEN:
+	case F32_TOKEN:
+	case F64_TOKEN:
 		base->tag = LIT_TYPE;
 		base->data.lit = t->tag - U8_TOKEN;
 		break;
@@ -838,6 +926,8 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 			case I16_TOKEN:
 			case I32_TOKEN:
 			case I64_TOKEN:
+			case F32_TOKEN:
+			case F64_TOKEN:
 				arg->tag = LIT_TYPE;
 				arg->data.lit = t->tag-U8_TOKEN;
 				base->data.named.arg_count += 1;
@@ -1128,6 +1218,8 @@ show_type(type_ast* const type){
 		else if (type->data.lit == I16_TYPE) printf("i16");
 		else if (type->data.lit == I32_TYPE) printf("i32");
 		else if (type->data.lit == I64_TYPE) printf("i64");
+		else if (type->data.lit == F32_TYPE) printf("f32");
+		else if (type->data.lit == F64_TYPE) printf("f64");
 		else if (type->data.lit == INT_ANY) printf("int");
 		break;
 	case PTR_TYPE:
@@ -1920,6 +2012,12 @@ show_literal(literal_ast* const lit){
 	case UINT_LITERAL:
 		printf("%lu", lit->data.u);
 		break;
+	case FLOAT_LITERAL:
+		printf("%f", lit->data.f);
+		break;
+	case DOUBLE_LITERAL:
+		printf("%lf", lit->data.d);
+		break;
 	}
 }
 
@@ -2222,6 +2320,10 @@ parse_expr(parser* const parse, TOKEN end){
 			else if (t->content_tag == INT_TOKEN_TYPE){
 				expr->data.literal.data.i = t->data.neg;
 			}
+			break;
+		case FLOAT_TOKEN:
+			expr->tag = LIT_EXPR;
+			expr->data.literal.data.f = t->data.flt;
 			break;
 		default:
 			assert_local(0, NULL, "Unexpected token in expression");
@@ -3090,6 +3192,9 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				.tag = LIT_TYPE,
 				.data.lit = INT_ANY
 			};
+			if (expected_type->tag > INT_ANY){
+				lit_type.data.lit = F64_TYPE;
+			}
 			walk_assert(type_equal(walk->parse, expected_type, &lit_type), nearest_token(expr), "Literal integer type assigned to non matching type");
 			pop_binding(walk->local_scope, scope_pos);
 			token_stack_pop(walk->term_stack, token_pos);
@@ -3097,8 +3202,14 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			return expected_type;
 		}
 		type_ast* lit_type = pool_request(walk->parse->mem, sizeof(type_ast));
-		lit_type->tag = LIT_TYPE;
-		lit_type->data.lit = INT_ANY;
+		if (expr->data.literal.tag <= UINT_LITERAL){
+			lit_type->tag = LIT_TYPE;
+			lit_type->data.lit = INT_ANY;
+		}
+		else{
+			lit_type->tag = LIT_TYPE;
+			lit_type->data.lit = F64_TYPE;
+		}
 		pop_binding(walk->local_scope, scope_pos);
 		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = lit_type;
@@ -6591,6 +6702,8 @@ sizeof_type(parser* const parse, type_ast* const type){
 		if (type->data.lit == I16_TYPE) return 2;
 		if (type->data.lit == I32_TYPE) return 4;
 		if (type->data.lit == I64_TYPE) return 8;
+		if (type->data.lit == F32_TYPE) return 4;
+		if (type->data.lit == F64_TYPE) return 8;
 		return 8;
 	case PTR_TYPE:
 		return 8;
@@ -8050,6 +8163,8 @@ stringify_type(pool* const mem, string* const acc, type_ast* const x){
 		else if (x->data.lit == I32_TYPE) string_set(mem, &lval,"i32");
 		else if (x->data.lit == I64_TYPE) string_set(mem, &lval,"i64");
 		else if (x->data.lit == INT_ANY)  string_set(mem, &lval,"int");
+		else if (x->data.lit == F32_TYPE) string_set(mem, &lval,"f32");
+		else if (x->data.lit == F64_TYPE) string_set(mem, &lval,"f64");
 		string_cat(mem, acc, &lval);
 		return;
 	case PTR_TYPE:
@@ -8131,15 +8246,17 @@ stringify_struct(pool* const mem, string* const acc, structure_ast* const x){
 }
 
 /* TODO
- * packed structs
  * floats
- * -------------------------------
- * the way we have been detecting if its a generic parameter may be flawed, because we dont check if it has parameters?
+ * 		lexing floats
+ * 		handling equivalence / equality / clashing with floats
+ * -TRANSFORMATION------------------------------------------
+ * the way we have been detecting if its a generic parameter
+ * 		may be flawed, because we dont check if it has parameters?
  * transform patterns into checks
- * -------------------------------
+ * -ERROR REPORTING-----------------------------------------
  * error reporting as logging rather than single report
-	 * nearest type token function?
- * -------------------------------
+		 nearest type token function?
+ * -CODE GENERATION-----------------------------------------
  * c code generation pass
  *
  */

@@ -36,6 +36,7 @@ typedef enum TOKEN {
 	STRING_TOKEN,
 	CHAR_TOKEN,
 	INTEGER_TOKEN,
+	FLOAT_TOKEN,
 	ARROW_TOKEN,
 	IF_TOKEN,
 	ELSE_TOKEN,
@@ -54,6 +55,8 @@ typedef enum TOKEN {
 	I16_TOKEN,
 	I32_TOKEN,
 	I64_TOKEN,
+	F32_TOKEN,
+	F64_TOKEN,
 	VAR_TOKEN,
 	ALIAS_TOKEN,
 	TYPE_TOKEN,
@@ -78,12 +81,14 @@ typedef struct token {
 	enum {
 		STRING_TOKEN_TYPE,
 		UINT_TOKEN_TYPE,
-		INT_TOKEN_TYPE
+		INT_TOKEN_TYPE,
+		FLOAT_TOKEN_TYPE
 	} content_tag;
 	union{
 		string name;
 		uint64_t pos;
 		int64_t neg;
+		double flt;
 	} data;
 	uint64_t index;
 	TOKEN tag;
@@ -198,10 +203,14 @@ typedef struct literal_ast {
 	union {
 		uint64_t u;
 		int64_t i;
+		float f;
+		double d;
 	} data;
 	enum {
 		INT_LITERAL,
-		UINT_LITERAL
+		UINT_LITERAL,
+		FLOAT_LITERAL,
+		DOUBLE_LITERAL
 	} tag;
 } literal_ast;
 
@@ -261,7 +270,9 @@ typedef struct type_ast {
 			I16_TYPE,
 			I32_TYPE,
 			I64_TYPE,
-			INT_ANY
+			INT_ANY,
+			F32_TYPE,
+			F64_TYPE
 		} lit;
 		type_ast* ptr;
 		struct {

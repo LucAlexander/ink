@@ -920,7 +920,7 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 		base->tag = FAT_PTR_TYPE;
 		base->data.fat_ptr.ptr = parse_type_worker(parse, 0, BRACK_CLOSE_TOKEN);
 		assert_prop(NULL);
-		base->data.fat_ptr.len = 0;//TODO
+		base->data.fat_ptr.len = 0;
 		parse->token_index += 1;
 		break;
 	case PAREN_OPEN_TOKEN:
@@ -2713,17 +2713,33 @@ lex_err(parser* const parse, uint64_t goal, string filename){
 			continue;
 		}
 		else if (issymbol(c)){
-			c = str.str[text_index];
-			text_index += 1;
-			while ((text_index < str.len) && issymbol(c)){
+			if (c == '-'){
+				c = str.str[text_index];
+				if (isdigit(c) == 0){
+					c = str.str[text_index];
+					text_index += 1;
+					while ((text_index < str.len) && issymbol(c)){
+						c = str.str[text_index];
+						text_index += 1;
+					}
+					text_index -= 1;
+					index += 1;
+					continue;
+				}
+			}
+			else{
 				c = str.str[text_index];
 				text_index += 1;
+				while ((text_index < str.len) && issymbol(c)){
+					c = str.str[text_index];
+					text_index += 1;
+				}
+				text_index -= 1;
+				index += 1;
+				continue;
 			}
-			text_index -= 1;
-			index += 1;
-			continue;
 		}
-		else if (isdigit(c) || c == '-'){ // TODO floats
+		if (isdigit(c) || c == '-'){
 			if (c == '-'){
 				c = str.str[text_index];
 				text_index += 1;
@@ -2772,6 +2788,57 @@ lex_err(parser* const parse, uint64_t goal, string filename){
 				}
 			}
 			while (text_index < str.len){
+				if (c == '.'){
+					while (text_index < str.len){
+						c = str.str[text_index];
+						text_index += 1;
+						if (c == 'f'){
+							break;
+						}
+						if (c == 'e' || c == 'E'){
+							c = str.str[text_index];
+							text_index += 1;
+							if (c == '-'){
+								c = str.str[text_index];
+								text_index += 1;
+							}
+							while (text_index < str.len){
+								c = str.str[text_index];
+								text_index += 1;
+								if (isdigit(c) == 0){
+									text_index -= 1;
+									break;
+								}
+							}
+							break;
+						}
+						if (isdigit(c) == 0){
+							text_index -= 1;
+							break;
+						}
+					}
+					break;
+				}
+				else if (c == 'f'){
+					break;
+				}
+				if (c == 'e' || c == 'E'){
+					c = str.str[text_index];
+					text_index += 1;
+					if (c == '-'){
+						c = str.str[text_index];
+						text_index += 1;
+					}
+					while (text_index < str.len){
+						c = str.str[text_index];
+						text_index += 1;
+						if (isdigit(c) == 0){
+							text_index -= 1;
+							break;
+						}
+					}
+					break;
+				}
 				if (isdigit(c) == 0){
 					text_index -= 1;
 					break;
@@ -8301,9 +8368,6 @@ stringify_struct(pool* const mem, string* const acc, structure_ast* const x){
 }
 
 /* TODO
- * floats
- * 		lexing floats
- * 		handling equivalence / equality / clashing with floats
  * -TRANSFORMATION------------------------------------------
  * the way we have been detecting if its a generic parameter
  * 		may be flawed, because we dont check if it has parameters?

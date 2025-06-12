@@ -1983,7 +1983,10 @@ parse_pattern(parser* const parse){
 			pat->data.literal.tag = INT_LITERAL;
 			pat->data.literal.data.i = outer->data.neg;
 		}
-		else if (outer->content_tag == FLOAT_TOKEN_TYPE){
+		break;
+	case FLOAT_TOKEN:
+		pat->tag = LITERAL_PATTERN;
+		if (outer->content_tag == FLOAT_TOKEN_TYPE){
 			pat->data.literal.tag = DOUBLE_LITERAL;
 			pat->data.literal.data.d = outer->data.flt;
 		}

@@ -6354,7 +6354,9 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		walk_assert_prop();
 		pop_binding(walk->local_scope, scope_pos);
 		if (expr->data.lambda.alt != NULL){
+			transform_expr(walk, expr->data.lambda.alt, 0, NULL);
 		}
+		destructure_lambda_patterns(walk, expr);
 		return expr;
 	case BLOCK_EXPR:
 		if (newlines == NULL){
@@ -8365,6 +8367,104 @@ stringify_struct(pool* const mem, string* const acc, structure_ast* const x){
 		string_cat(mem, acc, &lval);
 		return;
 	}
+}
+
+void
+destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
+	//TODO realias arg names
+	expr_ast* lateral_walker = expr;
+	expr_ast* prev = expr;
+	expr_ast* cond = pool_request(walk->parse->mem, sizeof(expr_ast));
+	while (lateral_walker != NULL){
+		expr_ast* cond_walker = cond;
+		uint64_t arg_index = 0;
+		if (prev != lateral_walker){
+			uint64_t minargs = prev->data.lambda.arg_count;
+			if (lateral_walker->data.lambda.arg_count < minargs){
+				minargs = lateral_walker->data.lambda.arg_count;
+			}
+			for (;arg_index<minargs;++arg_index){
+				if (pattern_equal(&prev->data.lambda.args[arg_index], &lateral_walker->data.lambda.args[arg_index]) == 1){
+					cond_walker = cond_walker->data.if_statement.cons;
+					continue;
+				}
+				cond_walker->data.if_statement.alt = pool_request(walk->parse->mem, sizeof(expr_ast));
+				break;
+			}
+		}
+		while (arg_index < lateral_walker->data.lambda.arg_count;++i){
+			pattern_ast* target_pattern = &lateral_walker->data.lambda.args[arg_index];
+			switch (target_pattern->tag){
+				//TODO this whole loop
+			}
+			arg_index += 1;
+		}
+		prev = lateral_walker;
+		lateral_walker = lateral_walker->data.lambda.alt;
+	}
+	//TODO replace lambda expression with cond
+	//get rid of alt
+}
+
+uint8_t
+pattern_equal(pattern_ast* const left, pattern_ast* const right){
+	if (left->tag != right->tag){
+		return 0;
+	}
+	switch (left->tag){
+	case NAMED_PATTERN:
+		if (string_compare(&left->data.named.name.data.name, &right->data.named.name.data.name) != 0){
+			return 0;
+		}
+		return pattern_equal(left->data.named.inner, right->data.named.inner);
+	case STRUCT_PATTERN:
+		for (uint64_t i = 0;i<left->data.structure.count;++i){
+			if (pattern_equal(&left->data.structure.members[i], &right->data.structure.members[i]) == 0){
+				return 0;
+			}
+		}
+		return 1;
+	case FAT_PTR_PATTERN:
+		if (pattern_equal(left->data.fat_ptr.ptr, right->data.fat_ptr.ptr) == 0){
+			return 0;
+		}
+		return pattern_equal(left->data.fat_ptr.len, right->data.fat_ptr.ptr);
+	case HOLE_PATTERN:
+		return 1;
+	case BINDING_PATTERN:
+		if (string_compare(&left->data.binding.data.name, &right->data.binding.data.name) == 0){
+			return 1;
+		}
+		return 0;
+	case LITERAL_PATTERN:
+		if (left->data.literal->tag != right->data.literal.tag){
+			return 0;
+		}
+		if (left->data.literal->tag == INT_LITERAL){
+			return left->data.literal.data.i == right->data.literal.data.i;
+		}
+		if (left->data.literal->tag == UINT_LITERAL){
+			return left->data.literal.data.u == right->data.literal.data.u;
+		}
+		if (left->data.literal->tag == FLOAT_LITERAL){
+			return left->data.literal.data.f == right->data.literal.data.f;
+		}
+		if (left->data.literal->tag == DOUBLE_LITERAL){
+			return left->data.literal.data.d == right->data.literal.data.d;
+		}
+		return 0;
+	case STRING_PATTERN:
+		if (string_compare(&left->data.str, &right->data.str) == 0){
+			return 1;
+		}
+		return 0;
+	case UNION_SELECTOR_PATTERN:
+		if (string_compare(&left->data.union_selector.member.data.name, &right->data.union_selector.member.data.name) != 0){
+			return 0;
+		}
+		return pattern_equal(left->data.union_selector.nest, right->data.union_selector.nest);
+	}
+	return 0;
 }
 
 /* TODO

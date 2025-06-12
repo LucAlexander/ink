@@ -375,27 +375,53 @@ lex_string(parser* const parse){
 			continue;
 		}
 		else if (issymbol(c)){
-			t->data.name.len += 1;
-			t->tag = SYMBOL_TOKEN;
-			t->content_tag = STRING_TOKEN_TYPE;
-			c = parse->text.str[parse->text_index];
-			parse->text_index += 1;
-			while ((parse->text_index < parse->text.len) && issymbol(c)){
+			if (c == '-'){
+				c = parse->text.str[parse->text_index];
+				if (isdigit(c) == 0){
+					t->data.name.len += 1;
+					t->tag = SYMBOL_TOKEN;
+					t->content_tag = STRING_TOKEN_TYPE;
+					c = parse->text.str[parse->text_index];
+					parse->text_index += 1;
+					while ((parse->text_index < parse->text.len) && issymbol(c)){
+						t->data.name.len += 1;
+						c = parse->text.str[parse->text_index];
+						parse->text_index += 1;
+					}
+					parse->text_index -= 1;
+					TOKEN* tok = TOKEN_map_access(parse->keymap, t->data.name);
+					if (tok != NULL){
+						t->tag = *tok;
+					}
+					pool_request(parse->token_mem, sizeof(token));
+					parse->token_count += 1;
+					t = &parse->tokens[parse->token_count];
+					continue;
+				}
+			}
+			else{
 				t->data.name.len += 1;
+				t->tag = SYMBOL_TOKEN;
+				t->content_tag = STRING_TOKEN_TYPE;
 				c = parse->text.str[parse->text_index];
 				parse->text_index += 1;
+				while ((parse->text_index < parse->text.len) && issymbol(c)){
+					t->data.name.len += 1;
+					c = parse->text.str[parse->text_index];
+					parse->text_index += 1;
+				}
+				parse->text_index -= 1;
+				TOKEN* tok = TOKEN_map_access(parse->keymap, t->data.name);
+				if (tok != NULL){
+					t->tag = *tok;
+				}
+				pool_request(parse->token_mem, sizeof(token));
+				parse->token_count += 1;
+				t = &parse->tokens[parse->token_count];
+				continue;
 			}
-			parse->text_index -= 1;
-			TOKEN* tok = TOKEN_map_access(parse->keymap, t->data.name);
-			if (tok != NULL){
-				t->tag = *tok;
-			}
-			pool_request(parse->token_mem, sizeof(token));
-			parse->token_count += 1;
-			t = &parse->tokens[parse->token_count];
-			continue;
 		}
-		else if (isdigit(c) || c == '-'){
+		if (isdigit(c) || c == '-'){
 			t->tag = INTEGER_TOKEN;
 			t->content_tag = UINT_TOKEN_TYPE;
 			t->data.pos = 0;
@@ -557,7 +583,6 @@ lex_string(parser* const parse){
 				t->content_tag = FLOAT_TOKEN_TYPE;
 				char save = parse->text.str[end_float];
 				parse->text.str[end_float] = '\0';
-				printf("%s\n", &parse->text.str[start_float]);
 				t->data.flt = atof(&parse->text.str[start_float]);
 				parse->text.str[end_float] = save;
 				pool_request(parse->token_mem, sizeof(token));
@@ -865,10 +890,16 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 	case I16_TOKEN:
 	case I32_TOKEN:
 	case I64_TOKEN:
-	case F32_TOKEN:
-	case F64_TOKEN:
 		base->tag = LIT_TYPE;
 		base->data.lit = t->tag - U8_TOKEN;
+		break;
+	case F32_TOKEN:
+		base->tag = LIT_TYPE;
+		base->data.lit = F32_TYPE;
+		break;
+	case F64_TOKEN:
+		base->tag = LIT_TYPE;
+		base->data.lit = F64_TYPE;
 		break;
 	case PACKED_TOKEN:
 	case STRUCT_TOKEN:
@@ -926,10 +957,18 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 			case I16_TOKEN:
 			case I32_TOKEN:
 			case I64_TOKEN:
-			case F32_TOKEN:
-			case F64_TOKEN:
 				arg->tag = LIT_TYPE;
 				arg->data.lit = t->tag-U8_TOKEN;
+				base->data.named.arg_count += 1;
+				break;
+			case F32_TOKEN:
+				arg->tag = LIT_TYPE;
+				arg->data.lit = F32_TYPE;
+				base->data.named.arg_count += 1;
+				break;
+			case F64_TOKEN:
+				arg->tag = LIT_TYPE;
+				arg->data.lit = F64_TYPE;
 				base->data.named.arg_count += 1;
 				break;
 			case PACKED_TOKEN:
@@ -1944,6 +1983,10 @@ parse_pattern(parser* const parse){
 			pat->data.literal.tag = INT_LITERAL;
 			pat->data.literal.data.i = outer->data.neg;
 		}
+		else if (outer->content_tag == FLOAT_TOKEN_TYPE){
+			pat->data.literal.tag = DOUBLE_LITERAL;
+			pat->data.literal.data.d = outer->data.flt;
+		}
 		else {
 			assert_local(0, NULL, "Unexpected literal integer type");
 		}
@@ -2316,14 +2359,17 @@ parse_expr(parser* const parse, TOKEN end){
 			expr->tag = LIT_EXPR;
 			if (t->content_tag == UINT_TOKEN_TYPE){
 				expr->data.literal.data.u = t->data.pos;
+				expr->data.literal.tag = UINT_LITERAL;
 			}
 			else if (t->content_tag == INT_TOKEN_TYPE){
 				expr->data.literal.data.i = t->data.neg;
+				expr->data.literal.tag = INT_LITERAL;
 			}
 			break;
 		case FLOAT_TOKEN:
 			expr->tag = LIT_EXPR;
-			expr->data.literal.data.f = t->data.flt;
+			expr->data.literal.data.d = t->data.flt;
+			expr->data.literal.tag = DOUBLE_LITERAL;
 			break;
 		default:
 			assert_local(0, NULL, "Unexpected token in expression");
@@ -3192,10 +3238,10 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				.tag = LIT_TYPE,
 				.data.lit = INT_ANY
 			};
-			if (expected_type->tag > INT_ANY){
-				lit_type.data.lit = F64_TYPE;
+			if (expected_type->data.lit > INT_ANY){
+				lit_type.data.lit = F32_TYPE;
 			}
-			walk_assert(type_equal(walk->parse, expected_type, &lit_type), nearest_token(expr), "Literal integer type assigned to non matching type");
+			walk_assert(type_equal(walk->parse, expected_type, &lit_type), nearest_token(expr), "Literal type assigned to non matching type");
 			pop_binding(walk->local_scope, scope_pos);
 			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = expected_type;
@@ -3208,7 +3254,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		}
 		else{
 			lit_type->tag = LIT_TYPE;
-			lit_type->data.lit = F64_TYPE;
+			lit_type->data.lit = F32_TYPE;
 		}
 		pop_binding(walk->local_scope, scope_pos);
 		token_stack_pop(walk->term_stack, token_pos);
@@ -3917,11 +3963,13 @@ type_equal_worker(parser* const parse, token_map* const generics, type_ast* cons
 		return type_equal_worker(parse, generics, left->data.function.left, right->data.function.left)
 		     & type_equal_worker(parse, generics, left->data.function.right, right->data.function.right);
 	case LIT_TYPE:
-		if (left->data.lit == INT_ANY || right->data.lit == INT_ANY){
+		if ((left->data.lit == INT_ANY && right->data.lit <= INT_ANY) || (right->data.lit == INT_ANY && left->data.lit <= INT_ANY)){
 			return 1;
 		}
-		return left->data.lit == right->data.lit;
-		//TODO coersion? we'll experiment without for now, you can always explicit cast
+		if (left->data.lit == F64_TYPE){
+			return 1;
+		}
+		return (right->data.lit < left->data.lit + 1);
 	case PTR_TYPE:
 		return type_equal_worker(parse, generics, left->data.ptr, right->data.ptr);
 	case FAT_PTR_TYPE:
@@ -4381,11 +4429,13 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* po
 		return clash_types_worker(parse, relation, pointer_only, left->data.function.left, right->data.function.left)
 		     & clash_types_worker(parse, relation, pointer_only, left->data.function.right, right->data.function.right);
 	case LIT_TYPE:
-		if (left->data.lit == INT_ANY || right->data.lit == INT_ANY){
+		if ((left->data.lit == INT_ANY && right->data.lit <= INT_ANY) || (right->data.lit == INT_ANY && left->data.lit <= INT_ANY)){
 			return 1;
 		}
-		return left->data.lit == right->data.lit;
-		//TODO coersion? we'll experiment without for now, you can always explicit cast
+		if (left->data.lit == F64_TYPE){
+			return 1;
+		}
+		return (right->data.lit < left->data.lit + 1);
 	case PTR_TYPE:
 		return clash_types_worker(parse, relation, pointer_only, left->data.ptr, right->data.ptr);
 	case FAT_PTR_TYPE:
@@ -5599,11 +5649,13 @@ clash_types_equiv_worker(walker* const walk, type_ast_map* const relation, type_
 		}
 		return clash_types_equiv_worker(walk, relation, pointer_only, left->data.function.right, right->data.function.right);
 	case LIT_TYPE:
-		if (left->data.lit == INT_ANY || right->data.lit == INT_ANY){
+		if ((left->data.lit == INT_ANY && right->data.lit <= INT_ANY) || (right->data.lit == INT_ANY && left->data.lit <= INT_ANY)){
 			return 1;
 		}
-		return left->data.lit == right->data.lit;
-		//TODO coersion? we'll experiment without for now, you can always explicit cast
+		if (left->data.lit == F64_TYPE){
+			return 1;
+		}
+		return (right->data.lit < left->data.lit + 1);
 	case PTR_TYPE:
 		return clash_types_equiv_worker(walk, relation, pointer_only, left->data.ptr, right->data.ptr);
 	case FAT_PTR_TYPE:

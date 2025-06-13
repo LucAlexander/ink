@@ -3230,6 +3230,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			walk_assert(eval_type != NULL, nearest_token(expr->data.lambda.expression), "Lambda term expression did not have inferrable type");
 			*type_focus = *eval_type;
 			if (expr->data.lambda.alt != NULL){
+				walk_assert(expr->data.lambda.alt->data.lambda.arg_count == expr->data.lambda.arg_count, nearest_token(expr->data.lambda.alt), "Alternate lambda branches must match in arity");
 				pop_binding(walk->local_scope, scope_pos);
 				type_ast* alt_type = walk_expr(walk, expr->data.lambda.alt, NULL, NULL, 1);
 				walk_assert_prop();
@@ -3268,6 +3269,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert_prop();
 		walk_assert(eval_type != NULL, nearest_token(expr->data.lambda.expression), "Lambda term expression did not match expected type");
 		if (expr->data.lambda.alt != NULL){
+			walk_assert(expr->data.lambda.alt->data.lambda.arg_count == expr->data.lambda.arg_count, nearest_token(expr->data.lambda.alt), "Alternate lambda branches must match in arity");
 			pop_binding(walk->local_scope, scope_pos);
 			type_ast* alt_type = walk_expr(walk, expr->data.lambda.alt, expected_type, expected_view, 1);
 			walk_assert_prop();

@@ -8371,21 +8371,91 @@ stringify_struct(pool* const mem, string* const acc, structure_ast* const x){
 
 void
 destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
-	//TODO realias arg names
+	uint64_t arg_count = expr->data.lambda.arg_count;
+	pattern_ast* realiased = pool_request(walk->parse->mem, sizeof(pattern_ast)*arg_count);
+	for (uint64_t i = 0;i<arg_count;++i){
+		realiased[i] = (pattern_ast){
+			.tag = BINDING_PATTERN,
+			.data.binding = {
+				.content_tag = STRING_TOKEN_TYPE,
+				.tag = IDENTIFIER_TOKEN,
+				.index = 0,
+				.data.name = walk->next_lambda
+			}
+		};
+		generate_new_lambda(walk);
+	}
 	expr_ast* lateral_walker = expr;
-	expr_ast* prev = expr;
 	expr_ast* cond = pool_request(walk->parse->mem, sizeof(expr_ast));
+	expr_ast* prev_walker = NULL;
 	while (lateral_walker != NULL){
-		prev = lateral_walker;
+		if (prev_walker == NULL){
+			expr_ast* prev_inner = NULL;
+			expr_ast* outer_dispatch = NULL;
+			for (uint64_t i = 0;i<lateral_walker->data.lambda.arg_count;++i){
+				expr_ast* binding = mk_binding(walk->parse->mem, &realiased[i].data.binding);
+				expr_ast* inner;
+				expr_ast* line = destructure_pattern(walk, &lateral_walker->data.lambda.args[i], binding, &inner);
+				if (prev_inner != NULL){
+					*prev_inner = *line;
+				}
+				else{
+					outer_dispatch = line;
+				}
+				prev_inner = inner;
+			}
+			*prev_inner = lateral_walker->data.lambda.expression;
+			lateral_walker->data.lambda.expression = outer_dispatch;
+			prev_walker = lateral_walker;
+			lateral_walker = lateral_walker->data.lambda.alt;
+			continue;
+		}
+		expr_ast* location = lateral_walker->data.lambda.expression;
+		if (location->tag == BLOCK_EXPR){
+			location = &location->data.block.lines[location->data.block.line_count-1];
+		}
+		uint64_t i = 0;
+		for (;i<lateral_walker->data.lambda.arg_count;++i){ // TODO change limit if arg counts dont match?
+			if (pattern_equal(&prev_walker->data.lambda.args[i], &lateral_walker->data.lambda.args[i]) == 1){
+				if (location->tag == BLOCK_EXPR){
+					location = &location->data.block.lines[location->data.block.line_count-1];
+				}
+				assert(location->tag == IF_EXPR);
+				location = location->data.if_statement.cons;
+			}
+		}
+		if (location->tag != IF_EXPR){
+			prev_walker = lateral_walker;
+			lateral_walker = lateral_walker->data.lambda.alt;
+			continue;
+		}
+		expr_ast* prev_inner = NULL;
+		expr_ast* outer_dispatch = NULL;
+		for (;i<lateral_walker->data.lambda.arg_count;++i){ // TODO change here too?
+			expr_ast* inner;
+			expr_ast* binding = mk_binding(walk->parse->mem, &realiased[i].data.binding);
+			expr_ast* line = destructure_pattern(walk, &lateral_walker->data.lambda.args[i], binding, &inner);
+			if (prev_inner != NULL){
+				*prev_inner = *line;
+			}
+			else{
+				outer_dispatch = line;
+			}
+			prev_inner = inner;
+		}
+		*prev_inner = lateral_walker->data.lambda.expression;
+		location->data.if_statement.alt = outer_dispatch;
+		prev_walker = lateral_walker;
 		lateral_walker = lateral_walker->data.lambda.alt;
 	}
-	//TODO replace lambda expression with cond
-	//get rid of alt
+	for (uint64_t i = 0;i<arg_count;++i){
+		expr->data.lambda.args[i] = realiased[i];
+	}
+	expr->data.lambda.alt = NULL;
 }
 
-//TODO this function need target type and walker handled
 expr_ast*
-destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* const target_type, expr_ast* const target_walk, expr_ast* const dispatch, expr_ast** const inner){
+destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* const target_type, expr_ast* const target_walk, expr_ast** const inner){
 	expr_ast* block;
 	expr_ast* cond;
 	switch (pat->tag){
@@ -8399,7 +8469,7 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* const 
 			&pat->data.named.name,
 			target_walk
 		);
-		block->data.block.lines[1] = *destructure_pattern(walk, pat->data.named.inner, target_type, target_walk, dispatch, inner);
+		block->data.block.lines[1] = *destructure_pattern(walk, pat->data.named.inner, target_type, target_walk, inner);
 		return block;
 	case STRUCT_PATTERN:
 		expr_ast* struct_outer = NULL;
@@ -8413,17 +8483,17 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* const 
 			new_expr->data.access.right = mk_binding(walk->parse->mem, &target_type->data.structure->data.structure.names[i]);
 			if (struct_outer == NULL){
 				if (pat->data.structure.count-1 == i){
-					struct_outer = destructure_pattern(walk, &pat->data.structure.members[i], new_type, new_expr, dispatch, inner);
+					struct_outer = destructure_pattern(walk, &pat->data.structure.members[i], new_type, new_expr, inner);
 					continue;
 				}
-				struct_outer = destructure_pattern(walk, &pat->data.structure.members[i], new_type, new_expr, dispatch, &struct_interm);
+				struct_outer = destructure_pattern(walk, &pat->data.structure.members[i], new_type, new_expr, &struct_interm);
 				continue;
 			}
 			if (pat->data.structure.count-1 == i){
-				struct_outer = destructure_pattern(walk, &pat->data.structure.members[i], new_type, new_expr, dispatch, inner);
+				struct_outer = destructure_pattern(walk, &pat->data.structure.members[i], new_type, new_expr, inner);
 				continue;
 			}
-			*struct_interm = *destructure_pattern(walk, &pat->data.structure.members[i], new_type, new_expr, dispatch, &next_interm);
+			*struct_interm = *destructure_pattern(walk, &pat->data.structure.members[i], new_type, new_expr, &next_interm);
 			struct_interm = next_interm;
 		}
 		return struct_outer;
@@ -8449,11 +8519,11 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* const 
 		len_expr->tag = STRUCT_ACCESS_EXPR;
 		len_expr->data.access.left = target_walk;
 		len_expr->data.access.right = mk_binding(walk->parse->mem, &len_token);
-		expr_ast* outer = destructure_pattern(walk, pat->data.fat_ptr.ptr, target_type->data.fat_ptr.ptr, ptr_expr, dispatch, &interm);
+		expr_ast* outer = destructure_pattern(walk, pat->data.fat_ptr.ptr, target_type->data.fat_ptr.ptr, ptr_expr, &interm);
 		type_ast* len = pool_request(walk->parse->mem, sizeof(type_ast));
 		len->tag = LIT_AST;
 		len->data.lit = U64_TYPE;
-		*interm = *destructure_pattern(walk, pat->data.fat_ptr.len, len, len_expr, dispatch, inner);
+		*interm = *destructure_pattern(walk, pat->data.fat_ptr.len, len, len_expr, inner);
 		return outer;
 	case HOLE_PATTERN:
 		block = pool_request(walk->parse->mem, sizeof(expr_ast));
@@ -8520,8 +8590,20 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* const 
 		*inner = cond->data.if_statement.cons;
 		return cond;
 	case UNION_SELECTOR_PATTERN:
-		//TODO generate walk vars
-		return destructure_pattern(walk, pat->data.union_selector.nest, , , dispatch, inner);
+		expr_ast* selector_binding = mk_binding(walk->parse->mem, &pat->data.union_selector.member);
+		expr_ast* selector_access = pool_request(walk->parse->mem, sizeof(expr_ast));
+		selector_access->tag = STRUCT_ACCESS_EXPR;
+		selector_access->data.access.left = target_walk;
+		selector_access->data.access.right = selector_binding;
+		type_ast* next_target_type = NULL;
+		for (uint64_t i = 0;i<target_type->data.structure->data.union_structure.count;++i){
+			if (string_compare(&pat->data.union_selector.member, &target_type->data.structure->data.union_structure.named[i]) == 0){
+				next_target_type = &target_type->data.structure->data.union_structure.members[i]
+				break;
+			}
+		}
+		assert(next_target_type != NULL);
+		return destructure_pattern(walk, pat->data.union_selector.nest, next_target_type, selector_access, inner);
 	}
 }
 
@@ -8588,6 +8670,7 @@ pattern_equal(pattern_ast* const left, pattern_ast* const right){
 
 /* TODO
  * -TRANSFORMATION------------------------------------------
+ * check how we are handling different arg counts in alts
  * the way we have been detecting if its a generic parameter
  * 		may be flawed, because we dont check if it has parameters?
  * transform patterns into checks

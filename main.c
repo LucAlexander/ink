@@ -8376,34 +8376,153 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 	expr_ast* prev = expr;
 	expr_ast* cond = pool_request(walk->parse->mem, sizeof(expr_ast));
 	while (lateral_walker != NULL){
-		expr_ast* cond_walker = cond;
-		uint64_t arg_index = 0;
-		if (prev != lateral_walker){
-			uint64_t minargs = prev->data.lambda.arg_count;
-			if (lateral_walker->data.lambda.arg_count < minargs){
-				minargs = lateral_walker->data.lambda.arg_count;
-			}
-			for (;arg_index<minargs;++arg_index){
-				if (pattern_equal(&prev->data.lambda.args[arg_index], &lateral_walker->data.lambda.args[arg_index]) == 1){
-					cond_walker = cond_walker->data.if_statement.cons;
-					continue;
-				}
-				cond_walker->data.if_statement.alt = pool_request(walk->parse->mem, sizeof(expr_ast));
-				break;
-			}
-		}
-		while (arg_index < lateral_walker->data.lambda.arg_count;++i){
-			pattern_ast* target_pattern = &lateral_walker->data.lambda.args[arg_index];
-			switch (target_pattern->tag){
-				//TODO this whole loop
-			}
-			arg_index += 1;
-		}
 		prev = lateral_walker;
 		lateral_walker = lateral_walker->data.lambda.alt;
 	}
 	//TODO replace lambda expression with cond
 	//get rid of alt
+}
+
+//TODO this function need target type and walker handled
+expr_ast*
+destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* const target_type, expr_ast* const target_walk, expr_ast* const dispatch, expr_ast** const inner){
+	expr_ast* block;
+	expr_ast* cond;
+	switch (pat->tag){
+	case NAMED_PATTERN:
+		block = pool_request(walk->parse->mem, sizeof(expr_ast));
+		block->tag = BLOCK_EXPR;
+		block->data.block.line_count = 2;
+		block->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast)*2);
+		block->data.block.lines[0] = *mk_term(walk->parse->mem,
+			target_type,
+			&pat->data.named.name,
+			target_walk
+		);
+		block->data.block.lines[1] = *destructure_pattern(walk, pat->data.named.inner, target_type, target_walk, dispatch, inner);
+		return block;
+	case STRUCT_PATTERN:
+		expr_ast* struct_outer = NULL;
+		expr_ast* struct_interm;
+		expr_ast* next_interm;
+		for (uint64_t i = 0;i<pat->data.structure.count;++i){
+			type_ast* new_type = &target_type->data.structure->data.structure.members[i];
+			expr_ast* new_expr = pool_request(walk->parse->mem, sizeof(expr_ast));
+			new_expr->tag = STRUCT_ACCESS_EXPR;
+			new_expr->data.access.left = target_walk;
+			new_expr->data.access.right = mk_binding(walk->parse->mem, &target_type->data.structure->data.structure.names[i]);
+			if (struct_outer == NULL){
+				if (pat->data.structure.count-1 == i){
+					struct_outer = destructure_pattern(walk, &pat->data.structure.members[i], new_type, new_expr, dispatch, inner);
+					continue;
+				}
+				struct_outer = destructure_pattern(walk, &pat->data.structure.members[i], new_type, new_expr, dispatch, &struct_interm);
+				continue;
+			}
+			if (pat->data.structure.count-1 == i){
+				struct_outer = destructure_pattern(walk, &pat->data.structure.members[i], new_type, new_expr, dispatch, inner);
+				continue;
+			}
+			*struct_interm = *destructure_pattern(walk, &pat->data.structure.members[i], new_type, new_expr, dispatch, &next_interm);
+			struct_interm = next_interm;
+		}
+		return struct_outer;
+	case FAT_PTR_PATTERN:
+		expr_ast* interm;
+		token ptr_token = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = string_init(walk->parse->mem, "len")
+		};
+		token len_token = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = string_init(walk->parse->mem, "len")
+		};
+		expr_ast* ptr_expr = pool_request(walk->parse->mem, sizeof(expr_ast));
+		ptr_expr->tag = STRUCT_ACCESS_EXPR;
+		ptr_expr->data.access.left = target_walk;
+		ptr_expr->data.access.right = mk_binding(walk->parse->mem, &ptr_token);
+		expr_ast* len_expr = pool_request(walk->parse->mem, sizeof(expr_ast));
+		len_expr->tag = STRUCT_ACCESS_EXPR;
+		len_expr->data.access.left = target_walk;
+		len_expr->data.access.right = mk_binding(walk->parse->mem, &len_token);
+		expr_ast* outer = destructure_pattern(walk, pat->data.fat_ptr.ptr, target_type->data.fat_ptr.ptr, ptr_expr, dispatch, &interm);
+		type_ast* len = pool_request(walk->parse->mem, sizeof(type_ast));
+		len->tag = LIT_AST;
+		len->data.lit = U64_TYPE;
+		*interm = *destructure_pattern(walk, pat->data.fat_ptr.len, len, len_expr, dispatch, inner);
+		return outer;
+	case HOLE_PATTERN:
+		block = pool_request(walk->parse->mem, sizeof(expr_ast));
+		*inner = block;
+		return block;
+	case BINDING_PATTERN:
+		block = pool_request(walk->parse->mem, sizeof(expr_ast));
+		block->tag = BLOCK_EXPR;
+		block->data.block.line_count = 2;
+		block->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast)*2);
+		block->data.block.lines[0] = *mk_term(walk->parse->mem,
+			target_type,
+			&pat->data.binding,
+			target_walk
+		);
+		*inner = &block->data.block.lines[1];
+		return block;
+	case LITERAL_PATTERN:
+		cond = pool_request(walk->parse->mem, sizeof(expr_ast));
+		token eq_token = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = string_init(walk->parse->mem, "==")
+		};
+		expr_ast* eq_binding = mk_binding(walk->parse->mem, &eq_token);
+		cond->tag = IF_EXPR;
+		expr_ast* lit_expr = pool_request(walk->parse->mem, sizeof(expr_ast));
+		lit_expr->tag = LITERAL_EXPR;
+		lit_expr->data.literal = pat->data.literal;
+		cond->data.if_statement.pred = mk_appl(walk->parse->mem,
+			mk_appl(walk->parse->mem,
+				eq_token,
+				lit_expr
+			),
+			target_walk
+		);
+		cond->data.if_statement.cons = pool_request(walk->parse->mem, sizeof(expr_ast));
+		cond->data.if_statement.alt = NULL;
+		*inner = cond->data.if_statement.cons;
+		return cond;
+	case STRING_PATTERN:
+		cond = pool_request(walk->parse->mem, sizeof(expr_ast));
+		token string_eq_token = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = string_init(walk->parse->mem, "==")//TODO what do for this
+		};
+		expr_ast* string_eq_binding = mk_binding(walk->parse->mem, &string_eq_token);
+		cond->tag = IF_EXPR;
+		expr_ast* string_expr = pool_request(walk->parse->mem, sizeof(expr_ast));
+		string_expr->tag = STRING_EXPR;
+		string_expr->data.str = pat->data.str;
+		cond->data.if_statement.pred = mk_appl(walk->parse->mem,
+			mk_appl(walk->parse->mem,
+				string_eq_token,
+				string_expr	
+			),
+			target_walk
+		);
+		cond->data.if_statement.cons = pool_request(walk->parse->mem, sizeof(expr_ast));
+		cond->data.if_statement.alt = NULL;
+		*inner = cond->data.if_statement.cons;
+		return cond;
+	case UNION_SELECTOR_PATTERN:
+		//TODO generate walk vars
+		return destructure_pattern(walk, pat->data.union_selector.nest, , , dispatch, inner);
+	}
 }
 
 uint8_t

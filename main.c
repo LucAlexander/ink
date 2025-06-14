@@ -4339,10 +4339,27 @@ walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* expected_type
 	case HOLE_PATTERN:
 		return expected_type;
 	case BINDING_PATTERN:
+		if (expected_type != NULL){
+			if ((expected_type->tag == STRUCT_TYPE) && (expected_type->data.structure->tag == ENUM_STRUCT)){
+				for (uint64_t i = 0;i<expected_type->data.structure->data.enumeration.count;++i){
+					if (string_compare(&expected_type->data.structure->data.enumeration.names[i].data.name, &pat->data.binding.data.name) == 0){
+						pat->tag = LITERAL_PATTERN;
+						pat->data.literal.tag = UINT_LITERAL;
+						pat->data.literal.data.u = expected_type->data.structure->data.enumeration.values[i];
+						return expected_type;
+					}
+				}
+			}
+		}
 		push_binding(walk, walk->local_scope, &pat->data.binding, expected_type);
 		walk_assert_prop();
 		return expected_type;
 	case LITERAL_PATTERN:
+		if (expected_type != NULL){
+			if ((expected_type->tag == STRUCT_TYPE) && (expected_type->data.structure->tag == ENUM_STRUCT)){
+				return expected_type;
+			}
+		}
 		walk_assert(expected_type->tag == LIT_TYPE, nearest_pattern_token(pat), "Tried to destructure non literal as literal pattern");
 		return expected_type;
 	case STRING_PATTERN:
@@ -8389,6 +8406,7 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 	}
 	expr_ast* lateral_walker = expr;
 	expr_ast* prev_walker = NULL;
+	expr_ast* host = expr;
 	while (lateral_walker != NULL){
 		if (prev_walker == NULL){
 			expr_ast* prev_inner = NULL;
@@ -8396,7 +8414,7 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 			for (uint64_t i = 0;i<arg_count;++i){
 				expr_ast* binding = mk_binding(walk->parse->mem, &realiased[i].data.binding);
 				expr_ast* inner;
-				expr_ast* line = destructure_pattern(walk, &lateral_walker->data.lambda.args[i], lateral_walker->data.lambda.args[i].type, binding, &inner);
+				expr_ast* line = destructure_pattern(walk, &lateral_walker->data.lambda.args[i], host->data.lambda.args[i].type, binding, &inner);
 				if (prev_inner != NULL){
 					*prev_inner = *line;
 				}
@@ -8411,7 +8429,7 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 			lateral_walker = lateral_walker->data.lambda.alt;
 			continue;
 		}
-		expr_ast* location = lateral_walker->data.lambda.expression;
+		expr_ast* location = host->data.lambda.expression;
 		if (location->tag == BLOCK_EXPR){
 			location = &location->data.block.lines[location->data.block.line_count-1];
 		}
@@ -8423,7 +8441,9 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 				}
 				assert(location->tag == IF_EXPR);
 				location = location->data.if_statement.cons;
+				continue;
 			}
+			break;
 		}
 		if (location->tag != IF_EXPR){
 			prev_walker = lateral_walker;
@@ -8435,7 +8455,7 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 		for (;i<arg_count;++i){
 			expr_ast* inner;
 			expr_ast* binding = mk_binding(walk->parse->mem, &realiased[i].data.binding);
-			expr_ast* line = destructure_pattern(walk, &lateral_walker->data.lambda.args[i], lateral_walker->data.lambda.args[i].type, binding, &inner);
+			expr_ast* line = destructure_pattern(walk, &lateral_walker->data.lambda.args[i], host->data.lambda.args[i].type, binding, &inner);
 			if (prev_inner != NULL){
 				*prev_inner = *line;
 			}
@@ -8475,7 +8495,7 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* target
 		return block;
 	case STRUCT_PATTERN:
 		expr_ast* struct_outer = NULL;
-		expr_ast* struct_interm;
+		expr_ast* struct_interm = NULL;
 		expr_ast* next_interm;
 		for (uint64_t i = 0;i<pat->data.structure.count;++i){
 			type_ast* new_type = &target_type->data.structure->data.structure.members[i];
@@ -8492,7 +8512,7 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* target
 				continue;
 			}
 			if (pat->data.structure.count-1 == i){
-				struct_outer = destructure_pattern(walk, &pat->data.structure.members[i], new_type, new_expr, inner);
+				*struct_interm = *destructure_pattern(walk, &pat->data.structure.members[i], new_type, new_expr, inner);
 				continue;
 			}
 			*struct_interm = *destructure_pattern(walk, &pat->data.structure.members[i], new_type, new_expr, &next_interm);
@@ -8529,7 +8549,10 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* target
 		return outer;
 	case HOLE_PATTERN:
 		block = pool_request(walk->parse->mem, sizeof(expr_ast));
-		*inner = block;
+		block->tag = BLOCK_EXPR;
+		block->data.block.line_count = 1;
+		block->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast));
+		*inner = block->data.block.lines;
 		return block;
 	case BINDING_PATTERN:
 		block = pool_request(walk->parse->mem, sizeof(expr_ast));

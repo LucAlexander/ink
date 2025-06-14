@@ -8472,6 +8472,7 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 			expr_ast* line = destructure_pattern(walk, arg_pos, target_type, binding, &inner);
 			outer_dispatch = line;
 			prev_inner = inner;
+			i += 1;
 		}
 		for (;i<arg_count;++i){
 			expr_ast* inner;
@@ -8481,7 +8482,21 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 			prev_inner = inner;
 		}
 		*prev_inner = *lateral_walker->data.lambda.expression;
-		location->data.if_statement.alt = outer_dispatch;
+		if (location->tag == IF_EXPR){
+			while (location->data.if_statement.alt != NULL){
+				location = location->data.if_statement.alt;
+			}
+			location->data.if_statement.alt = outer_dispatch;
+		}
+		else{
+			expr_ast* outer_block = pool_request(walk->parse->mem, sizeof(expr_ast));
+			outer_block->tag = BLOCK_EXPR;
+			outer_block->data.block.line_count = 2;
+			outer_block->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast)*2);
+			outer_block->data.block.lines[0] = *location;
+			outer_block->data.block.lines[1] = *outer_dispatch;
+			*location = *outer_block;
+		}
 		prev_walker = lateral_walker;
 		lateral_walker = lateral_walker->data.lambda.alt;
 	}
@@ -8785,7 +8800,6 @@ find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** c
 		selector_access->tag = STRUCT_ACCESS_EXPR;
 		selector_access->data.access.left = *binding;
 		selector_access->data.access.right = selector_binding;
-		*location= &(*location)->data.block.lines[(*location)->data.block.line_count-1];
 		*right = (*right)->data.union_selector.nest;
 		*binding = selector_access;
 		for (uint64_t i = 0;i<(*target_type)->data.structure->data.union_structure.count;++i){

@@ -1853,9 +1853,13 @@ show_expression(expr_ast* expr){
 	case IF_EXPR:
 		printf("if ");
 		show_expression(expr->data.if_statement.pred);
+		printf("{ ");
 		show_expression(expr->data.if_statement.cons);
+		printf("} ");
 		if (expr->data.if_statement.alt != NULL){
+			printf("else {");
 			show_expression(expr->data.if_statement.alt);
+			printf("} ");
 		}
 		break;
 	case FOR_EXPR:
@@ -6114,14 +6118,14 @@ token_stack_top(token_stack* const stack){
 //NOTE Blocks should. in the general case, be entered with newlines set to NULL, unless they are in the middle of an expression
 //NOTE This function generates uninitialized expressions in the form T f;
 expr_ast*
-transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_relay* const newlines){
+transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_relay* const newlines, uint8_t top_level_lambda){
 	try_structure_monomorph(walk, expr->type);
 	switch (expr->tag){
 	case APPL_EXPR:
 		expr_ast* root = expr;
 		uint64_t arg_count = 0;
 		while (root->tag == APPL_EXPR){
-			root->data.appl.right = transform_expr(walk, root->data.appl.right, 0, newlines);
+			root->data.appl.right = transform_expr(walk, root->data.appl.right, 0, newlines, 1);
 			walk_assert_prop();
 			arg_count += 1;
 			root = root->data.appl.left;
@@ -6342,12 +6346,12 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		function_to_structure_recursive(walk, converted_root);
 		return closure_call(walk, last_reference, newlines, &converted_root->data.ptr->data.structure->data.structure.members[converted_root->data.ptr->data.structure->data.structure.count-2]);
 	case STRUCT_ACCESS_EXPR:
-		expr->data.access.left = transform_expr(walk, expr->data.access.left, 0, newlines);
+		expr->data.access.left = transform_expr(walk, expr->data.access.left, 0, newlines, 1);
 		return expr;
 	case ARRAY_ACCESS_EXPR:
-		expr->data.access.left = transform_expr(walk, expr->data.access.left, 0, newlines);
+		expr->data.access.left = transform_expr(walk, expr->data.access.left, 0, newlines, 1);
 		walk_assert_prop();
-		expr->data.access.right->data.list.lines[0] = *transform_expr(walk, &expr->data.access.right->data.list.lines[0], 0, newlines);
+		expr->data.access.right->data.list.lines[0] = *transform_expr(walk, &expr->data.access.right->data.list.lines[0], 0, newlines, 1);
 		return expr;
 	case LAMBDA_EXPR:
 		if (expr->data.lambda.expression->tag != BLOCK_EXPR){
@@ -6369,13 +6373,15 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		for (uint64_t i = 0;i<expr->data.lambda.arg_count;++i){
 			transform_pattern(walk, &expr->data.lambda.args[i], NULL);
 		}
-		transform_expr(walk, expr->data.lambda.expression, 0, NULL);
+		transform_expr(walk, expr->data.lambda.expression, 0, NULL, 1);
 		walk_assert_prop();
 		pop_binding(walk->local_scope, scope_pos);
 		if (expr->data.lambda.alt != NULL){
-			transform_expr(walk, expr->data.lambda.alt, 0, NULL);
+			transform_expr(walk, expr->data.lambda.alt, 0, NULL, 0);
 		}
-		destructure_lambda_patterns(walk, expr);
+		if (top_level_lambda == 1){
+			destructure_lambda_patterns(walk, expr);
+		}
 		return expr;
 	case BLOCK_EXPR:
 		if (newlines == NULL){
@@ -6383,12 +6389,12 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			for (uint64_t i = 0;i<expr->data.block.line_count;++i){
 				line_relay linelines = line_relay_init(walk->parse->temp_mem);
 				if (expr->data.block.lines[i].tag == BLOCK_EXPR){
-					expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, NULL);
+					expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, NULL, 1);
 					walk_assert_prop();
 					line_relay_append(&outer_lines, line);
 					continue;
 				}
-				expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, &linelines);
+				expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, &linelines, 1);
 				walk_assert_prop();
 				line_relay_append(&linelines, line);
 				line_relay_concat(&outer_lines, &linelines);
@@ -6415,15 +6421,15 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		expr_ast* outer_setter = mk_term(walk->parse->mem, expr->type, &setter_name, NULL);
 		line_relay_append(newlines, outer_setter);
 		replace_return_with_setter(walk, expr, setter_name);
-		expr_ast* walked = transform_expr(walk, expr, 0, NULL);
+		expr_ast* walked = transform_expr(walk, expr, 0, NULL, 1);
 		walk_assert_prop();
 		line_relay_append(newlines, walked);
 		expr_ast* setter_binding = mk_binding(walk->parse->mem, &setter_name);
 		return setter_binding;
 	case FAT_PTR_EXPR:
-		expr->data.fat_ptr.left = transform_expr(walk, expr->data.fat_ptr.left, 0, newlines);
+		expr->data.fat_ptr.left = transform_expr(walk, expr->data.fat_ptr.left, 0, newlines, 1);
 		walk_assert_prop();
-		expr->data.fat_ptr.right = transform_expr(walk, expr->data.fat_ptr.right, 0, newlines);
+		expr->data.fat_ptr.right = transform_expr(walk, expr->data.fat_ptr.right, 0, newlines, 1);
 		return expr;
 	case LIT_EXPR:
 		return expr;
@@ -6438,7 +6444,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			function_to_structure_recursive(walk, expr->data.term->type);
 		}
 		uint64_t pos = push_binding(walk, walk->local_scope, &expr->data.term->name, expr->data.term->type);
-		expr->data.term->expression = transform_expr(walk, expr->data.term->expression, 0, newlines);
+		expr->data.term->expression = transform_expr(walk, expr->data.term->expression, 0, newlines, 1);
 		walk_assert_prop();
 		pop_binding(walk->local_scope, pos);
 		return expr;
@@ -6446,13 +6452,13 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		return expr;
 	case LIST_EXPR:
 		for (uint64_t i = 0;i<expr->data.list.line_count;++i){
-			expr->data.list.lines[i] = *transform_expr(walk, &expr->data.list.lines[i], 0, newlines);
+			expr->data.list.lines[i] = *transform_expr(walk, &expr->data.list.lines[i], 0, newlines, 1);
 			walk_assert_prop();
 		}
 		return expr;
 	case STRUCT_EXPR: // TODO optimization for term = {}, can remain the same, theres also one where a mutation decomposes to a.x = ...; a.y = ....; etc
 		for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
-			expr->data.constructor.members[i] = *transform_expr(walk, &expr->data.constructor.members[i], 0, newlines);
+			expr->data.constructor.members[i] = *transform_expr(walk, &expr->data.constructor.members[i], 0, newlines, 1);
 			walk_assert_prop();
 		}
 		expr_ast* struct_wrapper = new_term(walk, expr->type, expr);
@@ -6532,49 +6538,49 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		}
 		return expr;
 	case MUTATION_EXPR:
-		expr->data.mutation.left = transform_expr(walk, expr->data.mutation.left, 0, newlines);
+		expr->data.mutation.left = transform_expr(walk, expr->data.mutation.left, 0, newlines, 1);
 		walk_assert_prop();
-		expr->data.mutation.right = transform_expr(walk, expr->data.mutation.right, 0, newlines);
+		expr->data.mutation.right = transform_expr(walk, expr->data.mutation.right, 0, newlines, 1);
 		return expr;
 	case RETURN_EXPR:
-		expr->data.ret = transform_expr(walk, expr->data.ret, 0, newlines);
+		expr->data.ret = transform_expr(walk, expr->data.ret, 0, newlines, 1);
 		return expr;
 	case SIZEOF_EXPR:
 		try_structure_monomorph(walk, expr->data.size_type);
 		walk_assert(type_valid(walk->parse, expr->data.size_type) == 1, nearest_token(expr), "Type invalid in sizeof expression");
 		return expr;
 	case REF_EXPR:
-		expr->data.ref = transform_expr(walk, expr->data.ref, 0, newlines);
+		expr->data.ref = transform_expr(walk, expr->data.ref, 0, newlines, 1);
 		return expr;
 	case DEREF_EXPR:
-		expr->data.deref = transform_expr(walk, expr->data.deref, 0, newlines);
+		expr->data.deref = transform_expr(walk, expr->data.deref, 0, newlines, 1);
 		return expr;
 	case IF_EXPR:
-		expr->data.if_statement.pred = transform_expr(walk, expr->data.if_statement.pred, 0, newlines);
+		expr->data.if_statement.pred = transform_expr(walk, expr->data.if_statement.pred, 0, newlines, 1);
 		walk_assert_prop();
-		expr->data.if_statement.cons = transform_expr(walk, expr->data.if_statement.cons, 0, NULL);
+		expr->data.if_statement.cons = transform_expr(walk, expr->data.if_statement.cons, 0, NULL, 1);
 		walk_assert_prop();
 		if (expr->data.if_statement.alt != NULL){
-			expr->data.if_statement.alt = transform_expr(walk, expr->data.if_statement.alt, 0, NULL);
+			expr->data.if_statement.alt = transform_expr(walk, expr->data.if_statement.alt, 0, NULL, 1);
 		}
 		return expr;
 	case FOR_EXPR:
-		expr->data.for_statement.initial = transform_expr(walk, expr->data.for_statement.initial, 0, newlines);
+		expr->data.for_statement.initial = transform_expr(walk, expr->data.for_statement.initial, 0, newlines, 1);
 		walk_assert_prop();
 		uint64_t for_scope_pos = push_binding(walk, walk->local_scope, &expr->data.for_statement.initial->data.binding, expr->data.for_statement.initial->type);
-		expr->data.for_statement.limit = transform_expr(walk, expr->data.for_statement.limit, 0, newlines);
+		expr->data.for_statement.limit = transform_expr(walk, expr->data.for_statement.limit, 0, newlines, 1);
 		walk_assert_prop();
-		expr->data.for_statement.cons = transform_expr(walk, expr->data.for_statement.cons, 0, NULL);
+		expr->data.for_statement.cons = transform_expr(walk, expr->data.for_statement.cons, 0, NULL, 1);
 		walk_assert_prop();
 		pop_binding(walk->local_scope, for_scope_pos-1);
 		return expr;
 	case WHILE_EXPR:
-		expr->data.while_statement.pred = transform_expr(walk, expr->data.while_statement.pred, 0, newlines);
+		expr->data.while_statement.pred = transform_expr(walk, expr->data.while_statement.pred, 0, newlines, 1);
 		walk_assert_prop();
-		expr->data.while_statement.cons = transform_expr(walk, expr->data.while_statement.cons, 0, NULL);
+		expr->data.while_statement.cons = transform_expr(walk, expr->data.while_statement.cons, 0, NULL, 1);
 		return expr;
 	case MATCH_EXPR:
-		expr->data.match.pred = transform_expr(walk, expr->data.match.pred, 0, newlines);
+		expr->data.match.pred = transform_expr(walk, expr->data.match.pred, 0, newlines, 1);
 		walk_assert_prop();
 		for (uint64_t i = 0;i<expr->data.match.count;++i){
 			uint64_t match_scope_pos = walk->local_scope->binding_count;
@@ -6597,13 +6603,13 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				}
 				expr->data.match.cases[i] = *block;
 			}
-			expr->data.match.cases[i] = *transform_expr(walk, &expr->data.match.cases[i], 0, NULL);
+			expr->data.match.cases[i] = *transform_expr(walk, &expr->data.match.cases[i], 0, NULL, 1);
 			walk_assert_prop();
 			pop_binding(walk->local_scope, match_scope_pos);
 		}
 		return expr;
 	case CAST_EXPR:
-		expr->data.cast.source = transform_expr(walk, expr->data.cast.source, 0, newlines);
+		expr->data.cast.source = transform_expr(walk, expr->data.cast.source, 0, newlines, 1);
 		walk_assert_prop();
 		try_structure_monomorph(walk, expr->data.cast.target);
 		walk_assert(type_valid(walk->parse, expr->data.cast.target) == 1, nearest_token(expr), "Cast target type invalid");
@@ -6621,7 +6627,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 void
 transform_term(walker* const walk, term_ast* const term, uint8_t is_outer){
 	uint64_t scope_pos = walk->local_scope->binding_count;
-	transform_expr(walk, term->expression, is_outer, NULL);
+	transform_expr(walk, term->expression, is_outer, NULL, 1);
 	pop_binding(walk->local_scope, scope_pos);
 }
 
@@ -8430,9 +8436,9 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 			continue;
 		}
 		expr_ast* location = host->data.lambda.expression;
-		if (location->tag == BLOCK_EXPR){
-			location = &location->data.block.lines[location->data.block.line_count-1];
-		}
+		//if (location->tag == BLOCK_EXPR){
+			//location = &location->data.block.lines[location->data.block.line_count-1];
+		//}
 		uint64_t i = 0;
 		for (;i<arg_count;++i){
 			if (pattern_equal(&prev_walker->data.lambda.args[i], &lateral_walker->data.lambda.args[i]) == 1){
@@ -8445,23 +8451,33 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 			}
 			break;
 		}
-		if (location->tag != IF_EXPR){
-			prev_walker = lateral_walker;
-			lateral_walker = lateral_walker->data.lambda.alt;
-			continue;
-		}
+		//if (location->tag != IF_EXPR){
+			//prev_walker = lateral_walker;
+			//lateral_walker = lateral_walker->data.lambda.alt;
+			//continue;
+		//}
+		pattern_ast* arg_pos = &lateral_walker->data.lambda.args[i];
+		expr_ast* binding = mk_binding(walk->parse->mem, &realiased[i].data.binding);
+		type_ast* target_type = host->data.lambda.args[i].type;
+		find_pattern_branch(walk, &prev_walker->data.lambda.args[i], &arg_pos, &location, &binding, &target_type);
+		//if (location->tag != IF_EXPR){
+			//prev_walker = lateral_walker;
+			//lateral_walker = lateral_walker->data.lambda.alt;
+			//continue;
+		//}
 		expr_ast* prev_inner = NULL;
 		expr_ast* outer_dispatch = NULL;
+		{
+			expr_ast* inner;
+			expr_ast* line = destructure_pattern(walk, arg_pos, target_type, binding, &inner);
+			outer_dispatch = line;
+			prev_inner = inner;
+		}
 		for (;i<arg_count;++i){
 			expr_ast* inner;
-			expr_ast* binding = mk_binding(walk->parse->mem, &realiased[i].data.binding);
+			binding = mk_binding(walk->parse->mem, &realiased[i].data.binding);
 			expr_ast* line = destructure_pattern(walk, &lateral_walker->data.lambda.args[i], host->data.lambda.args[i].type, binding, &inner);
-			if (prev_inner != NULL){
-				*prev_inner = *line;
-			}
-			else{
-				outer_dispatch = line;
-			}
+			*prev_inner = *line;
 			prev_inner = inner;
 		}
 		*prev_inner = *lateral_walker->data.lambda.expression;
@@ -8473,6 +8489,28 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 		expr->data.lambda.args[i] = realiased[i];
 	}
 	expr->data.lambda.alt = NULL;
+}
+
+void
+destructure_match_patterns(walker* const walk, expr_ast* const expr){
+	//accumulate all destructures as a single conditional else chain
+	//replace expr with this accumulation entirely
+	expr_ast* outer = NULL;
+	for (uint64_t i = 0;i<expr->data.match.count;++i){
+		if (outer == NULL){
+			expr_ast* inner;
+			outer = destructure_pattern(walk, &expr->data.match.patterns[i], expr->type, expr->data.match.pred, &inner);
+			*inner = expr->data.match.cases[i];
+			continue;
+		}
+		if (outer->tag != IF_EXPR){
+			break;
+		}
+		expr_ast* inner;
+		outer->data.if_statement.alt = destructure_pattern(walk, &expr->data.match.patterns[i], expr->type, expr->data.match.pred, &inner);
+		*inner = expr->data.match.cases[i];
+		outer = outer->data.if_statement.alt;
+	}
 }
 
 expr_ast*
@@ -8596,7 +8634,7 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* target
 			.content_tag = STRING_TOKEN_TYPE,
 			.tag = IDENTIFIER_TOKEN,
 			.index = 0,
-			.data.name = string_init(walk->parse->mem, "==")//TODO what do for this
+			.data.name = string_init(walk->parse->mem, "==")//TODO what do for this, builtin ord typeclass with ==? or just strncmp call here
 		};
 		expr_ast* string_eq_binding = mk_binding(walk->parse->mem, &string_eq_token);
 		cond->tag = IF_EXPR;
@@ -8631,6 +8669,134 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* target
 		return destructure_pattern(walk, pat->data.union_selector.nest, next_target_type, selector_access, inner);
 	}
 	return NULL;
+}
+
+//NOTE left is the pattern for which location is walking, right is the new one to compare with
+uint8_t
+find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** const right, expr_ast** const location, expr_ast** const binding, type_ast** target_type){
+	if (left->tag != (*right)->tag){
+		return 1;
+	}
+	*target_type = reduce_alias_and_type(walk->parse, *target_type);
+	switch (left->tag){
+	case NAMED_PATTERN:
+		if (string_compare(&left->data.named.name.data.name, &(*right)->data.named.name.data.name) != 0){
+			return 1;
+		}
+		*location = &(*location)->data.block.lines[(*location)->data.block.line_count-1];
+		*right = (*right)->data.named.inner;
+		return find_pattern_branch(walk, left->data.named.inner, right, location, binding, target_type);
+	case STRUCT_PATTERN:
+		pattern_ast* outer = *right;
+		expr_ast* bind_outer = *binding;
+		type_ast* outer_type = *target_type;
+		for (uint64_t i = 0;i<left->data.structure.count;++i){
+			*right = &outer->data.structure.members[i];
+			expr_ast* new_expr = pool_request(walk->parse->mem, sizeof(expr_ast));
+			new_expr->tag = STRUCT_ACCESS_EXPR;
+			new_expr->data.access.left = bind_outer;
+			new_expr->data.access.right = mk_binding(walk->parse->mem, &outer_type->data.structure->data.structure.names[i]);
+			*binding = new_expr;
+			*target_type = &outer_type->data.structure->data.structure.members[i];
+			if (find_pattern_branch(walk, &left->data.structure.members[i], right, location, binding, target_type) == 1){
+				return 1;
+			}
+		}
+		return 0;
+	case FAT_PTR_PATTERN:
+		pattern_ast* fat_outer = *right;
+		expr_ast* fat_bind_outer = *binding;
+		type_ast* fat_type_outer = *target_type;
+		*right = fat_outer->data.fat_ptr.ptr;
+		*target_type = fat_type_outer->data.fat_ptr.ptr;
+		token ptr_token = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = string_init(walk->parse->mem, "len")
+		};
+		expr_ast* ptr_expr = pool_request(walk->parse->mem, sizeof(expr_ast));
+		ptr_expr->tag = STRUCT_ACCESS_EXPR;
+		ptr_expr->data.access.left = fat_bind_outer;
+		ptr_expr->data.access.right = mk_binding(walk->parse->mem, &ptr_token);
+		*binding = ptr_expr;
+		if (find_pattern_branch(walk, left->data.fat_ptr.ptr, right, location, binding, target_type) == 1){
+			return 1;
+		}
+		*right = fat_outer->data.fat_ptr.len;
+		type_ast* len = pool_request(walk->parse->mem, sizeof(type_ast));
+		len->tag = LIT_TYPE;
+		len->data.lit = U64_TYPE;
+		*target_type = len;
+		token len_token = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = string_init(walk->parse->mem, "len")
+		};
+		expr_ast* len_expr = pool_request(walk->parse->mem, sizeof(expr_ast));
+		len_expr->tag = STRUCT_ACCESS_EXPR;
+		len_expr->data.access.left = fat_bind_outer;
+		len_expr->data.access.right = mk_binding(walk->parse->mem, &len_token);
+		*binding = len_expr;
+		if (find_pattern_branch(walk, left->data.fat_ptr.len, right, location, binding, target_type) == 1){
+			return 1;
+		}
+		return 0;
+	case HOLE_PATTERN:
+		*location = &(*location)->data.block.lines[(*location)->data.block.line_count-1];
+		return 0;
+	case BINDING_PATTERN:
+		if (string_compare(&left->data.binding.data.name, &(*right)->data.binding.data.name) != 0){
+			return 1;
+		}
+		*location = &(*location)->data.block.lines[(*location)->data.block.line_count-1];
+		return 0;
+	case LITERAL_PATTERN:
+		if (left->data.literal.tag != (*right)->data.literal.tag){
+			return 1;
+		}
+		if (left->data.literal.tag == INT_LITERAL){
+			if (left->data.literal.data.i != (*right)->data.literal.data.i) return 1;
+		}
+		if (left->data.literal.tag == UINT_LITERAL){
+			if (left->data.literal.data.u != (*right)->data.literal.data.u) return 1;
+		}
+		if (left->data.literal.tag == FLOAT_LITERAL){
+			if (left->data.literal.data.f != (*right)->data.literal.data.f) return 1;
+		}
+		if (left->data.literal.tag == DOUBLE_LITERAL){
+			if (left->data.literal.data.d != (*right)->data.literal.data.d) return 1;
+		}
+		*location = (*location)->data.if_statement.cons;
+		return 0;
+	case STRING_PATTERN:
+		if (string_compare(&left->data.str.data.name, &(*right)->data.str.data.name) != 0){
+			return 1;
+		}
+		*location = (*location)->data.if_statement.cons;
+		return 0;
+	case UNION_SELECTOR_PATTERN:
+		if (string_compare(&left->data.union_selector.member.data.name, &(*right)->data.union_selector.member.data.name) != 0){
+			return 1;
+		}
+		expr_ast* selector_binding = mk_binding(walk->parse->mem, &left->data.union_selector.member);
+		expr_ast* selector_access = pool_request(walk->parse->mem, sizeof(expr_ast));
+		selector_access->tag = STRUCT_ACCESS_EXPR;
+		selector_access->data.access.left = *binding;
+		selector_access->data.access.right = selector_binding;
+		*location= &(*location)->data.block.lines[(*location)->data.block.line_count-1];
+		*right = (*right)->data.union_selector.nest;
+		*binding = selector_access;
+		for (uint64_t i = 0;i<(*target_type)->data.structure->data.union_structure.count;++i){
+			if (string_compare(&left->data.union_selector.member.data.name, &(*target_type)->data.structure->data.union_structure.names[i].data.name) == 0){
+				*target_type = &(*target_type)->data.structure->data.union_structure.members[i];
+				break;
+			}
+		}
+		return find_pattern_branch(walk, left->data.union_selector.nest, right, location, binding, target_type);
+	}
+	return 0;
 }
 
 uint8_t

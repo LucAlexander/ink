@@ -684,7 +684,7 @@ void function_to_structure_type(walker* const walk, term_ast* const term);
 void function_to_structure_recursive(walker* const walk, type_ast* const type);
 void function_to_closure_ptr_recursive(walker* const walk, type_ast* const type);
 void structure_function_to_closure_ptr_recursive(walker* const walk, structure_ast* const s);
-expr_ast* transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_relay* const newlines);
+expr_ast* transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_relay* const newlines, uint8_t top_level_lambda);
 void transform_term(walker* const walk, term_ast* const term, uint8_t is_outer);
 void transform_pattern(walker* const walk, pattern_ast* const pat, line_relay* const newlines);
 
@@ -735,6 +735,8 @@ void stringify_struct(pool* const mem, string* const acc, structure_ast* const x
 
 uint8_t pattern_equal(pattern_ast* const left, pattern_ast* const right);
 expr_ast* destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* const target_type, expr_ast* const target_walk, expr_ast** const inner);
+uint8_t find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** const right, expr_ast** const location, expr_ast** const binding, type_ast** target_type);
+void destructure_match_patterns(walker* const walk, expr_ast* const expr);
 void destructure_lambda_patterns(walker* const walk, expr_ast* const expr);
 
 #endif

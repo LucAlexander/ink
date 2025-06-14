@@ -733,4 +733,8 @@ string generate_mono_struct_name(walker* const walk, type_ast* const type);
 void stringify_type(pool* const mem, string* const acc, type_ast* const x);
 void stringify_struct(pool* const mem, string* const acc, structure_ast* const x);
 
+uint8_t pattern_equal(pattern_ast* const left, pattern_ast* const right);
+expr_ast* destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* const target_type, expr_ast* const target_walk, expr_ast** const inner);
+void destructure_lambda_patterns(walker* const walk, expr_ast* const expr);
+
 #endif

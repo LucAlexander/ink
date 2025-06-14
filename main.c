@@ -8388,16 +8388,15 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 		generate_new_lambda(walk);
 	}
 	expr_ast* lateral_walker = expr;
-	expr_ast* cond = pool_request(walk->parse->mem, sizeof(expr_ast));
 	expr_ast* prev_walker = NULL;
 	while (lateral_walker != NULL){
 		if (prev_walker == NULL){
 			expr_ast* prev_inner = NULL;
 			expr_ast* outer_dispatch = NULL;
-			for (uint64_t i = 0;i<lateral_walker->data.lambda.arg_count;++i){
+			for (uint64_t i = 0;i<arg_count;++i){
 				expr_ast* binding = mk_binding(walk->parse->mem, &realiased[i].data.binding);
 				expr_ast* inner;
-				expr_ast* line = destructure_pattern(walk, &lateral_walker->data.lambda.args[i], binding, &inner);
+				expr_ast* line = destructure_pattern(walk, &lateral_walker->data.lambda.args[i], lateral_walker->data.lambda.args[i].type, binding, &inner);
 				if (prev_inner != NULL){
 					*prev_inner = *line;
 				}
@@ -8406,7 +8405,7 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 				}
 				prev_inner = inner;
 			}
-			*prev_inner = lateral_walker->data.lambda.expression;
+			*prev_inner = *lateral_walker->data.lambda.expression;
 			lateral_walker->data.lambda.expression = outer_dispatch;
 			prev_walker = lateral_walker;
 			lateral_walker = lateral_walker->data.lambda.alt;
@@ -8417,7 +8416,7 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 			location = &location->data.block.lines[location->data.block.line_count-1];
 		}
 		uint64_t i = 0;
-		for (;i<lateral_walker->data.lambda.arg_count;++i){ // TODO change limit if arg counts dont match?
+		for (;i<arg_count;++i){
 			if (pattern_equal(&prev_walker->data.lambda.args[i], &lateral_walker->data.lambda.args[i]) == 1){
 				if (location->tag == BLOCK_EXPR){
 					location = &location->data.block.lines[location->data.block.line_count-1];
@@ -8433,10 +8432,10 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 		}
 		expr_ast* prev_inner = NULL;
 		expr_ast* outer_dispatch = NULL;
-		for (;i<lateral_walker->data.lambda.arg_count;++i){ // TODO change here too?
+		for (;i<arg_count;++i){
 			expr_ast* inner;
 			expr_ast* binding = mk_binding(walk->parse->mem, &realiased[i].data.binding);
-			expr_ast* line = destructure_pattern(walk, &lateral_walker->data.lambda.args[i], binding, &inner);
+			expr_ast* line = destructure_pattern(walk, &lateral_walker->data.lambda.args[i], lateral_walker->data.lambda.args[i].type, binding, &inner);
 			if (prev_inner != NULL){
 				*prev_inner = *line;
 			}
@@ -8445,7 +8444,7 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 			}
 			prev_inner = inner;
 		}
-		*prev_inner = lateral_walker->data.lambda.expression;
+		*prev_inner = *lateral_walker->data.lambda.expression;
 		location->data.if_statement.alt = outer_dispatch;
 		prev_walker = lateral_walker;
 		lateral_walker = lateral_walker->data.lambda.alt;
@@ -8457,9 +8456,10 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 }
 
 expr_ast*
-destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* const target_type, expr_ast* const target_walk, expr_ast** const inner){
+destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* target_type, expr_ast* const target_walk, expr_ast** const inner){
 	expr_ast* block;
 	expr_ast* cond;
+	target_type = reduce_alias_and_type(walk->parse, target_type);
 	switch (pat->tag){
 	case NAMED_PATTERN:
 		block = pool_request(walk->parse->mem, sizeof(expr_ast));
@@ -8523,7 +8523,7 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* const 
 		len_expr->data.access.right = mk_binding(walk->parse->mem, &len_token);
 		expr_ast* outer = destructure_pattern(walk, pat->data.fat_ptr.ptr, target_type->data.fat_ptr.ptr, ptr_expr, &interm);
 		type_ast* len = pool_request(walk->parse->mem, sizeof(type_ast));
-		len->tag = LIT_AST;
+		len->tag = LIT_TYPE;
 		len->data.lit = U64_TYPE;
 		*interm = *destructure_pattern(walk, pat->data.fat_ptr.len, len, len_expr, inner);
 		return outer;
@@ -8554,11 +8554,11 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* const 
 		expr_ast* eq_binding = mk_binding(walk->parse->mem, &eq_token);
 		cond->tag = IF_EXPR;
 		expr_ast* lit_expr = pool_request(walk->parse->mem, sizeof(expr_ast));
-		lit_expr->tag = LITERAL_EXPR;
+		lit_expr->tag = LIT_EXPR;
 		lit_expr->data.literal = pat->data.literal;
 		cond->data.if_statement.pred = mk_appl(walk->parse->mem,
 			mk_appl(walk->parse->mem,
-				eq_token,
+				eq_binding,
 				lit_expr
 			),
 			target_walk
@@ -8582,7 +8582,7 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* const 
 		string_expr->data.str = pat->data.str;
 		cond->data.if_statement.pred = mk_appl(walk->parse->mem,
 			mk_appl(walk->parse->mem,
-				string_eq_token,
+				string_eq_binding,
 				string_expr	
 			),
 			target_walk
@@ -8599,14 +8599,15 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* const 
 		selector_access->data.access.right = selector_binding;
 		type_ast* next_target_type = NULL;
 		for (uint64_t i = 0;i<target_type->data.structure->data.union_structure.count;++i){
-			if (string_compare(&pat->data.union_selector.member, &target_type->data.structure->data.union_structure.named[i]) == 0){
-				next_target_type = &target_type->data.structure->data.union_structure.members[i]
+			if (string_compare(&pat->data.union_selector.member.data.name, &target_type->data.structure->data.union_structure.names[i].data.name) == 0){
+				next_target_type = &target_type->data.structure->data.union_structure.members[i];
 				break;
 			}
 		}
 		assert(next_target_type != NULL);
 		return destructure_pattern(walk, pat->data.union_selector.nest, next_target_type, selector_access, inner);
 	}
+	return NULL;
 }
 
 uint8_t
@@ -8640,24 +8641,24 @@ pattern_equal(pattern_ast* const left, pattern_ast* const right){
 		}
 		return 0;
 	case LITERAL_PATTERN:
-		if (left->data.literal->tag != right->data.literal.tag){
+		if (left->data.literal.tag != right->data.literal.tag){
 			return 0;
 		}
-		if (left->data.literal->tag == INT_LITERAL){
+		if (left->data.literal.tag == INT_LITERAL){
 			return left->data.literal.data.i == right->data.literal.data.i;
 		}
-		if (left->data.literal->tag == UINT_LITERAL){
+		if (left->data.literal.tag == UINT_LITERAL){
 			return left->data.literal.data.u == right->data.literal.data.u;
 		}
-		if (left->data.literal->tag == FLOAT_LITERAL){
+		if (left->data.literal.tag == FLOAT_LITERAL){
 			return left->data.literal.data.f == right->data.literal.data.f;
 		}
-		if (left->data.literal->tag == DOUBLE_LITERAL){
+		if (left->data.literal.tag == DOUBLE_LITERAL){
 			return left->data.literal.data.d == right->data.literal.data.d;
 		}
 		return 0;
 	case STRING_PATTERN:
-		if (string_compare(&left->data.str, &right->data.str) == 0){
+		if (string_compare(&left->data.str.data.name, &right->data.str.data.name) == 0){
 			return 1;
 		}
 		return 0;
@@ -8691,7 +8692,7 @@ main(int argc, char** argv){
 		return 0;
 	}
 	if (strncmp(argv[1], "-h", ERROR_STRING_MAX) == 0){
-		printf(" compile program : ink infile.w -o outfile\n");
+		printf(" compile program : ink infile.ink -o outfile\n");
 		return 0;
 	}
 	if (argc < 4){

@@ -717,8 +717,8 @@ expr_ast* closure_call(walker* const walk, expr_ast* input_binding, line_relay* 
 token create_wrapper(walker* const walk, expr_ast* func_binding, type_ast* const converted_type, uint64_t real_args, uint64_t args);
 expr_ast* standard_call_wrapper(walker* const walk, expr_ast* const func_binding, type_ast* const u8ptr, type_ast* const converted_type, expr_ast* memcpy_binding, expr_ast* plus_binding, uint64_t args, expr_ast* const block, token param_name, expr_ast** const last_ptr);
 
-uint8_t is_generic(walker* const walk, type_ast* const type);
-uint8_t is_generic_struct(walker* const walk, structure_ast* const s);
+uint8_t is_generic(parser* const parse, type_ast* const type);
+uint8_t is_generic_struct(parser* const parse, structure_ast* const s);
 expr_ast* deep_copy_expr_type_replace(walker* const walk, expr_ast* source, clash_relation* const relation, token* const rec_name, type_ast* const rec_type);
 expr_ast* deep_copy_expr_type_replace_worker(walker* const walk, expr_ast* source, clash_relation* const relation, token_map* const realias, token* const rec_name, type_ast* const rec_type);
 pattern_ast* deep_copy_pattern_replace(walker* const walk, pattern_ast* const pattern, token_map* const realias);
@@ -738,5 +738,18 @@ expr_ast* destructure_pattern(walker* const walk, pattern_ast* const pat, type_a
 uint8_t find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** const right, expr_ast** const location, expr_ast** const binding, type_ast** target_type, uint8_t* binding_changed);
 void destructure_match_patterns(walker* const walk, expr_ast* const expr);
 void destructure_lambda_patterns(walker* const walk, expr_ast* const expr);
+
+typedef struct genc {
+	pool* mem;
+	token_map* translated_names;
+} genc;
+
+void generate_c(parser* const parse, const char* input, const char* output);
+void write_term_decl(genc* const generator, FILE* hfd, term_ast* const term);
+void write_type_args(genc* const generator, FILE* fd, type_ast* const arg_types, expr_ast* const lam);
+void write_type(genc* const generator, FILE* hfd, type_ast* const type);
+void write_structure_type(genc* const generator, FILE* fd, structure_ast* const s);
+void write_name(genc* const generator, FILE* hfd, token name);
+string ink_prefix(pool* const mem, string* const name);
 
 #endif

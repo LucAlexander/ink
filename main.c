@@ -174,6 +174,7 @@ compile_file(char* input, const char* output){
 #ifdef DEBUG
 	printf("----------------Checked-----------------\n");
 #endif
+	generate_c(&parse, input, output);
 }
 
 void
@@ -3111,7 +3112,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			uint8_t applied_equal = type_equiv(walk, reduced_generic, expected_type);
 			walk_assert(applied_equal == 1, nearest_token(expr), "Applied generic type did not match expected type");
 			walk_assert_prop();
-			if (is_generic(walk, expr->data.appl.left->type) == 1){
+			if (is_generic(walk->parse, expr->data.appl.left->type) == 1){
 				type_ast* left_generic = deep_copy_type(walk, expr->data.appl.left->type);
 				type_ast* expected_generic = deep_copy_type(walk, expanded_type);
 				type_ast* real_type = try_monomorph(walk, expr->data.appl.left, expr->data.appl.right, left_generic, expected_generic);
@@ -3186,7 +3187,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			outer_depends->data.dependency.type = left->data.function.right;
 			generic_applied_type = deep_copy_type_replace(walk->parse->mem, &relation, outer_depends);
 		}
-		if (is_generic(walk, expr->data.appl.left->type) == 1){
+		if (is_generic(walk->parse, expr->data.appl.left->type) == 1){
 			type_ast* left_generic = deep_copy_type(walk, expr->data.appl.left->type);
 			type_ast* real_type = try_monomorph(walk, expr->data.appl.left, expr->data.appl.right, left_generic, NULL);
 			walk_assert_prop();
@@ -3750,7 +3751,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 
 type_ast*
 walk_term(walker* const walk, term_ast* const term, type_ast* expected_type, uint8_t is_outer){
-	if (is_generic(walk, term->type) == 1){
+	if (is_generic(walk->parse, term->type) == 1){
 		if (term->type->tag == NAMED_TYPE && term->type->data.named.arg_count == 0){
 			uint64_t pos = push_binding(walk, walk->local_scope, &term->name, term->type);
 			walk_assert_prop();
@@ -3957,12 +3958,12 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type, type_as
 		if (string_compare(&bind->data.name, &walk->local_scope->bindings[i].name->data.name) == 0){
 			if (i < walk->scope_ptrs->ptrs[walk->scope_ptrs->count-1]){
 				if (real_type != NULL){
-					if (is_generic(walk, real_type) == 0){
+					if (is_generic(walk->parse, real_type) == 0){
 						scrape_binding(walk, &walk->local_scope->bindings[i]);
 					}
 				}
 				else{
-					if (is_generic(walk, walk->local_scope->bindings[i].type) == 0){
+					if (is_generic(walk->parse, walk->local_scope->bindings[i].type) == 0){
 						scrape_binding(walk, &walk->local_scope->bindings[i]);
 					}
 				}
@@ -4645,12 +4646,12 @@ clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* p
 	if (left->tag != right->tag){
 		if (left->tag == FAT_PTR_TYPE && right->tag == FUNCTION_TYPE){
 			if (left->data.fat_ptr.ptr->tag == NAMED_TYPE){
-				if (is_generic(walk, right) == 1){
+				if (is_generic(walk->parse, right) == 1){
 					return;
 				}
 				type_ast* existing_ptr = type_ast_map_access(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name);
 				if (existing_ptr != NULL){
-					if (is_generic(walk, existing_ptr) == 1){
+					if (is_generic(walk->parse, existing_ptr) == 1){
 						type_ast_map_insert(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name, *right);
 					}
 					return;
@@ -4668,7 +4669,7 @@ clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* p
 		if (left->tag != NAMED_TYPE){
 			return;
 		}
-		if (is_generic(walk, right) == 1){
+		if (is_generic(walk->parse, right) == 1){
 			return;
 		}
 		typedef_ast** istypedef = typedef_ptr_map_access(walk->parse->types, left->data.named.name.data.name);
@@ -4679,7 +4680,7 @@ clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* p
 		}
 		type_ast* confirm = type_ast_map_access(relation, left->data.named.name.data.name);
 		if (confirm != NULL){
-			if (is_generic(walk, confirm) == 1){
+			if (is_generic(walk->parse, confirm) == 1){
 				type_ast_map_insert(relation, left->data.named.name.data.name, *right);
 			}
 			clash_types_priority(walk, relation, pointer_only, right, confirm);
@@ -4728,7 +4729,7 @@ clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* p
 		}
 		type_ast* confirm = type_ast_map_access(relation, left->data.named.name.data.name);
 		if (confirm != NULL){
-			if (is_generic(walk, confirm) == 1){
+			if (is_generic(walk->parse, confirm) == 1){
 				type_ast_map_insert(relation, left->data.named.name.data.name, *right);
 			}
 		}
@@ -4765,7 +4766,7 @@ clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* p
 					}
 				}
 				else {
-					if (is_generic(walk, right) == 0){
+					if (is_generic(walk->parse, right) == 0){
 						type_ast_map_insert(relation, left->data.named.name.data.name, *right);
 					}
 				}
@@ -4953,7 +4954,7 @@ check_program(parser* const parse){
 	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 		implementation_ast* impl = &parse->implementation_list.buffer[i];
 		for (uint64_t t = 0;t<impl->member_count;++t){
-			if (is_generic(&walk, impl->members[t].type) == 1){
+			if (is_generic(parse, impl->members[t].type) == 1){
 				continue;
 			}
 			uint64_t pos = walk.local_scope->binding_count;
@@ -4968,7 +4969,7 @@ check_program(parser* const parse){
 	}
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
 		pool_empty(parse->temp_mem);
-		if (is_generic(&walk, parse->term_list.buffer[i].type) == 1){
+		if (is_generic(parse, parse->term_list.buffer[i].type) == 1){
 			continue;
 		}
 		uint64_t pos = walk.local_scope->binding_count;
@@ -4988,7 +4989,7 @@ check_program(parser* const parse){
 	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 		implementation_ast* impl = &parse->implementation_list.buffer[i];
 		for (uint64_t t = 0;t<impl->member_count;++t){
-			if (is_generic(&walk, impl->members[t].type) == 1){
+			if (is_generic(parse, impl->members[t].type) == 1){
 				continue;
 			}
 			pool_empty(parse->temp_mem);
@@ -4998,7 +4999,7 @@ check_program(parser* const parse){
 	}
 	for (uint64_t i = 0;i<pre_transform_limit;++i){
 		pool_empty(parse->temp_mem);
-		if (is_generic(&walk, parse->term_list.buffer[i].type) == 1){
+		if (is_generic(parse, parse->term_list.buffer[i].type) == 1){
 			continue;
 		}
 		pool_empty(parse->temp_mem);
@@ -5008,7 +5009,7 @@ check_program(parser* const parse){
 	for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 		implementation_ast* impl = &parse->implementation_list.buffer[i];
 		for (uint64_t t = 0;t<impl->member_count;++t){
-			if (is_generic(&walk, impl->members[t].type) == 1){
+			if (is_generic(parse, impl->members[t].type) == 1){
 				continue;
 			}
 			function_to_structure_type(&walk, &impl->members[t]);
@@ -5016,7 +5017,7 @@ check_program(parser* const parse){
 	}
 	for (uint64_t i = 0;i<parse->term_list.count;++i){
 		pool_empty(parse->temp_mem);
-		if (is_generic(&walk, parse->term_list.buffer[i].type) == 1){
+		if (is_generic(parse, parse->term_list.buffer[i].type) == 1){
 			continue;
 		}
 		function_to_structure_type(&walk, &parse->term_list.buffer[i]);
@@ -5684,12 +5685,12 @@ clash_types_equiv(walker* const walk, type_ast* const left, type_ast* const righ
 uint8_t
 clash_types_equiv_worker(walker* const walk, type_ast_map* const relation, type_ast_map* const pointer_only, type_ast* const left, type_ast* const right){
 	if (left->tag == NAMED_TYPE){
-		if (is_generic(walk, left) == 1){
+		if (is_generic(walk->parse, left) == 1){
 			type_ast* exists = type_ast_map_access(relation, left->data.named.name.data.name);
 			if (exists != NULL){
 				if (exists->tag == NAMED_TYPE){
-					if (is_generic(walk, exists) == 1){
-						if (is_generic(walk, right) == 0){
+					if (is_generic(walk->parse, exists) == 1){
+						if (is_generic(walk->parse, right) == 0){
 							type_ast_map_insert(relation, left->data.named.name.data.name, *right);
 							return 1;
 						}
@@ -5707,7 +5708,7 @@ clash_types_equiv_worker(walker* const walk, type_ast_map* const relation, type_
 	if (left->tag == FAT_PTR_TYPE){
 		if (left->data.fat_ptr.ptr->tag == NAMED_TYPE){
 			if (right->tag == FUNCTION_TYPE){
-				if (is_generic(walk, left) == 1){
+				if (is_generic(walk->parse, left) == 1){
 					type_ast* exists = type_ast_map_access(pointer_only, left->data.named.name.data.name);
 					if (exists != NULL){
 						if (type_equiv(walk, exists, right) == 0){
@@ -5724,7 +5725,7 @@ clash_types_equiv_worker(walker* const walk, type_ast_map* const relation, type_
 	}
 	if (left->tag != right->tag){
 		if (right->tag == NAMED_TYPE){
-			if (is_generic(walk, right) == 1){
+			if (is_generic(walk->parse, right) == 1){
 				return 1;
 			}
 		}
@@ -6436,7 +6437,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 	case LIT_EXPR:
 		return expr;
 	case TERM_EXPR:
-		if (is_generic(walk, expr->data.term->type) == 1){
+		if (is_generic(walk->parse, expr->data.term->type) == 1){
 			return expr;
 		}
 		if (expr->data.term->type->tag == FUNCTION_TYPE || expr->data.term->type->tag == DEPENDENCY_TYPE){
@@ -6458,7 +6459,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			walk_assert_prop();
 		}
 		return expr;
-	case STRUCT_EXPR: // TODO optimization for term = {}, can remain the same, theres also one where a mutation decomposes to a.x = ...; a.y = ....; etc
+	case STRUCT_EXPR: // optimization possible for term = {}, can remain the same, theres also one where a mutation decomposes to a.x = ...; a.y = ....; etc
 		for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
 			expr->data.constructor.members[i] = *transform_expr(walk, &expr->data.constructor.members[i], 0, newlines, 1);
 			walk_assert_prop();
@@ -7699,63 +7700,63 @@ mk_closure_type(pool* const mem){
 }
 
 uint8_t
-is_generic(walker* const walk, type_ast* const type){
+is_generic(parser* const parse, type_ast* const type){
 	switch (type->tag){
 	case DEPENDENCY_TYPE:
 		if (type->data.dependency.dependency_count > 0){
 			return 1;
 		}
-		return is_generic(walk, type->data.dependency.type);
+		return is_generic(parse, type->data.dependency.type);
 	case FUNCTION_TYPE:
-		return is_generic(walk, type->data.function.left) |
-		       is_generic(walk, type->data.function.right);
+		return is_generic(parse, type->data.function.left) |
+		       is_generic(parse, type->data.function.right);
 	case LIT_TYPE:
 		return 0;
 	case PTR_TYPE:
-		return is_generic(walk, type->data.ptr);
+		return is_generic(parse, type->data.ptr);
 	case FAT_PTR_TYPE:
-		return is_generic(walk, type->data.fat_ptr.ptr);
+		return is_generic(parse, type->data.fat_ptr.ptr);
 	case STRUCT_TYPE:
-		return is_generic_struct(walk, type->data.structure);
+		return is_generic_struct(parse, type->data.structure);
 	case NAMED_TYPE:
 		for (uint64_t i = 0;i<type->data.named.arg_count;++i){
-			if (is_generic(walk, &type->data.named.args[i]) == 1){
+			if (is_generic(parse, &type->data.named.args[i]) == 1){
 				return 1;
 			}
 		}
-		type_ast* reduced = reduce_alias(walk->parse, type);
+		type_ast* reduced = reduce_alias(parse, type);
 		if (reduced->tag == NAMED_TYPE){
-			typedef_ast** istypedef = typedef_ptr_map_access(walk->parse->types, reduced->data.named.name.data.name);
+			typedef_ast** istypedef = typedef_ptr_map_access(parse->types, reduced->data.named.name.data.name);
 			if (istypedef != NULL){
 				if (type->data.named.arg_count < (*istypedef)->param_count){
 					return 1;
 				}
 				return 0;
 			}
-			istypedef = typedef_ptr_map_access(walk->parse->extern_types, reduced->data.named.name.data.name);
+			istypedef = typedef_ptr_map_access(parse->extern_types, reduced->data.named.name.data.name);
 			if (istypedef != NULL){
 				return 0;
 			}
 			return 1;
 		}
-		return is_generic(walk, reduced);
+		return is_generic(parse, reduced);
 	}
 	return 0;
 }
 
 uint8_t
-is_generic_struct(walker* const walk, structure_ast* const s){
+is_generic_struct(parser* const parse, structure_ast* const s){
 	switch (s->tag){
 	case STRUCT_STRUCT:
 		for (uint64_t i = 0;i<s->data.structure.count;++i){
-			if (is_generic(walk, &s->data.structure.members[i]) == 1){
+			if (is_generic(parse, &s->data.structure.members[i]) == 1){
 				return 1;
 			}
 		}
 		return 0;
 	case UNION_STRUCT:
 		for (uint64_t i = 0;i<s->data.union_structure.count;++i){
-			if (is_generic(walk, &s->data.union_structure.members[i]) == 1){
+			if (is_generic(parse, &s->data.union_structure.members[i]) == 1){
 				return 1;
 			}
 		}
@@ -8002,7 +8003,7 @@ is_tracked_generic(walker* const walk, token* const name, type_ast* const expect
 	}
 	term_ast** term = term_ptr_map_access(walk->parse->terms, name->data.name);
 	if (term != NULL){
-		if (is_generic(walk, (*term)->type) == 1){
+		if (is_generic(walk->parse, (*term)->type) == 1){
 			return *term;
 		}
 	}
@@ -8032,14 +8033,14 @@ is_tracked_generic(walker* const walk, token* const name, type_ast* const expect
 					index -= 1;
 				}
 				if (broke == 0){
-					if (is_generic(walk, term->type) == 1){
+					if (is_generic(walk->parse, term->type) == 1){
 						return term;
 					}
 				}
 			}
 			else{
 				if (type_equal(walk->parse, expected_type, type) == 1){
-					if (is_generic(walk, term->type) == 1){
+					if (is_generic(walk->parse, term->type) == 1){
 						return term;
 					}
 				}
@@ -8100,7 +8101,7 @@ try_monomorph(walker* const walk, expr_ast* expr, expr_ast* const right, type_as
 		.relation = &relation,
 		.pointer_only = &pointer_only
 	};
-	while (is_generic(walk, left) == 1){
+	while (is_generic(walk->parse, left) == 1){
 		type_ast_map_clear(&relation);
 		type_ast_map_clear(&pointer_only);
 		clash_types_priority(walk, &relation, &pointer_only, left, expected);
@@ -8114,7 +8115,7 @@ try_monomorph(walker* const walk, expr_ast* expr, expr_ast* const right, type_as
 		clash_types_priority(walk, &relation, &pointer_only, expected, left);
 		expected = deep_copy_type_replace(walk->parse->mem, &clash, expected);
 	}
-	walk_assert(is_generic(walk, left) == 0, nearest_token(expr), "Not enough type information to monmorphize expression");
+	walk_assert(is_generic(walk->parse, left) == 0, nearest_token(expr), "Not enough type information to monmorphize expression");
 	uint64_t index = walk->outer_exprs->expr_count;
 	type_ast* focus = left;
 	if (focus->tag == DEPENDENCY_TYPE){
@@ -8122,7 +8123,7 @@ try_monomorph(walker* const walk, expr_ast* expr, expr_ast* const right, type_as
 	}
 	{
 		expr_ast* arg = right;
-		if (is_generic(walk, arg->type)){
+		if (is_generic(walk->parse, arg->type)){
 			monomorph(walk, arg, &relation, &pointer_only, focus->data.function.left);
 			walk_assert_prop();
 		}
@@ -8134,7 +8135,7 @@ try_monomorph(walker* const walk, expr_ast* expr, expr_ast* const right, type_as
 	if (index != 0){
 		while (focus->tag == FUNCTION_TYPE){
 			expr_ast* arg = walk->outer_exprs->exprs[index-1];
-			if (is_generic(walk, arg->type)){
+			if (is_generic(walk->parse, arg->type)){
 				monomorph(walk, arg, &relation, &pointer_only, focus->data.function.left);
 				walk_assert_prop();
 			}
@@ -8277,13 +8278,13 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 		try_structure_monomorph(walk, type->data.fat_ptr.ptr);
 		return;
 	case STRUCT_TYPE:
-		if (is_generic(walk, type) == 1){
+		if (is_generic(walk->parse, type) == 1){
 			return;
 		}
 		reduced = type;
 		break;
 	case NAMED_TYPE:
-		if (is_generic(walk, type) == 1){
+		if (is_generic(walk->parse, type) == 1){
 			return;
 		}
 		if (type->data.named.arg_count == 0){
@@ -9019,16 +9020,213 @@ pattern_equal(pattern_ast* const left, pattern_ast* const right){
 	return 0;
 }
 
+void
+generate_c(parser* const parse, const char* input, const char* output){
+	token_map translated_names = token_map_init(parse->temp_mem);
+	genc generator = {
+		.mem = parse->temp_mem,
+		.translated_names = &translated_names
+	};
+	char* cfile = pool_request(parse->mem, ERROR_STRING_MAX+3);
+	strncpy(cfile, input, ERROR_STRING_MAX);
+	strncat(cfile, ".c", 3);
+	char* hfile = pool_request(parse->mem, ERROR_STRING_MAX+3);
+	strncpy(hfile, input, ERROR_STRING_MAX);
+	strncat(hfile, ".h", 3);
+	{
+		FILE* hfd = fopen(hfile, "w");
+		if (hfd == NULL){
+			fprintf(stderr, "File '%s' could not be opened for writing\n", hfile);
+			return;
+		}
+		fprintf(hfd, "#ifndef _INK_HEADER_\n#define _INK_HEADER_\n");
+		for (uint64_t i = 0;i<parse->term_list.count;++i){
+			if (is_generic(parse, parse->term_list.buffer[i].type) == 1){ // TODO change is_generic to parse not walk
+				continue;
+			}
+			write_term_decl(&generator, hfd, &parse->term_list.buffer[i]);
+			printf("\n");
+		}
+		fprintf(hfd, "#endif\n");
+		fclose(hfd);
+	}
+	{
+		FILE* cfd = fopen(cfile, "w");
+		if (cfd == NULL){
+			fprintf(stderr, "File '%s' could not be opened for writing\n", cfile);
+			return;
+		}
+		fclose(cfd);
+	}
+}
+
+void
+write_term_decl(genc* const generator, FILE* hfd, term_ast* const term){
+	type_ast* last = term->type;
+	while (last->tag == FUNCTION_TYPE){
+		last = last->data.function.right;
+	}
+	write_type(generator, hfd, last);
+	fprintf(hfd, " ");
+	write_name(generator, hfd, term->name);
+	write_type_args(generator, hfd, term->type, term->expression);
+	fprintf(hfd, ";");
+}
+
+void
+write_type_args(genc* const generator, FILE* fd, type_ast* const arg_types, expr_ast* const lam){
+	fprintf(fd, "(");
+	type_ast* walk = arg_types;
+	uint64_t arg_index = 0;
+	while (walk->tag == FUNCTION_TYPE){
+		if (arg_index != 0){
+			fprintf(fd, ",");
+		}
+		token newname = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = ink_prefix(generator->mem, &lam->data.lambda.args[arg_index].data.binding.data.name)
+		};
+		write_type(generator, fd, walk->data.function.left);
+		fprintf(fd, " ");
+		write_name(generator, fd, newname);
+		arg_index += 1;
+		walk = walk->data.function.right;
+	}
+	fprintf(fd, ")");
+}
+
+void
+write_type(genc* const generator, FILE* fd, type_ast* const type){
+	switch (type->tag){
+	case DEPENDENCY_TYPE:
+		write_type(generator, fd, type->data.dependency.type);
+		return;
+	case FUNCTION_TYPE:
+		fprintf(fd, "FUNCTION_TYPE");
+		return;
+	case LIT_TYPE:
+		if (type->variable == 0) fprintf(fd, "const ");
+		if (type->data.lit == U8_TYPE)       fprintf(fd, "uint8_t");
+		else if (type->data.lit == U16_TYPE) fprintf(fd, "uint16_t");
+		else if (type->data.lit == U32_TYPE) fprintf(fd, "uint32_t");
+		else if (type->data.lit == U64_TYPE) fprintf(fd, "uint64_t");
+		else if (type->data.lit == I8_TYPE)  fprintf(fd, "int8_t");
+		else if (type->data.lit == I16_TYPE) fprintf(fd, "int16_t");
+		else if (type->data.lit == I32_TYPE) fprintf(fd, "int32_t");
+		else if (type->data.lit == I64_TYPE) fprintf(fd, "int64_t");
+		else if (type->data.lit == INT_ANY)  fprintf(fd, "int");
+		else if (type->data.lit == F32_TYPE) fprintf(fd, "float");
+		else if (type->data.lit == F64_TYPE) fprintf(fd, "double");
+		return;
+	case PTR_TYPE:
+		write_type(generator, fd, type->data.ptr);
+		fprintf(fd, "*");
+		if (type->variable == 0) fprintf(fd, " const");
+		return;
+	case FAT_PTR_TYPE:
+		if (type->variable == 0) fprintf(fd, "const ");
+		fprintf(fd, "struct {");
+		write_type(generator, fd, type->data.fat_ptr.ptr);
+		fprintf(fd, " ptr;uint64_t len;}");
+		return;
+	case STRUCT_TYPE:
+		if (type->variable == 0) fprintf(fd, "const ");
+		write_structure_type(generator, fd, type->data.structure);
+		return;
+	case NAMED_TYPE:
+		if (type->variable == 0) fprintf(fd, "const ");
+		token* memoized = token_map_access(generator->translated_names, type->data.named.name.data.name);
+		if (memoized != NULL){
+			write_name(generator, fd, *memoized);
+			return;
+		}
+		token newname = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = ink_prefix(generator->mem, &type->data.named.name.data.name)
+		};
+		token_map_insert(generator->translated_names, type->data.named.name.data.name, newname);
+		write_name(generator, fd, newname);
+		return;
+	}
+}
+
+string
+ink_prefix(pool* const mem, string* const name){
+	string new;
+	if (name->str[0] == '#'){
+		new = string_init(mem, "lam_ink_");
+		string copy = string_copy(mem, name);
+		copy.str += 1;
+		copy.len -= 1;
+		string_cat(mem, &new, &copy);
+	}
+	else{
+		new = string_init(mem, "ink_");
+		string_cat(mem, &new, name);
+	}
+	return new;
+}
+
+void
+write_structure_type(genc* const generator, FILE* fd, structure_ast* const s){
+	switch (s->tag){
+	case STRUCT_STRUCT:
+		fprintf(fd, "struct {");
+		for (uint64_t i = 0;i<s->data.structure.count;++i){
+			write_type(generator, fd, &s->data.structure.members[i]);
+			fprintf(fd, " ");
+			write_name(generator, fd, s->data.structure.names[i]);
+			fprintf(fd, ";");
+		}
+		fprintf(fd, "}");
+		return;
+	case UNION_STRUCT:
+		fprintf(fd, "union {");
+		for (uint64_t i = 0;i<s->data.union_structure.count;++i){
+			write_type(generator, fd, &s->data.union_structure.members[i]);
+			fprintf(fd, " ");
+			write_name(generator, fd, s->data.union_structure.names[i]);
+			fprintf(fd, ";");
+		}
+		fprintf(fd, "}");
+		return;
+	case ENUM_STRUCT:
+		fprintf(fd, "enum {");
+		for (uint64_t i = 0;i<s->data.enumeration.count;++i){
+			write_name(generator, fd, s->data.enumeration.names[i]);
+			fprintf(fd, "=%lu,", s->data.enumeration.values[i]);
+		}
+		fprintf(fd, "}");
+		return;
+	}
+}
+
+void
+write_name(genc* const generator, FILE* fd, token name){
+	char save = name.data.name.str[name.data.name.len-1];
+	name.data.name.str[name.data.name.len-1] = '\0';
+	fprintf(fd, "%s", name.data.name.str);
+	name.data.name.str[name.data.name.len-1] = save;
+}
+
 /* TODO
- * -TRANSFORMATION------------------------------------------
- *  the way we have been detecting if its a generic parameter
- * 		may be flawed, because we dont check if it has parameters?
- * 	full case hoisting?
  * -ERROR REPORTING-----------------------------------------
  * error reporting as logging rather than single report
 		 nearest type token function?
  * -CODE GENERATION-----------------------------------------
  * c code generation pass
+ * 	check of which functions are actually called from main context?
+ * 		HEADER FILE 
+ * 		forward declare all types/aliases
+ * 		delcare all types/aliases
+ * 		forward declare all functions
+ * 		SOURCE FILE
+ * 		put all function defs
+ *
  *
  */
 

@@ -411,6 +411,7 @@ MAP_DECL(uint64_t);
 MAP_DECL(token);
 MAP_DECL(term_ast);
 MAP_DECL(expr_ptr);
+MAP_DECL(string);
 
 #define GROWABLE_BUFFER_DECL(type)\
 	typedef struct type##_buffer {\
@@ -574,6 +575,7 @@ typedef struct walker {
 	token_stack* term_stack;
 	token_map* wrappers;
 	term_map_stack* replacements;
+	string_map* struct_mono_names;
 } walker;
 
 uint64_t push_binding(walker* const walk, scope* const s, token* const t, type_ast* const type);
@@ -750,6 +752,6 @@ void write_type_args(genc* const generator, FILE* fd, type_ast* const arg_types,
 void write_type(genc* const generator, FILE* hfd, type_ast* const type);
 void write_structure_type(genc* const generator, FILE* fd, structure_ast* const s);
 void write_name(genc* const generator, FILE* hfd, token name);
-string ink_prefix(pool* const mem, string* const name);
+string ink_prefix(genc* const generator, string* const name);
 
 #endif

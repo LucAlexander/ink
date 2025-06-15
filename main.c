@@ -19,6 +19,7 @@ MAP_IMPL(uint64_t);
 MAP_IMPL(token);
 MAP_IMPL(term_ast);
 MAP_IMPL(expr_ptr);
+MAP_IMPL(string);
 
 GROWABLE_BUFFER_IMPL(typedef_ast);
 GROWABLE_BUFFER_IMPL(alias_ast);
@@ -4842,6 +4843,7 @@ check_program(parser* const parse){
 	for (uint64_t i = 0;i<replacements.capacity;++i){
 		replacements.map[i] = term_ast_map_init(parse->mem);
 	}
+	string_map struct_mono_names = string_map_init(parse->mem);
 	walker walk = {
 		.parse = parse,
 		.local_scope = &local_scope,
@@ -4851,6 +4853,7 @@ check_program(parser* const parse){
 		.term_stack = &term_stack,
 		.wrappers = &wrappers,
 		.replacements = &replacements,
+		.struct_mono_names = &struct_mono_names
 	};
 	realias_walker realias = {
 		.parse = parse,
@@ -8340,7 +8343,14 @@ string
 generate_mono_struct_name(walker* const walk, type_ast* const type){
 	string val = string_init(walk->parse->mem, "!");
 	stringify_type(walk->parse->mem, &val, type);
-	return val;
+	string* memname = string_map_access(walk->struct_mono_names, val);
+	if (memname != NULL){
+		return *memname;
+	}
+	string name = walk->next_lambda;
+	generate_new_lambda(walk);
+	string_map_insert(walk->struct_mono_names, val, name);
+	return name;
 }
 
 void
@@ -9039,13 +9049,13 @@ generate_c(parser* const parse, const char* input, const char* output){
 			fprintf(stderr, "File '%s' could not be opened for writing\n", hfile);
 			return;
 		}
-		fprintf(hfd, "#ifndef _INK_HEADER_\n#define _INK_HEADER_\n");
+		fprintf(hfd, "#ifndef _INK_HEADER_\n#define _INK_HEADER_\n#include <inttypes.h>\n");
 		for (uint64_t i = 0;i<parse->term_list.count;++i){
-			if (is_generic(parse, parse->term_list.buffer[i].type) == 1){ // TODO change is_generic to parse not walk
+			if (is_generic(parse, parse->term_list.buffer[i].type) == 1){
 				continue;
 			}
 			write_term_decl(&generator, hfd, &parse->term_list.buffer[i]);
-			printf("\n");
+			fprintf(hfd, "\n");
 		}
 		fprintf(hfd, "#endif\n");
 		fclose(hfd);
@@ -9068,7 +9078,20 @@ write_term_decl(genc* const generator, FILE* hfd, term_ast* const term){
 	}
 	write_type(generator, hfd, last);
 	fprintf(hfd, " ");
-	write_name(generator, hfd, term->name);
+	token* memoized = token_map_access(generator->translated_names, term->name.data.name);
+	if (memoized != NULL){
+		write_name(generator, hfd, *memoized);
+	}
+	else{
+		token newname = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = ink_prefix(generator, &term->name.data.name)
+		};
+		token_map_insert(generator->translated_names, term->name.data.name, newname);
+		write_name(generator, hfd, newname);
+	}
 	write_type_args(generator, hfd, term->type, term->expression);
 	fprintf(hfd, ";");
 }
@@ -9086,7 +9109,7 @@ write_type_args(genc* const generator, FILE* fd, type_ast* const arg_types, expr
 			.content_tag = STRING_TOKEN_TYPE,
 			.tag = IDENTIFIER_TOKEN,
 			.index = 0,
-			.data.name = ink_prefix(generator->mem, &lam->data.lambda.args[arg_index].data.binding.data.name)
+			.data.name = ink_prefix(generator, &lam->data.lambda.args[arg_index].data.binding.data.name)
 		};
 		write_type(generator, fd, walk->data.function.left);
 		fprintf(fd, " ");
@@ -9146,7 +9169,7 @@ write_type(genc* const generator, FILE* fd, type_ast* const type){
 			.content_tag = STRING_TOKEN_TYPE,
 			.tag = IDENTIFIER_TOKEN,
 			.index = 0,
-			.data.name = ink_prefix(generator->mem, &type->data.named.name.data.name)
+			.data.name = ink_prefix(generator, &type->data.named.name.data.name)
 		};
 		token_map_insert(generator->translated_names, type->data.named.name.data.name, newname);
 		write_name(generator, fd, newname);
@@ -9155,18 +9178,18 @@ write_type(genc* const generator, FILE* fd, type_ast* const type){
 }
 
 string
-ink_prefix(pool* const mem, string* const name){
+ink_prefix(genc* const generator, string* const name){
 	string new;
 	if (name->str[0] == '#'){
-		new = string_init(mem, "lam_ink_");
-		string copy = string_copy(mem, name);
+		new = string_init(generator->mem, "lam_ink_");
+		string copy = string_copy(generator->mem, name);
 		copy.str += 1;
 		copy.len -= 1;
-		string_cat(mem, &new, &copy);
+		string_cat(generator->mem, &new, &copy);
 	}
 	else{
-		new = string_init(mem, "ink_");
-		string_cat(mem, &new, name);
+		new = string_init(generator->mem, "ink_");
+		string_cat(generator->mem, &new, name);
 	}
 	return new;
 }
@@ -9207,10 +9230,10 @@ write_structure_type(genc* const generator, FILE* fd, structure_ast* const s){
 
 void
 write_name(genc* const generator, FILE* fd, token name){
-	char save = name.data.name.str[name.data.name.len-1];
-	name.data.name.str[name.data.name.len-1] = '\0';
+	char save = name.data.name.str[name.data.name.len];
+	name.data.name.str[name.data.name.len] = '\0';
 	fprintf(fd, "%s", name.data.name.str);
-	name.data.name.str[name.data.name.len-1] = save;
+	name.data.name.str[name.data.name.len] = save;
 }
 
 /* TODO

@@ -8397,6 +8397,15 @@ stringify_struct(pool* const mem, string* const acc, structure_ast* const x){
 void
 destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 	uint64_t arg_count = expr->data.lambda.arg_count;
+	uint8_t found = 0;
+	for (uint64_t i = 0;i<arg_count;++i){
+		if (expr->data.lambda.args[i].tag != BINDING_PATTERN){
+			found = 1;
+		}
+	}
+	if (found == 0){
+		return;
+	}
 	pattern_ast* realiased = pool_request(walk->parse->mem, sizeof(pattern_ast)*arg_count);
 	for (uint64_t i = 0;i<arg_count;++i){
 		realiased[i] = (pattern_ast){
@@ -8896,7 +8905,7 @@ pattern_equal(pattern_ast* const left, pattern_ast* const right){
  * check how we are handling different arg counts in alts
  * the way we have been detecting if its a generic parameter
  * 		may be flawed, because we dont check if it has parameters?
- * transform patterns into checks
+ * 	match to conditionals
  * -ERROR REPORTING-----------------------------------------
  * error reporting as logging rather than single report
 		 nearest type token function?

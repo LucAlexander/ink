@@ -6607,6 +6607,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			walk_assert_prop();
 			pop_binding(walk->local_scope, match_scope_pos);
 		}
+		destructure_match_patterns(walk, expr);
 		return expr;
 	case CAST_EXPR:
 		expr->data.cast.source = transform_expr(walk, expr->data.cast.source, 0, newlines, 1);
@@ -8531,25 +8532,67 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 
 void
 destructure_match_patterns(walker* const walk, expr_ast* const expr){
-	//TODO
-	//accumulate all destructures as a single conditional else chain
-	//replace expr with this accumulation entirely
-	expr_ast* outer = NULL;
+	assert(expr->data.match.pred->tag == BINDING_EXPR);
+	expr_ast* binding = expr->data.match.pred;
+	expr_ast* first = NULL;
 	for (uint64_t i = 0;i<expr->data.match.count;++i){
-		if (outer == NULL){
+		if (i == 0){
 			expr_ast* inner;
-			outer = destructure_pattern(walk, &expr->data.match.patterns[i], expr->type, expr->data.match.pred, &inner);
+			first = destructure_pattern(walk, &expr->data.match.patterns[i], expr->data.match.patterns[i].type, binding, &inner);
 			*inner = expr->data.match.cases[i];
 			continue;
 		}
-		if (outer->tag != IF_EXPR){
-			break;
-		}
+		expr_ast* location = first;
+		pattern_ast* arg_pos = &expr->data.match.patterns[i];
+		type_ast* target_type = expr->data.match.patterns[i].type;
+		uint8_t binding_changed = 0;
+		find_pattern_branch(walk, &expr->data.match.patterns[i-1], &arg_pos, &location, &binding, &target_type, &binding_changed);
 		expr_ast* inner;
-		outer->data.if_statement.alt = destructure_pattern(walk, &expr->data.match.patterns[i], expr->type, expr->data.match.pred, &inner);
+		expr_ast* outer_dispatch = destructure_pattern(walk, arg_pos, target_type, binding, &inner);
 		*inner = expr->data.match.cases[i];
-		outer = outer->data.if_statement.alt;
+		if (location->tag == IF_EXPR){
+			while (location->data.if_statement.alt != NULL){
+				location = location->data.if_statement.alt;
+			}
+			location->data.if_statement.alt = outer_dispatch;
+		}
+		else{
+			if (binding_changed == 0){
+				expr_ast* outer_block = pool_request(walk->parse->mem, sizeof(expr_ast));
+				outer_block->tag = BLOCK_EXPR;
+				outer_block->data.block.line_count = location->data.block.line_count+1;
+				outer_block->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast)*outer_block->data.block.line_count);
+				for (uint64_t k = 0;k<location->data.block.line_count;++k){
+					outer_block->data.block.lines[k] = location->data.block.lines[k];
+				}
+				outer_block->data.block.lines[outer_block->data.block.line_count-1] = *outer_dispatch;
+				*location = *outer_block;
+			}
+			else {
+				if (outer_dispatch->tag == BLOCK_EXPR){
+					expr_ast* outer_block = pool_request(walk->parse->mem, sizeof(expr_ast));
+					outer_block->tag = BLOCK_EXPR;
+					outer_block->data.block.line_count = outer_dispatch->data.block.line_count+1;
+					outer_block->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast)*outer_block->data.block.line_count);
+					outer_block->data.block.lines[0] = *location;
+					for (uint64_t k = 1;k<outer_block->data.block.line_count;++k){
+						outer_block->data.block.lines[k] = outer_dispatch->data.block.lines[k-1];
+					}
+					*location = *outer_block;
+				}
+				else{
+					expr_ast* outer_block = pool_request(walk->parse->mem, sizeof(expr_ast));
+					outer_block->tag = BLOCK_EXPR;
+					outer_block->data.block.line_count = 2;
+					outer_block->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast)*2);
+					outer_block->data.block.lines[0] = *location;
+					outer_block->data.block.lines[1] = *outer_dispatch;
+					*location = *outer_block;
+				}
+			}
+		}
 	}
+	*expr = *first;
 }
 
 expr_ast*
@@ -8739,6 +8782,9 @@ find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** c
 			*binding = new_expr;
 			*target_type = &outer_type->data.structure->data.structure.members[i];
 			if (find_pattern_branch(walk, &left->data.structure.members[i], right, location, binding, target_type, binding_changed) == 1){
+				*binding = bind_outer;
+				*target_type = outer_type;
+				*right = outer;
 				return 1;
 			}
 		}
@@ -8761,6 +8807,9 @@ find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** c
 		ptr_expr->data.access.right = mk_binding(walk->parse->mem, &ptr_token);
 		*binding = ptr_expr;
 		if (find_pattern_branch(walk, left->data.fat_ptr.ptr, right, location, binding, target_type, binding_changed) == 1){
+			*binding = fat_bind_outer;
+			*target_type = fat_type_outer;
+			*right = fat_outer;
 			return 1;
 		}
 		*right = fat_outer->data.fat_ptr.len;
@@ -8906,6 +8955,8 @@ pattern_equal(pattern_ast* const left, pattern_ast* const right){
  * the way we have been detecting if its a generic parameter
  * 		may be flawed, because we dont check if it has parameters?
  * 	match to conditionals
+ * 	match pred must be binding
+ * 	make sure x = if ... x = match ... both work as intended
  * -ERROR REPORTING-----------------------------------------
  * error reporting as logging rather than single report
 		 nearest type token function?

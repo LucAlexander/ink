@@ -6559,12 +6559,28 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		return expr;
 	case IF_EXPR:
 		if (newlines == NULL){
-			expr->data.if_statement.pred = transform_expr(walk, expr->data.if_statement.pred, 0, newlines, 1);
+			line_relay outer_lines = line_relay_init(walk->parse->temp_mem);
+			expr->data.if_statement.pred = transform_expr(walk, expr->data.if_statement.pred, 0, &outer_lines, 1);
 			walk_assert_prop();
 			expr->data.if_statement.cons = transform_expr(walk, expr->data.if_statement.cons, 0, NULL, 1);
 			walk_assert_prop();
 			if (expr->data.if_statement.alt != NULL){
 				expr->data.if_statement.alt = transform_expr(walk, expr->data.if_statement.alt, 0, NULL, 1);
+			}
+			if (outer_lines.len > 0){
+				expr_ast* block = pool_request(walk->parse->mem, sizeof(expr_ast));
+				block->tag = BLOCK_EXPR;
+				block->data.block.line_count = 1+outer_lines.len;
+				block->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast)*block->data.block.line_count);
+				line_relay_node* first = outer_lines.first;
+				uint64_t index = 0;
+				while (first != NULL){
+					block->data.block.lines[index] = *first->line;
+					index += 1;
+					first = first->next;
+				}
+				block->data.block.lines[index] = *expr;
+				*expr = *block;
 			}
 			return expr;
 		}
@@ -6620,7 +6636,8 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			}
 		}
 		if (newlines == NULL){
-			expr->data.match.pred = transform_expr(walk, expr->data.match.pred, 0, newlines, 1);
+			line_relay outer_lines = line_relay_init(walk->parse->temp_mem);
+			expr->data.match.pred = transform_expr(walk, expr->data.match.pred, 0, &outer_lines, 1);
 			walk_assert_prop();
 			for (uint64_t i = 0;i<expr->data.match.count;++i){
 				uint64_t match_scope_pos = walk->local_scope->binding_count;
@@ -6630,6 +6647,21 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				pop_binding(walk->local_scope, match_scope_pos);
 			}
 			destructure_match_patterns(walk, expr);
+			if (outer_lines.len != 0){
+				expr_ast* block = pool_request(walk->parse->mem, sizeof(expr_ast));
+				block->tag = BLOCK_EXPR;
+				block->data.block.line_count = 1+outer_lines.len;
+				block->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast)*block->data.block.line_count);
+				line_relay_node* first = outer_lines.first;
+				uint64_t index = 0;
+				while (first != NULL){
+					block->data.block.lines[index] = *first->line;
+					index += 1;
+					first = first->next;
+				}
+				block->data.block.lines[index] = *expr;
+				*expr = *block;
+			}
 			return expr;
 		}
 		token match_setter_name = {
@@ -8991,8 +9023,7 @@ pattern_equal(pattern_ast* const left, pattern_ast* const right){
  * -TRANSFORMATION------------------------------------------
  *  the way we have been detecting if its a generic parameter
  * 		may be flawed, because we dont check if it has parameters?
- *  make sure x = if ... x = match ... both work as intended
- *  	roll newline relay
+ * 	full case hoisting?
  * -ERROR REPORTING-----------------------------------------
  * error reporting as logging rather than single report
 		 nearest type token function?

@@ -5,7 +5,7 @@
 #include "kickstart.h"
 
 #define ARENA_SIZE 0x50000000
-#define TOKEN_ARENA_SIZE 0x10000
+#define TOKEN_ARENA_SIZE 0x50000000
 #define TEMP_ARENA_SIZE 0x50000000
 #define ERROR_STRING_MAX 0x100
 
@@ -735,7 +735,7 @@ void stringify_struct(pool* const mem, string* const acc, structure_ast* const x
 
 uint8_t pattern_equal(pattern_ast* const left, pattern_ast* const right);
 expr_ast* destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* const target_type, expr_ast* const target_walk, expr_ast** const inner);
-uint8_t find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** const right, expr_ast** const location, expr_ast** const binding, type_ast** target_type);
+uint8_t find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** const right, expr_ast** const location, expr_ast** const binding, type_ast** target_type, uint8_t* binding_changed);
 void destructure_match_patterns(walker* const walk, expr_ast* const expr);
 void destructure_lambda_patterns(walker* const walk, expr_ast* const expr);
 

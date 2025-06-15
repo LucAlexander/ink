@@ -8436,9 +8436,6 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 			continue;
 		}
 		expr_ast* location = host->data.lambda.expression;
-		//if (location->tag == BLOCK_EXPR){
-			//location = &location->data.block.lines[location->data.block.line_count-1];
-		//}
 		uint64_t i = 0;
 		for (;i<arg_count;++i){
 			if (pattern_equal(&prev_walker->data.lambda.args[i], &lateral_walker->data.lambda.args[i]) == 1){
@@ -8451,20 +8448,11 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 			}
 			break;
 		}
-		//if (location->tag != IF_EXPR){
-			//prev_walker = lateral_walker;
-			//lateral_walker = lateral_walker->data.lambda.alt;
-			//continue;
-		//}
 		pattern_ast* arg_pos = &lateral_walker->data.lambda.args[i];
 		expr_ast* binding = mk_binding(walk->parse->mem, &realiased[i].data.binding);
 		type_ast* target_type = host->data.lambda.args[i].type;
-		find_pattern_branch(walk, &prev_walker->data.lambda.args[i], &arg_pos, &location, &binding, &target_type);
-		//if (location->tag != IF_EXPR){
-			//prev_walker = lateral_walker;
-			//lateral_walker = lateral_walker->data.lambda.alt;
-			//continue;
-		//}
+		uint8_t binding_changed = 0;
+		find_pattern_branch(walk, &prev_walker->data.lambda.args[i], &arg_pos, &location, &binding, &target_type, &binding_changed);
 		expr_ast* prev_inner = NULL;
 		expr_ast* outer_dispatch = NULL;
 		{
@@ -8489,13 +8477,39 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 			location->data.if_statement.alt = outer_dispatch;
 		}
 		else{
-			expr_ast* outer_block = pool_request(walk->parse->mem, sizeof(expr_ast));
-			outer_block->tag = BLOCK_EXPR;
-			outer_block->data.block.line_count = 2;
-			outer_block->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast)*2);
-			outer_block->data.block.lines[0] = *location;
-			outer_block->data.block.lines[1] = *outer_dispatch;
-			*location = *outer_block;
+			if (binding_changed == 0){
+				expr_ast* outer_block = pool_request(walk->parse->mem, sizeof(expr_ast));
+				outer_block->tag = BLOCK_EXPR;
+				outer_block->data.block.line_count = location->data.block.line_count+1;
+				outer_block->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast)*outer_block->data.block.line_count);
+				for (uint64_t k = 0;k<location->data.block.line_count;++k){
+					outer_block->data.block.lines[k] = location->data.block.lines[k];
+				}
+				outer_block->data.block.lines[outer_block->data.block.line_count-1] = *outer_dispatch;
+				*location = *outer_block;
+			}
+			else {
+				if (outer_dispatch->tag == BLOCK_EXPR){
+					expr_ast* outer_block = pool_request(walk->parse->mem, sizeof(expr_ast));
+					outer_block->tag = BLOCK_EXPR;
+					outer_block->data.block.line_count = outer_dispatch->data.block.line_count+1;
+					outer_block->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast)*outer_block->data.block.line_count);
+					outer_block->data.block.lines[0] = *location;
+					for (uint64_t k = 1;k<outer_block->data.block.line_count;++k){
+						outer_block->data.block.lines[k] = outer_dispatch->data.block.lines[k-1];
+					}
+					*location = *outer_block;
+				}
+				else{
+					expr_ast* outer_block = pool_request(walk->parse->mem, sizeof(expr_ast));
+					outer_block->tag = BLOCK_EXPR;
+					outer_block->data.block.line_count = 2;
+					outer_block->data.block.lines = pool_request(walk->parse->mem, sizeof(expr_ast)*2);
+					outer_block->data.block.lines[0] = *location;
+					outer_block->data.block.lines[1] = *outer_dispatch;
+					*location = *outer_block;
+				}
+			}
 		}
 		prev_walker = lateral_walker;
 		lateral_walker = lateral_walker->data.lambda.alt;
@@ -8508,6 +8522,7 @@ destructure_lambda_patterns(walker* const walk, expr_ast* const expr){
 
 void
 destructure_match_patterns(walker* const walk, expr_ast* const expr){
+	//TODO
 	//accumulate all destructures as a single conditional else chain
 	//replace expr with this accumulation entirely
 	expr_ast* outer = NULL;
@@ -8688,7 +8703,7 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* target
 
 //NOTE left is the pattern for which location is walking, right is the new one to compare with
 uint8_t
-find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** const right, expr_ast** const location, expr_ast** const binding, type_ast** target_type){
+find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** const right, expr_ast** const location, expr_ast** const binding, type_ast** target_type, uint8_t* binding_changed){
 	if (left->tag != (*right)->tag){
 		return 1;
 	}
@@ -8696,11 +8711,12 @@ find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** c
 	switch (left->tag){
 	case NAMED_PATTERN:
 		if (string_compare(&left->data.named.name.data.name, &(*right)->data.named.name.data.name) != 0){
+			*binding_changed = 1;
 			return 1;
 		}
 		*location = &(*location)->data.block.lines[(*location)->data.block.line_count-1];
 		*right = (*right)->data.named.inner;
-		return find_pattern_branch(walk, left->data.named.inner, right, location, binding, target_type);
+		return find_pattern_branch(walk, left->data.named.inner, right, location, binding, target_type, binding_changed);
 	case STRUCT_PATTERN:
 		pattern_ast* outer = *right;
 		expr_ast* bind_outer = *binding;
@@ -8713,7 +8729,7 @@ find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** c
 			new_expr->data.access.right = mk_binding(walk->parse->mem, &outer_type->data.structure->data.structure.names[i]);
 			*binding = new_expr;
 			*target_type = &outer_type->data.structure->data.structure.members[i];
-			if (find_pattern_branch(walk, &left->data.structure.members[i], right, location, binding, target_type) == 1){
+			if (find_pattern_branch(walk, &left->data.structure.members[i], right, location, binding, target_type, binding_changed) == 1){
 				return 1;
 			}
 		}
@@ -8735,7 +8751,7 @@ find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** c
 		ptr_expr->data.access.left = fat_bind_outer;
 		ptr_expr->data.access.right = mk_binding(walk->parse->mem, &ptr_token);
 		*binding = ptr_expr;
-		if (find_pattern_branch(walk, left->data.fat_ptr.ptr, right, location, binding, target_type) == 1){
+		if (find_pattern_branch(walk, left->data.fat_ptr.ptr, right, location, binding, target_type, binding_changed) == 1){
 			return 1;
 		}
 		*right = fat_outer->data.fat_ptr.len;
@@ -8754,7 +8770,7 @@ find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** c
 		len_expr->data.access.left = fat_bind_outer;
 		len_expr->data.access.right = mk_binding(walk->parse->mem, &len_token);
 		*binding = len_expr;
-		if (find_pattern_branch(walk, left->data.fat_ptr.len, right, location, binding, target_type) == 1){
+		if (find_pattern_branch(walk, left->data.fat_ptr.len, right, location, binding, target_type, binding_changed) == 1){
 			return 1;
 		}
 		return 0;
@@ -8763,6 +8779,7 @@ find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** c
 		return 0;
 	case BINDING_PATTERN:
 		if (string_compare(&left->data.binding.data.name, &(*right)->data.binding.data.name) != 0){
+			*binding_changed = 1;
 			return 1;
 		}
 		*location = &(*location)->data.block.lines[(*location)->data.block.line_count-1];
@@ -8808,7 +8825,7 @@ find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** c
 				break;
 			}
 		}
-		return find_pattern_branch(walk, left->data.union_selector.nest, right, location, binding, target_type);
+		return find_pattern_branch(walk, left->data.union_selector.nest, right, location, binding, target_type, binding_changed);
 	}
 	return 0;
 }

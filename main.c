@@ -9095,7 +9095,36 @@ write_alias_forward(genc* const generator, FILE* hfd, alias_ast* const def){
 	if (def->type->tag != STRUCT_TYPE){
 		return;
 	}
-	//TODO
+	switch (def->type->data.structure->tag){
+	case STRUCT_STRUCT:
+		fprintf(hfd, "typedef struct ");
+		break;
+	case UNION_STRUCT:
+		fprintf(hfd, "typedef union ");
+		break;
+	case ENUM_STRUCT:
+		fprintf(hfd, "typedef enum ");
+		break;
+	}
+	token* memoized = token_map_access(generator->translated_names, def->name.data.name);
+	if (memoized != NULL){
+		write_name(generator, hfd, *memoized);
+		fprintf(hfd, " ");
+		write_name(generator, hfd, *memoized);
+		fprintf(hfd, ";\n");
+		return;
+	}
+	token newname = {
+		.content_tag = STRING_TOKEN_TYPE,
+		.tag = IDENTIFIER_TOKEN,
+		.index = 0,
+		.data.name = ink_prefix(generator, &def->name.data.name)
+	};
+	token_map_insert(generator->translated_names, def->name.data.name, newname);
+	write_name(generator, hfd, newname);
+	fprintf(hfd, " ");
+	write_name(generator, hfd, newname);
+	fprintf(hfd, ";\n");
 }
 
 void
@@ -9103,7 +9132,36 @@ write_typedef_forward(genc* const generator, FILE* hfd, typedef_ast* const def){
 	if (def->type->tag != STRUCT_TYPE){
 		return;
 	}
-	//TODO
+	switch (def->type->data.structure->tag){
+	case STRUCT_STRUCT:
+		fprintf(hfd, "typedef struct ");
+		break;
+	case UNION_STRUCT:
+		fprintf(hfd, "typedef union ");
+		break;
+	case ENUM_STRUCT:
+		fprintf(hfd, "typedef enum ");
+		break;
+	}
+	token* memoized = token_map_access(generator->translated_names, def->name.data.name);
+	if (memoized != NULL){
+		write_name(generator, hfd, *memoized);
+		fprintf(hfd, " ");
+		write_name(generator, hfd, *memoized);
+		fprintf(hfd, ";\n");
+		return;
+	}
+	token newname = {
+		.content_tag = STRING_TOKEN_TYPE,
+		.tag = IDENTIFIER_TOKEN,
+		.index = 0,
+		.data.name = ink_prefix(generator, &def->name.data.name)
+	};
+	token_map_insert(generator->translated_names, def->name.data.name, newname);
+	write_name(generator, hfd, newname);
+	fprintf(hfd, " ");
+	write_name(generator, hfd, newname);
+	fprintf(hfd, ";\n");
 }
 
 void

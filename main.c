@@ -6388,7 +6388,9 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			line_relay outer_lines = line_relay_init(walk->parse->temp_mem);
 			for (uint64_t i = 0;i<expr->data.block.line_count;++i){
 				line_relay linelines = line_relay_init(walk->parse->temp_mem);
-				if (expr->data.block.lines[i].tag == BLOCK_EXPR || expr->data.block.lines[i].tag == IF_EXPR){ // TODO match
+				if (expr->data.block.lines[i].tag == BLOCK_EXPR
+				 || expr->data.block.lines[i].tag == IF_EXPR
+				 || expr->data.block.lines[i].tag == MATCH_EXPR){
 					expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, NULL, 1);
 					walk_assert_prop();
 					line_relay_append(&outer_lines, line);
@@ -6597,11 +6599,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		expr->data.while_statement.cons = transform_expr(walk, expr->data.while_statement.cons, 0, NULL, 1);
 		return expr;
 	case MATCH_EXPR:
-		expr->data.match.pred = transform_expr(walk, expr->data.match.pred, 0, newlines, 1);
-		walk_assert_prop();
 		for (uint64_t i = 0;i<expr->data.match.count;++i){
-			uint64_t match_scope_pos = walk->local_scope->binding_count;
-			transform_pattern(walk, &expr->data.match.patterns[i], NULL);
 			expr_ast case_expr = expr->data.match.cases[i];
 			if (case_expr.tag != BLOCK_EXPR){
 				expr_ast* block = pool_request(walk->parse->mem, sizeof(expr_ast));
@@ -6620,12 +6618,35 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				}
 				expr->data.match.cases[i] = *block;
 			}
-			expr->data.match.cases[i] = *transform_expr(walk, &expr->data.match.cases[i], 0, NULL, 1);
-			walk_assert_prop();
-			pop_binding(walk->local_scope, match_scope_pos);
 		}
-		destructure_match_patterns(walk, expr);
-		return expr;
+		if (newlines == NULL){
+			expr->data.match.pred = transform_expr(walk, expr->data.match.pred, 0, newlines, 1);
+			walk_assert_prop();
+			for (uint64_t i = 0;i<expr->data.match.count;++i){
+				uint64_t match_scope_pos = walk->local_scope->binding_count;
+				transform_pattern(walk, &expr->data.match.patterns[i], NULL);
+				expr->data.match.cases[i] = *transform_expr(walk, &expr->data.match.cases[i], 0, NULL, 1);
+				walk_assert_prop();
+				pop_binding(walk->local_scope, match_scope_pos);
+			}
+			destructure_match_patterns(walk, expr);
+			return expr;
+		}
+		token match_setter_name = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = walk->next_lambda
+		};
+		generate_new_lambda(walk);
+		expr_ast* match_outer_setter = mk_term(walk->parse->mem, expr->type, &match_setter_name, NULL);
+		line_relay_append(newlines, match_outer_setter);
+		replace_return_with_setter(walk, expr, match_setter_name);
+		expr_ast* match_walked = transform_expr(walk, expr, 0, NULL, 1);
+		walk_assert_prop();
+		line_relay_append(newlines, match_walked);
+		expr_ast* match_setter_binding = mk_binding(walk->parse->mem, &match_setter_name);
+		return match_setter_binding;
 	case CAST_EXPR:
 		expr->data.cast.source = transform_expr(walk, expr->data.cast.source, 0, newlines, 1);
 		walk_assert_prop();
@@ -8971,6 +8992,7 @@ pattern_equal(pattern_ast* const left, pattern_ast* const right){
  *  the way we have been detecting if its a generic parameter
  * 		may be flawed, because we dont check if it has parameters?
  *  make sure x = if ... x = match ... both work as intended
+ *  	roll newline relay
  * -ERROR REPORTING-----------------------------------------
  * error reporting as logging rather than single report
 		 nearest type token function?

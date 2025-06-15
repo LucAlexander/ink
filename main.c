@@ -6388,7 +6388,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			line_relay outer_lines = line_relay_init(walk->parse->temp_mem);
 			for (uint64_t i = 0;i<expr->data.block.line_count;++i){
 				line_relay linelines = line_relay_init(walk->parse->temp_mem);
-				if (expr->data.block.lines[i].tag == BLOCK_EXPR){
+				if (expr->data.block.lines[i].tag == BLOCK_EXPR || expr->data.block.lines[i].tag == IF_EXPR){ // TODO match
 					expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, NULL, 1);
 					walk_assert_prop();
 					line_relay_append(&outer_lines, line);
@@ -6556,14 +6556,31 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		expr->data.deref = transform_expr(walk, expr->data.deref, 0, newlines, 1);
 		return expr;
 	case IF_EXPR:
-		expr->data.if_statement.pred = transform_expr(walk, expr->data.if_statement.pred, 0, newlines, 1);
-		walk_assert_prop();
-		expr->data.if_statement.cons = transform_expr(walk, expr->data.if_statement.cons, 0, NULL, 1);
-		walk_assert_prop();
-		if (expr->data.if_statement.alt != NULL){
-			expr->data.if_statement.alt = transform_expr(walk, expr->data.if_statement.alt, 0, NULL, 1);
+		if (newlines == NULL){
+			expr->data.if_statement.pred = transform_expr(walk, expr->data.if_statement.pred, 0, newlines, 1);
+			walk_assert_prop();
+			expr->data.if_statement.cons = transform_expr(walk, expr->data.if_statement.cons, 0, NULL, 1);
+			walk_assert_prop();
+			if (expr->data.if_statement.alt != NULL){
+				expr->data.if_statement.alt = transform_expr(walk, expr->data.if_statement.alt, 0, NULL, 1);
+			}
+			return expr;
 		}
-		return expr;
+		token if_setter_name = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = walk->next_lambda
+		};
+		generate_new_lambda(walk);
+		expr_ast* if_outer_setter = mk_term(walk->parse->mem, expr->type, &if_setter_name, NULL);
+		line_relay_append(newlines, if_outer_setter);
+		replace_return_with_setter(walk, expr, if_setter_name);
+		expr_ast* if_walked = transform_expr(walk, expr, 0, NULL, 1);
+		walk_assert_prop();
+		line_relay_append(newlines, if_walked);
+		expr_ast* if_setter_binding = mk_binding(walk->parse->mem, &if_setter_name);
+		return if_setter_binding;
 	case FOR_EXPR:
 		expr->data.for_statement.initial = transform_expr(walk, expr->data.for_statement.initial, 0, newlines, 1);
 		walk_assert_prop();
@@ -8951,12 +8968,9 @@ pattern_equal(pattern_ast* const left, pattern_ast* const right){
 
 /* TODO
  * -TRANSFORMATION------------------------------------------
- * check how we are handling different arg counts in alts
- * the way we have been detecting if its a generic parameter
+ *  the way we have been detecting if its a generic parameter
  * 		may be flawed, because we dont check if it has parameters?
- * 	match to conditionals
- * 	match pred must be binding
- * 	make sure x = if ... x = match ... both work as intended
+ *  make sure x = if ... x = match ... both work as intended
  * -ERROR REPORTING-----------------------------------------
  * error reporting as logging rather than single report
 		 nearest type token function?

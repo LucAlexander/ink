@@ -9050,6 +9050,17 @@ generate_c(parser* const parse, const char* input, const char* output){
 			return;
 		}
 		fprintf(hfd, "#ifndef _INK_HEADER_\n#define _INK_HEADER_\n#include <inttypes.h>\n");
+		for (uint64_t i = 0;i<parse->alias_list.count;++i){
+			write_alias(&generator, hfd, &parse->alias_list.buffer[i]);
+			fprintf(hfd, "\n");
+		}
+		for (uint64_t i = 0;i<parse->type_list.count;++i){
+			if (parse->type_list.buffer[i].param_count > 0){
+				continue;
+			}
+			write_typedef(&generator, hfd, &parse->type_list.buffer[i]);
+			fprintf(hfd, "\n");
+		}
 		for (uint64_t i = 0;i<parse->term_list.count;++i){
 			if (is_generic(parse, parse->term_list.buffer[i].type) == 1){
 				continue;
@@ -9068,6 +9079,48 @@ generate_c(parser* const parse, const char* input, const char* output){
 		}
 		fclose(cfd);
 	}
+}
+
+void
+write_alias(genc* const generator, FILE* hfd, alias_ast* const def){
+	fprintf(hfd, "typedef ");
+	write_type(generator, hfd, def->type);
+	fprintf(hfd, " ");
+	token* memoized = token_map_access(generator->translated_names, def->name.data.name);
+	if (memoized != NULL){
+		write_name(generator, hfd, *memoized);
+		return;
+	}
+	token newname = {
+		.content_tag = STRING_TOKEN_TYPE,
+		.tag = IDENTIFIER_TOKEN,
+		.index = 0,
+		.data.name = ink_prefix(generator, &def->name.data.name)
+	};
+	token_map_insert(generator->translated_names, def->name.data.name, newname);
+	write_name(generator, hfd, newname);
+	fprintf(hfd, ";");
+}
+
+void
+write_typedef(genc* const generator, FILE* hfd, typedef_ast* const def){
+	fprintf(hfd, "typedef ");
+	write_type(generator, hfd, def->type);
+	fprintf(hfd, " ");
+	token* memoized = token_map_access(generator->translated_names, def->name.data.name);
+	if (memoized != NULL){
+		write_name(generator, hfd, *memoized);
+		return;
+	}
+	token newname = {
+		.content_tag = STRING_TOKEN_TYPE,
+		.tag = IDENTIFIER_TOKEN,
+		.index = 0,
+		.data.name = ink_prefix(generator, &def->name.data.name)
+	};
+	token_map_insert(generator->translated_names, def->name.data.name, newname);
+	write_name(generator, hfd, newname);
+	fprintf(hfd, ";");
 }
 
 void
@@ -9188,7 +9241,7 @@ ink_prefix(genc* const generator, string* const name){
 		string_cat(generator->mem, &new, &copy);
 	}
 	else{
-		new = string_init(generator->mem, "ink_");
+		new = string_init(generator->mem, "usr_ink_");
 		string_cat(generator->mem, &new, name);
 	}
 	return new;

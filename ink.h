@@ -747,6 +747,8 @@ typedef struct genc {
 } genc;
 
 void generate_c(parser* const parse, const char* input, const char* output);
+void write_alias(genc* const generator, FILE* hfd, alias_ast* const def);
+void write_typedef(genc* const generator, FILE* hfd, typedef_ast* const def);
 void write_term_decl(genc* const generator, FILE* hfd, term_ast* const term);
 void write_type_args(genc* const generator, FILE* fd, type_ast* const arg_types, expr_ast* const lam);
 void write_type(genc* const generator, FILE* hfd, type_ast* const type);

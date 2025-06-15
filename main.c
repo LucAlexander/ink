@@ -9050,23 +9050,32 @@ generate_c(parser* const parse, const char* input, const char* output){
 			return;
 		}
 		fprintf(hfd, "#ifndef _INK_HEADER_\n#define _INK_HEADER_\n#include <inttypes.h>\n");
+		//forward declarations for structures
+		for (uint64_t i = 0;i<parse->alias_list.count;++i){
+			write_alias_forward(&generator, hfd, &parse->alias_list.buffer[i]);
+		}
+		for (uint64_t i = 0;i<parse->type_list.count;++i){
+			if (parse->type_list.buffer[i].param_count > 0){
+				continue;
+			}
+			write_typedef_forward(&generator, hfd, &parse->type_list.buffer[i]);
+		}
+		//actual declarations
 		for (uint64_t i = 0;i<parse->alias_list.count;++i){
 			write_alias(&generator, hfd, &parse->alias_list.buffer[i]);
-			fprintf(hfd, "\n");
 		}
 		for (uint64_t i = 0;i<parse->type_list.count;++i){
 			if (parse->type_list.buffer[i].param_count > 0){
 				continue;
 			}
 			write_typedef(&generator, hfd, &parse->type_list.buffer[i]);
-			fprintf(hfd, "\n");
 		}
+		//function declarations
 		for (uint64_t i = 0;i<parse->term_list.count;++i){
 			if (is_generic(parse, parse->term_list.buffer[i].type) == 1){
 				continue;
 			}
 			write_term_decl(&generator, hfd, &parse->term_list.buffer[i]);
-			fprintf(hfd, "\n");
 		}
 		fprintf(hfd, "#endif\n");
 		fclose(hfd);
@@ -9082,13 +9091,33 @@ generate_c(parser* const parse, const char* input, const char* output){
 }
 
 void
+write_alias_forward(genc* const generator, FILE* hfd, alias_ast* const def){
+	if (def->type->tag != STRUCT_TYPE){
+		return;
+	}
+	//TODO
+}
+
+void
+write_typedef_forward(genc* const generator, FILE* hfd, typedef_ast* const def){
+	if (def->type->tag != STRUCT_TYPE){
+		return;
+	}
+	//TODO
+}
+
+void
 write_alias(genc* const generator, FILE* hfd, alias_ast* const def){
 	fprintf(hfd, "typedef ");
+	uint8_t save = def->type->variable;
+	def->type->variable = 1;
 	write_type(generator, hfd, def->type);
+	def->type->variable = save;
 	fprintf(hfd, " ");
 	token* memoized = token_map_access(generator->translated_names, def->name.data.name);
 	if (memoized != NULL){
 		write_name(generator, hfd, *memoized);
+		fprintf(hfd, ";\n");
 		return;
 	}
 	token newname = {
@@ -9099,17 +9128,21 @@ write_alias(genc* const generator, FILE* hfd, alias_ast* const def){
 	};
 	token_map_insert(generator->translated_names, def->name.data.name, newname);
 	write_name(generator, hfd, newname);
-	fprintf(hfd, ";");
+	fprintf(hfd, ";\n");
 }
 
 void
 write_typedef(genc* const generator, FILE* hfd, typedef_ast* const def){
 	fprintf(hfd, "typedef ");
+	uint8_t save = def->type->variable;
+	def->type->variable = 1;
 	write_type(generator, hfd, def->type);
+	def->type->variable = save;
 	fprintf(hfd, " ");
 	token* memoized = token_map_access(generator->translated_names, def->name.data.name);
 	if (memoized != NULL){
 		write_name(generator, hfd, *memoized);
+		fprintf(hfd, ";\n");
 		return;
 	}
 	token newname = {
@@ -9120,7 +9153,7 @@ write_typedef(genc* const generator, FILE* hfd, typedef_ast* const def){
 	};
 	token_map_insert(generator->translated_names, def->name.data.name, newname);
 	write_name(generator, hfd, newname);
-	fprintf(hfd, ";");
+	fprintf(hfd, ";\n");
 }
 
 void
@@ -9146,7 +9179,7 @@ write_term_decl(genc* const generator, FILE* hfd, term_ast* const term){
 		write_name(generator, hfd, newname);
 	}
 	write_type_args(generator, hfd, term->type, term->expression);
-	fprintf(hfd, ";");
+	fprintf(hfd, ";\n");
 }
 
 void
@@ -9180,7 +9213,7 @@ write_type(genc* const generator, FILE* fd, type_ast* const type){
 		write_type(generator, fd, type->data.dependency.type);
 		return;
 	case FUNCTION_TYPE:
-		fprintf(fd, "FUNCTION_TYPE");
+		fprintf(fd, "FUNCTION_TYPE");//TODO
 		return;
 	case LIT_TYPE:
 		if (type->variable == 0) fprintf(fd, "const ");
@@ -9251,7 +9284,12 @@ void
 write_structure_type(genc* const generator, FILE* fd, structure_ast* const s){
 	switch (s->tag){
 	case STRUCT_STRUCT:
-		fprintf(fd, "struct {");
+		if (s->data.structure.packed == 1){
+			fprintf(fd, "struct __attribute__((packed, aligned(1))){");
+		}
+		else{
+			fprintf(fd, "struct {");
+		}
 		for (uint64_t i = 0;i<s->data.structure.count;++i){
 			write_type(generator, fd, &s->data.structure.members[i]);
 			fprintf(fd, " ");

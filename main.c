@@ -171,6 +171,7 @@ compile_file(char* input, const char* output){
 	if (parse.err.len != 0){
 		printf("\033[1m[!] Failed semantic checks, \033[0m");
 		show_error(&parse);
+		return;
 	}
 #ifdef DEBUG
 	printf("----------------Checked-----------------\n");
@@ -4803,6 +4804,10 @@ clash_structure_priority(walker* const walk, type_ast_map* relation, type_ast_ma
 
 void
 check_program(parser* const parse){
+	term_ast** main_term = term_ptr_map_access(parse->terms, string_init(parse->temp_mem, "main"));
+   	assert_local(main_term != NULL, , "Missing entrypoint");
+	assert_local((*main_term)->type->tag == LIT_TYPE, , "Main must be integer type");
+	assert_local((*main_term)->type->data.lit <= INT_ANY, , "Main must be integer type");
 	scope local_scope = {
 		.mem = parse->mem,
 		.bindings = pool_request(parse->mem, sizeof(binding)*2),

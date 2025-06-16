@@ -9054,9 +9054,13 @@ pattern_equal(pattern_ast* const left, pattern_ast* const right){
 void
 generate_c(parser* const parse, const char* input, const char* output){
 	token_map translated_names = token_map_init(parse->temp_mem);
+	token_map func_names = token_map_init(parse->temp_mem);
 	genc generator = {
 		.mem = parse->temp_mem,
 		.translated_names = &translated_names,
+		.func_names = &func_names,
+		.func_types = typedef_ast_buffer_init(parse->temp_mem),
+		.next_func_name = string_init(parse->temp_mem, "$A"),
 		.parse = parse
 	};
 	char* cfile = pool_request(parse->mem, ERROR_STRING_MAX+3);
@@ -9066,12 +9070,33 @@ generate_c(parser* const parse, const char* input, const char* output){
 	strncpy(hfile, input, ERROR_STRING_MAX);
 	strncat(hfile, ".h", 3);
 	{
+		FILE* cfd = fopen(cfile, "w");
+		if (cfd == NULL){
+			fprintf(stderr, "File '%s' could not be opened for writing\n", cfile);
+			return;
+		}
+		fprintf(cfd, "#include \"%s\"\n", hfile);
+		//function implementations
+		for (uint64_t i = 0;i<parse->term_list.count;++i){
+			if (is_generic(parse, parse->term_list.buffer[i].type) == 1){
+				continue;
+			}
+			write_term_impl(&generator, cfd, &parse->term_list.buffer[i]);
+		}
+		generate_main(&generator, cfd);
+		fclose(cfd);
+	}
+	{
 		FILE* hfd = fopen(hfile, "w");
 		if (hfd == NULL){
 			fprintf(stderr, "File '%s' could not be opened for writing\n", hfile);
 			return;
 		}
 		fprintf(hfd, "#ifndef _INK_HEADER_\n#define _INK_HEADER_\n#include <inttypes.h>\n");
+		//function typedefs
+		for (uint64_t i = 0;i<generator.func_types.count;++i){
+			write_func_typedef(&generator, hfd, &generator.func_types.buffer[i]);
+		}
 		//forward declarations for structures
 		for (uint64_t i = 0;i<parse->alias_list.count;++i){
 			write_alias_forward(&generator, hfd, &parse->alias_list.buffer[i]);
@@ -9102,22 +9127,33 @@ generate_c(parser* const parse, const char* input, const char* output){
 		fprintf(hfd, "#endif\n");
 		fclose(hfd);
 	}
-	{
-		FILE* cfd = fopen(cfile, "w");
-		if (cfd == NULL){
-			fprintf(stderr, "File '%s' could not be opened for writing\n", cfile);
-			return;
+}
+
+void
+generate_new_func_name(genc* const generator){
+	string old = generator->next_func_name;
+	uint64_t i = 1;
+	for (;i<old.len;++i){ // 1 because 0 is #
+		if (old.str[i] < 'Z'){
+			break;
 		}
-		fprintf(cfd, "#include \"%s\"\n", hfile);
-		//function implementations
-		for (uint64_t i = 0;i<parse->term_list.count;++i){
-			if (is_generic(parse, parse->term_list.buffer[i].type) == 1){
-				continue;
-			}
-			write_term_impl(&generator, cfd, &parse->term_list.buffer[i]);
-		}
-		fclose(cfd);
 	}
+	if (i < old.len){
+		old = string_copy(generator->mem, &generator->next_func_name);
+		for (uint64_t k = 1;k<i;++k){
+			old.str[k] = 'A';
+		}
+		old.str[i] += 1;
+	}
+	else{
+		old.str = pool_request(generator->mem, old.len+1);
+		old.len += 1;
+		old.str[0] = '#';
+		for (uint64_t k = 1;k<old.len;++k){
+			old.str[k] = 'A';
+		}
+	}
+	generator->next_func_name = old;
 }
 
 void
@@ -9245,6 +9281,30 @@ write_typedef(genc* const generator, FILE* hfd, typedef_ast* const def){
 }
 
 void
+write_func_typedef(genc* const generator, FILE* hfd, typedef_ast* const def){
+	fprintf(hfd, "typedef ");
+	type_ast* last = def->type;
+	while (last->tag == FUNCTION_TYPE){
+		last = last->data.function.right;
+	}
+	write_type(generator, hfd, last);
+	fprintf(hfd, "(*");
+	write_name(generator, hfd, def->name);
+	fprintf(hfd, ")(");
+	type_ast* walk = def->type;
+	uint64_t arg_index = 0;
+	while (walk->tag == FUNCTION_TYPE){
+		if (arg_index != 0){
+			fprintf(hfd, ",");
+		}
+		write_type(generator, hfd, walk->data.function.left);
+		arg_index += 1;
+		walk = walk->data.function.right;
+	}
+	fprintf(hfd, ");\n");
+}
+
+void
 write_term_decl(genc* const generator, FILE* hfd, term_ast* const term){
 	type_ast* last = term->type;
 	while (last->tag == FUNCTION_TYPE){
@@ -9301,7 +9361,30 @@ write_type(genc* const generator, FILE* fd, type_ast* const type){
 		write_type(generator, fd, type->data.dependency.type);
 		return;
 	case FUNCTION_TYPE:
-		fprintf(fd, "FUNCTION_TYPE");//TODO
+		string stringified = string_init(generator->mem, "!");
+		stringify_type(generator->mem, &stringified, type);
+		token* funcname = token_map_access(generator->func_names, stringified);
+		if (funcname != NULL){
+			write_name(generator, fd, *funcname);
+		}
+		else{
+			token newname = {
+				.content_tag = STRING_TOKEN_TYPE,
+				.tag = IDENTIFIER_TOKEN,
+				.index = 0,
+				.data.name = ink_prefix(generator, &generator->next_func_name)
+			};
+			generate_new_func_name(generator);
+			token_map_insert(generator->func_names, stringified, newname);
+			typedef_ast newdef = {
+				.name = newname,
+				.params = NULL,
+				.param_count = 0,
+				.type = type
+			};
+			typedef_ast_buffer_insert(&generator->func_types, newdef);
+			write_name(generator, fd, newname);
+		}
 		return;
 	case LIT_TYPE:
 		if (type->variable == 0) fprintf(fd, "const ");
@@ -9356,6 +9439,13 @@ ink_prefix(genc* const generator, string* const name){
 	string new;
 	if (name->str[0] == '#'){
 		new = string_init(generator->mem, "lam_ink_");
+		string copy = string_copy(generator->mem, name);
+		copy.str += 1;
+		copy.len -= 1;
+		string_cat(generator->mem, &new, &copy);
+	}
+	else if (name->str[0] == '$'){
+		new = string_init(generator->mem, "fun_ink_");
 		string copy = string_copy(generator->mem, name);
 		copy.str += 1;
 		copy.len -= 1;
@@ -9501,9 +9591,6 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 		if (expr->data.term->expression != NULL){
 			fprintf(fd, " = ");
 			write_expression(generator, fd, expr->data.term->expression, 0);
-		}
-		else{
-			fprintf(fd, ";");
 		}
 		break;
 	case STRING_EXPR:
@@ -9655,17 +9742,25 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 	}
 }
 
+void
+generate_main(genc* const generator, FILE* fd){
+	fprintf(fd, "int main(){\n\treturn usr_ink_main();\n}\n");
+}
+
 /* TODO
  * -ERROR REPORTING-----------------------------------------
  * error reporting as logging rather than single report
 		 nearest type token function?
  * -CODE GENERATION-----------------------------------------
  * c code generation pass
- * 	check of which functions are actually called from main context?
- * 		bindings to top level functions need to become calls
- * 		generate main
+ * 		check of which functions are actually called from main context?
  * 		string setting
- *
+ * 		generate and memoize function types and generat eheader after source file so that we know whihc ones need to exist
+ * 		application -> call, since all applications shoudl be full calsl by now
+ * 		I dont know what to do with for
+ * 		list and structure should be trivial
+ * 			structure needs cast at front to be generally applicable
+ * 		may need to do dependency resolution for the order the header file is generated in
  */
 
 int

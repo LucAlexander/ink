@@ -9623,8 +9623,14 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 		break;
 	case LIST_EXPR:
 		ink_indent(fd, indent);
-		fprintf(fd, "LIST literal");
-		//TODO
+		fprintf(fd, "{");
+		for (uint64_t i = 0;i<expr->data.list.line_count;++i){
+			if (i != 0){
+				fprintf(fd, ",");
+			}
+			write_expression(generator, fd, &expr->data.list.lines[i], 0, 1);
+		}
+		fprintf(fd, "}");
 		break;
 	case STRUCT_EXPR:
 		ink_indent(fd, indent);
@@ -9801,8 +9807,7 @@ generate_main(genc* const generator, FILE* fd){
  * 			for ; ; {
  *				will requires a whole rework
  * 			}
- * 		list and structure should be trivial
- * 			structure needs cast at front to be generally applicable
+ * 		enumerator usage is being prefixed but definition isnt
  * 		may need to do dependency resolution for the order the header file is generated in
  */
 

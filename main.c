@@ -6370,7 +6370,9 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				)
 			);
 			line_relay_append(newlines, new_set);
+			type_ast* old_ref_type = last_reference->type;
 			last_reference = new_binding;
+			last_reference->type = old_ref_type;
 			current_arg_type_info = current_arg_type_info->data.function.right;
 		}
 		if (arg_count < farg_count){
@@ -9675,6 +9677,17 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 		break;
 	case BINDING_EXPR:
 		ink_indent(fd, indent);
+		if (term_ptr_map_access(generator->parse->extern_terms, expr->data.binding.data.name) != NULL){
+			write_name(generator, fd, expr->data.binding);
+			if (free == 1){
+				fprintf(fd, "()");
+			}
+			return;
+		}
+		if (typedef_ptr_map_access(generator->parse->extern_types, expr->data.binding.data.name) != NULL){
+			write_name(generator, fd, expr->data.binding);
+			return;
+		}
 		token* memoized = token_map_access(generator->translated_names, expr->data.binding.data.name);
 		if (memoized != NULL){
 			write_name(generator, fd, *memoized);
@@ -9791,7 +9804,7 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 			fprintf(fd, ".ptr");
 		}
 		fprintf(fd, "[");
-		write_expression(generator, fd, expr->data.access.right, 0, 1);
+		write_expression(generator, fd, &expr->data.access.right->data.list.lines[0], 0, 1);
 		fprintf(fd, "]");
 		break;
 	case FAT_PTR_EXPR:
@@ -9822,12 +9835,13 @@ generate_main(genc* const generator, FILE* fd){
  * -CODE GENERATION-----------------------------------------
  * c code generation pass
  * 		check of which functions are actually called from main context?
- * 		application -> call, since all applications shoudl be full calsl by now
  * 		I dont know what to do with for
  * 			for ; ; {
  *				will requires a whole rework
  * 			}
  * 		may need to do dependency resolution for the order the header file is generated in
+ * 		builtins
+ * 		manual accesses to [].ptr are broken
  */
 
 int

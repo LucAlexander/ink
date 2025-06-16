@@ -744,6 +744,7 @@ void destructure_lambda_patterns(walker* const walk, expr_ast* const expr);
 typedef struct genc {
 	pool* mem;
 	token_map* translated_names;
+	parser* parse;
 } genc;
 
 void generate_c(parser* const parse, const char* input, const char* output);
@@ -757,5 +758,8 @@ void write_type(genc* const generator, FILE* hfd, type_ast* const type);
 void write_structure_type(genc* const generator, FILE* fd, structure_ast* const s);
 void write_name(genc* const generator, FILE* hfd, token name);
 string ink_prefix(genc* const generator, string* const name);
+void ink_indent(FILE* fd, uint64_t indent);
+void write_term_impl(genc* const generator, FILE* fd, term_ast* const term);
+void write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t indent);
 
 #endif

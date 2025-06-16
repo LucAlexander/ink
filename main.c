@@ -9035,7 +9035,8 @@ generate_c(parser* const parse, const char* input, const char* output){
 	token_map translated_names = token_map_init(parse->temp_mem);
 	genc generator = {
 		.mem = parse->temp_mem,
-		.translated_names = &translated_names
+		.translated_names = &translated_names,
+		.parse = parse
 	};
 	char* cfile = pool_request(parse->mem, ERROR_STRING_MAX+3);
 	strncpy(cfile, input, ERROR_STRING_MAX);
@@ -9085,6 +9086,14 @@ generate_c(parser* const parse, const char* input, const char* output){
 		if (cfd == NULL){
 			fprintf(stderr, "File '%s' could not be opened for writing\n", cfile);
 			return;
+		}
+		fprintf(cfd, "#include \"%s\"\n", hfile);
+		//function implementations
+		for (uint64_t i = 0;i<parse->term_list.count;++i){
+			if (is_generic(parse, parse->term_list.buffer[i].type) == 1){
+				continue;
+			}
+			write_term_impl(&generator, cfd, &parse->term_list.buffer[i]);
 		}
 		fclose(cfd);
 	}
@@ -9385,6 +9394,200 @@ write_name(genc* const generator, FILE* fd, token name){
 	name.data.name.str[name.data.name.len] = save;
 }
 
+void
+write_term_impl(genc* const generator, FILE* fd, term_ast* const term){
+	type_ast* last = term->type;
+	while (last->tag == FUNCTION_TYPE){
+		last = last->data.function.right;
+	}
+	write_type(generator, fd, last);
+	fprintf(fd, " ");
+	token* memoized = token_map_access(generator->translated_names, term->name.data.name);
+	if (memoized != NULL){
+		write_name(generator, fd, *memoized);
+	}
+	else{
+		token newname = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = ink_prefix(generator, &term->name.data.name)
+		};
+		token_map_insert(generator->translated_names, term->name.data.name, newname);
+		write_name(generator, fd, newname);
+	}
+	write_type_args(generator, fd, term->type, term->expression);
+	write_expression(generator, fd, term->expression, 0);
+	printf("\n");
+}
+
+void
+ink_indent(FILE* fd, uint64_t indent){
+	for (uint64_t i = 0;i<indent;++i){
+		fprintf(fd, "\t");
+	}
+}
+
+void
+write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t indent){
+	switch (expr->tag){
+	case APPL_EXPR:
+		//TODO
+		break;
+	case LAMBDA_EXPR:
+		write_expression(generator, fd, expr->data.lambda.expression, indent);
+		break;
+	case BLOCK_EXPR:
+		ink_indent(fd, indent);
+		fprintf(fd, "{\n");
+		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
+			write_expression(generator, fd, &expr->data.block.lines[i], indent+1);
+			fprintf(fd, ";\n");
+		}
+		ink_indent(fd, indent);
+		fprintf(fd, "}\n");
+		break;
+	case LIT_EXPR:
+		ink_indent(fd, indent);
+		if (expr->data.literal.tag == INT_LITERAL) fprintf(fd, "%ld", expr->data.literal.data.i);
+		if (expr->data.literal.tag == UINT_LITERAL) fprintf(fd, "%lu", expr->data.literal.data.i);
+		if (expr->data.literal.tag == FLOAT_LITERAL) fprintf(fd, "%f", expr->data.literal.data.i);
+		if (expr->data.literal.tag == DOUBLE_LITERAL) fprintf(fd, "%lf", expr->data.literal.data.i);
+		break;
+	case TERM_EXPR:
+		if (is_generic(generator->parse, expr->data.term->type) == 1){
+			return;
+		}
+		ink_indent(fd, indent);
+		write_type(generator, fd, expr->data.term->type);
+		fprintf(fd, " ");
+		write_name(generator, fd, expr->data.term.name);
+		fprintf(fd, " = ");
+		write_expression(generator, fd, expr->data.term.expression, 0);
+		break;
+	case STRING_EXPR:
+		ink_indent(fd, indent);
+		fprintf(fd, expr->data.str.data.name.str);
+		break;
+	case LIST_EXPR:
+		//TODO
+		break;
+	case STRUCT_EXPR:
+		//TODO
+		break;
+	case BINDING_EXPR:
+		ink_indent(fd, indent);
+		fprintf(fd, expr->data.binding.data.name.str);
+		break;
+	case MUTATION_EXPR:
+		ink_indent(fd, indent);
+		write_expression(generator, fd, expr->data.mutation.left, 0);
+		fprintf(fd, " = ");
+		write_expression(generator, fd, expr->data.mutation.right, 0);
+		break;
+	case RETURN_EXPR:
+		ink_indent(fd, indent);
+		fprintf(fd, "return ");
+		write_expression(generator, fd, expr->data.ret, 0);
+		break;
+	case SIZEOF_EXPR:
+		ink_indent(fd, indent);
+		fprintf(fd, "sizeof(");
+		write_type(generator, fd, expr->data.size_type);
+		fprintf(fd, ")");
+		break;
+	case REF_EXPR:
+		ink_indent(fd, indent);
+		fprintf(fd, "&(");
+		write_expression(generation, fd, expr->data.ref, 0);
+		fprintf(fd, ")");
+		break;
+	case DEREF_EXPR:
+		ink_indent(fd, indent);
+		fprintf(fd, "*(");
+		write_expression(generation, fd, expr->data.deref, 0);
+		fprintf(fd, ")");
+		break;
+	case IF_EXPR:
+		ink_indent(fd, indent);
+		fprintf(fd, "if (");
+		write_expression(generation, fd, expr->data.if_statement.pred, 0);
+		fprintf(fd, ")\n");
+		write_expression(generation, fd, expr->data.if_statement.cons, indent);
+		if (expr->data.if_statement.alt != NULL){
+			fprintf(fd, "else\n");
+			write_expression(generation, fd, expr->data.if_statement.cons, indent);
+		}
+		break;
+	case FOR_EXPR:
+		ink_indent(fd, indent);
+		fprintf(fd, "for (");
+		//TODO
+		fprintf(fd, ")");
+		write_expression(generation, fd, expr->data.for_statement.cons, indent);
+		break;
+	case WHILE_EXPR:
+		ink_indent(fd, indent);
+		fprintf(fd, "while (");
+		write_expression(generation, fd, expr->data.if_statement.pred, 0);
+		fprintf(fd, ")\n");
+		write_expression(generation, fd, expr->data.if_statement.cons, indent);
+		break;
+	case MATCH_EXPR:
+		assert(0);
+		break;
+	case CAST_EXPR:
+		//TODO
+		break;
+	case BREAK_EXPR:
+		ink_indent(indent);
+		fprintf(fd, "break");
+		break;
+	case CONTINUE_EXPR:
+		ink_indent(indent);
+		fprintf(fd, "continue");
+		break;
+	case NOP_EXPR:
+		break;
+	case STRUCT_ACCESS_EXPR:
+		ink_indent(indent);
+		write_expression(generation, fd, expr->data.access.left, 0);
+		if (expr->data.access.left->tag == PTR_TYPE){
+			fprintf(fd, "->");
+		}
+		else if (expr->data.access.left->tag == FAT_PTR_TYPE){
+			fprintf(fd, ".ptr->");
+		}
+		else{
+			fprintf(fd, ".");
+		}
+		write_expression(generation, fd, expr->data.access.right, 0);
+		break;
+	case ARRAY_ACCESS_EXPR:
+		ink_indent(indent);
+		write_expression(generation, fd, expr->data.access.left, indent);
+		if (expr->data.access.left->tag == FAT_PTR_EXPR){
+			fprintf(fd, ".ptr");
+		}
+		fprintf(fd, "[");
+		write_expression(generation, fd, expr->data.access.right, 0);
+		fprintf(fd, "]");
+		break;
+	case FAT_PTR_EXPR:
+		ink_indent(indent);
+		fprintf("{\n");
+		ink_indent(indent+1);
+		fprintf(".ptr=");
+		write_expression(generation, fd, expr->data.fat_ptr.left);
+		fprintf(",\n");
+		ink_indent(indent+1);
+		fprintf(".len=");
+		write_expression(generation, fd, expr->data.fat_ptr.right);
+		fprintf("\n}\n");
+		break;
+	}
+}
+
 /* TODO
  * -ERROR REPORTING-----------------------------------------
  * error reporting as logging rather than single report
@@ -9392,11 +9595,6 @@ write_name(genc* const generator, FILE* fd, token name){
  * -CODE GENERATION-----------------------------------------
  * c code generation pass
  * 	check of which functions are actually called from main context?
- * 		HEADER FILE 
- * 		forward declare all types/aliases
- * 		delcare all types/aliases
- * 		forward declare all functions
- * 		SOURCE FILE
  * 		put all function defs
  *
  *

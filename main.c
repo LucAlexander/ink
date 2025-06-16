@@ -3358,6 +3358,30 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert(expected_type->tag == PTR_TYPE || expected_type->tag == FAT_PTR_TYPE, nearest_token(expr), "String must be assigned to [i8] or i8^");
 		if (expected_type->tag == FAT_PTR_TYPE){
 			walk_assert(expected_type->data.fat_ptr.ptr->tag == LIT_TYPE && expected_type->data.fat_ptr.ptr->data.lit == I8_TYPE, nearest_token(expr), "String must be assigned to [i8] or i8^");
+			expr_ast* swrapper = pool_request(walk->parse->mem, sizeof(expr_ast));
+			swrapper->tag = STRUCT_EXPR;
+			swrapper->data.constructor.member_count = 2;
+			swrapper->data.constructor.members = pool_request(walk->parse->mem, sizeof(expr_ast)*2);
+			swrapper->data.constructor.members[0] = *expr;
+			swrapper->data.constructor.members[1].tag = LIT_EXPR;
+			swrapper->data.constructor.members[1].data.literal.tag = UINT_LITERAL;
+			swrapper->data.constructor.members[1].data.literal.data.u = expr->data.str.data.name.len;
+			swrapper->data.constructor.names = pool_request(walk->parse->mem, sizeof(token)*2);
+			token ptrname = {
+				.content_tag = STRING_TOKEN_TYPE,
+				.tag = IDENTIFIER_TOKEN,
+				.index = 0,
+				.data.name = string_init(walk->parse->mem, "ptr")
+			};
+			token lenname = {
+				.content_tag = STRING_TOKEN_TYPE,
+				.tag = IDENTIFIER_TOKEN,
+				.index = 0,
+				.data.name = string_init(walk->parse->mem, "len")
+			};
+			swrapper->data.constructor.names[0] = ptrname;
+			swrapper->data.constructor.names[1] = lenname;
+			*expr = *swrapper;
 			pop_binding(walk->local_scope, scope_pos);
 			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = expected_type;
@@ -9409,7 +9433,7 @@ write_type(genc* const generator, FILE* fd, type_ast* const type){
 		if (type->variable == 0) fprintf(fd, "const ");
 		fprintf(fd, "struct {");
 		write_type(generator, fd, type->data.fat_ptr.ptr);
-		fprintf(fd, " ptr;uint64_t len;}");
+		fprintf(fd, "* ptr;uint64_t len;}");
 		return;
 	case STRUCT_TYPE:
 		if (type->variable == 0) fprintf(fd, "const ");
@@ -9755,7 +9779,6 @@ generate_main(genc* const generator, FILE* fd){
  * c code generation pass
  * 		check of which functions are actually called from main context?
  * 		string setting
- * 		generate and memoize function types and generat eheader after source file so that we know whihc ones need to exist
  * 		application -> call, since all applications shoudl be full calsl by now
  * 		I dont know what to do with for
  * 		list and structure should be trivial

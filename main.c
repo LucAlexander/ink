@@ -9536,6 +9536,9 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 			token_map_insert(generator->translated_names, expr->data.binding.data.name, newname);
 			write_name(generator, fd, newname);
 		}
+		if (term_ptr_map_access(generator->parse->terms, expr->data.binding.data.name) != NULL){
+			fprintf(fd, "()");
+		}
 		break;
 	case MUTATION_EXPR:
 		ink_indent(fd, indent);
@@ -9659,16 +9662,9 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
  * -CODE GENERATION-----------------------------------------
  * c code generation pass
  * 	check of which functions are actually called from main context?
- * 		put all function defs
- * 		theres probably a bunch of special cases and stuff oof
- *
- * 		memoize bindings
  * 		bindings to top level functions need to become calls
- *
- * 		check main
+ * 		generate main
  * 		string setting
- *
- *
  *
  */
 

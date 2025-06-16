@@ -6703,6 +6703,13 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 void
 transform_term(walker* const walk, term_ast* const term, uint8_t is_outer){
 	uint64_t scope_pos = walk->local_scope->binding_count;
+	if (term->type->tag != FUNCTION_TYPE){
+		expr_ast* block = pool_request(walk->parse->mem, sizeof(expr_ast));
+		block->tag = BLOCK_EXPR;
+		block->data.block.line_count = 1;
+		block->data.block.lines = mk_return(walk->parse->mem, term->expression);
+		term->expression = block;
+	}
 	transform_expr(walk, term->expression, is_outer, NULL, 1);
 	pop_binding(walk->local_scope, scope_pos);
 }
@@ -9441,6 +9448,7 @@ void
 write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t indent){
 	switch (expr->tag){
 	case APPL_EXPR:
+		ink_indent(fd, indent);
 		fprintf(fd, "CALL expr");
 		//TODO
 		break;
@@ -9471,7 +9479,20 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 		ink_indent(fd, indent);
 		write_type(generator, fd, expr->data.term->type);
 		fprintf(fd, " ");
-		write_name(generator, fd, expr->data.term->name);
+		token* term_memoized = token_map_access(generator->translated_names, expr->data.term->name.data.name);
+		if (term_memoized != NULL){
+			write_name(generator, fd, *term_memoized);
+		}
+		else{
+			token newname = {
+				.content_tag = STRING_TOKEN_TYPE,
+				.tag = IDENTIFIER_TOKEN,
+				.index = 0,
+				.data.name = ink_prefix(generator, &expr->data.term->name.data.name)
+			};
+			token_map_insert(generator->translated_names, expr->data.term->name.data.name, newname);
+			write_name(generator, fd, newname);
+		}
 		if (expr->data.term->expression != NULL){
 			fprintf(fd, " = ");
 			write_expression(generator, fd, expr->data.term->expression, 0);
@@ -9485,16 +9506,31 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 		write_name(generator, fd, expr->data.str);
 		break;
 	case LIST_EXPR:
+		ink_indent(fd, indent);
 		fprintf(fd, "LIST literal");
 		//TODO
 		break;
 	case STRUCT_EXPR:
+		ink_indent(fd, indent);
 		fprintf(fd, "STRUCT literal");
 		//TODO
 		break;
 	case BINDING_EXPR:
 		ink_indent(fd, indent);
-		write_name(generator, fd, expr->data.binding);
+		token* memoized = token_map_access(generator->translated_names, expr->data.binding.data.name);
+		if (memoized != NULL){
+			write_name(generator, fd, *memoized);
+		}
+		else{
+			token newname = {
+				.content_tag = STRING_TOKEN_TYPE,
+				.tag = IDENTIFIER_TOKEN,
+				.index = 0,
+				.data.name = ink_prefix(generator, &expr->data.binding.data.name)
+			};
+			token_map_insert(generator->translated_names, expr->data.binding.data.name, newname);
+			write_name(generator, fd, newname);
+		}
 		break;
 	case MUTATION_EXPR:
 		ink_indent(fd, indent);
@@ -9620,6 +9656,13 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
  * 	check of which functions are actually called from main context?
  * 		put all function defs
  * 		theres probably a bunch of special cases and stuff oof
+ *
+ * 		memoize bindings
+ * 		bindings to top level functions need to become calls
+ *
+ * 		check main
+ * 		string setting
+ *
  *
  *
  */

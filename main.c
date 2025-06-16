@@ -9513,7 +9513,13 @@ write_structure_type(genc* const generator, FILE* fd, structure_ast* const s){
 	case ENUM_STRUCT:
 		fprintf(fd, "enum {");
 		for (uint64_t i = 0;i<s->data.enumeration.count;++i){
-			write_name(generator, fd, s->data.enumeration.names[i]);
+			token newname = {
+				.content_tag = STRING_TOKEN_TYPE,
+				.tag = IDENTIFIER_TOKEN,
+				.index = 0,
+				.data.name = ink_prefix(generator, &s->data.enumeration.names[i].data.name)
+			};
+			write_name(generator, fd, newname);
 			fprintf(fd, "=%lu,", s->data.enumeration.values[i]);
 		}
 		fprintf(fd, "}");
@@ -9564,12 +9570,26 @@ ink_indent(FILE* fd, uint64_t indent){
 }
 
 void
+write_call(genc* const generator, FILE* fd, expr_ast* const expr, expr_ast* const first){
+	if (expr->tag == APPL_EXPR){
+		write_call(generator, fd, expr->data.appl.left, first);
+		write_expression(generator, fd, expr->data.appl.right, 0, 1);
+		if (expr != first){
+			fprintf(fd, ",");
+		}
+		return;
+	}
+	write_expression(generator, fd, expr, 0, 0);
+	fprintf(fd, "(");
+}
+
+void
 write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t indent, uint8_t free){
 	switch (expr->tag){
 	case APPL_EXPR:
 		ink_indent(fd, indent);
-		fprintf(fd, "CALL expr");
-		//TODO
+		write_call(generator, fd, expr, expr);
+		fprintf(fd, ")");
 		break;
 	case LAMBDA_EXPR:
 		write_expression(generator, fd, expr->data.lambda.expression, indent, 1);
@@ -9807,7 +9827,6 @@ generate_main(genc* const generator, FILE* fd){
  * 			for ; ; {
  *				will requires a whole rework
  * 			}
- * 		enumerator usage is being prefixed but definition isnt
  * 		may need to do dependency resolution for the order the header file is generated in
  */
 

@@ -767,5 +767,6 @@ void write_term_impl(genc* const generator, FILE* fd, term_ast* const term);
 void write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t indent, uint8_t free);
 void generate_main(genc* const generator, FILE* fd);
 void generate_new_func_name(genc* const generator);
+void write_call(genc* const generator, FILE* fd, expr_ast* const expr, expr_ast* const first);
 
 #endif

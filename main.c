@@ -6264,6 +6264,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			farg_count += 1;
 		}
 		expr_ast* last_reference = mk_binding(walk->parse->mem, &ref_name);
+		last_reference->type = reference->type;
 		line_relay_append(newlines, reference);
 		expr_ast* outer_arg = expr;
 		expr_ast** arg_vars = pool_request(walk->parse->temp_mem, sizeof(expr_ast*)*arg_count);
@@ -8703,6 +8704,7 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* target
 			expr_ast* new_expr = pool_request(walk->parse->mem, sizeof(expr_ast));
 			new_expr->tag = STRUCT_ACCESS_EXPR;
 			new_expr->data.access.left = target_walk;
+			new_expr->data.access.left->type = target_type;
 			new_expr->data.access.right = mk_binding(walk->parse->mem, &target_type->data.structure->data.structure.names[i]);
 			if (struct_outer == NULL){
 				if (pat->data.structure.count-1 == i){
@@ -8737,10 +8739,12 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* target
 		expr_ast* ptr_expr = pool_request(walk->parse->mem, sizeof(expr_ast));
 		ptr_expr->tag = STRUCT_ACCESS_EXPR;
 		ptr_expr->data.access.left = target_walk;
+		ptr_expr->data.access.left->type = target_type;
 		ptr_expr->data.access.right = mk_binding(walk->parse->mem, &ptr_token);
 		expr_ast* len_expr = pool_request(walk->parse->mem, sizeof(expr_ast));
 		len_expr->tag = STRUCT_ACCESS_EXPR;
 		len_expr->data.access.left = target_walk;
+		ptr_expr->data.access.left->type = target_type;
 		len_expr->data.access.right = mk_binding(walk->parse->mem, &len_token);
 		expr_ast* outer = destructure_pattern(walk, pat->data.fat_ptr.ptr, target_type->data.fat_ptr.ptr, ptr_expr, &interm);
 		type_ast* len = pool_request(walk->parse->mem, sizeof(type_ast));
@@ -8820,6 +8824,7 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* target
 		expr_ast* selector_access = pool_request(walk->parse->mem, sizeof(expr_ast));
 		selector_access->tag = STRUCT_ACCESS_EXPR;
 		selector_access->data.access.left = target_walk;
+		selector_access->data.access.left->type = target_type;
 		selector_access->data.access.right = selector_binding;
 		type_ast* next_target_type = NULL;
 		for (uint64_t i = 0;i<target_type->data.structure->data.union_structure.count;++i){
@@ -8859,6 +8864,7 @@ find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** c
 			expr_ast* new_expr = pool_request(walk->parse->mem, sizeof(expr_ast));
 			new_expr->tag = STRUCT_ACCESS_EXPR;
 			new_expr->data.access.left = bind_outer;
+			new_expr->data.access.left->type = outer_type;
 			new_expr->data.access.right = mk_binding(walk->parse->mem, &outer_type->data.structure->data.structure.names[i]);
 			*binding = new_expr;
 			*target_type = &outer_type->data.structure->data.structure.members[i];
@@ -8885,6 +8891,7 @@ find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** c
 		expr_ast* ptr_expr = pool_request(walk->parse->mem, sizeof(expr_ast));
 		ptr_expr->tag = STRUCT_ACCESS_EXPR;
 		ptr_expr->data.access.left = fat_bind_outer;
+		ptr_expr->data.access.left->type = fat_type_outer;
 		ptr_expr->data.access.right = mk_binding(walk->parse->mem, &ptr_token);
 		*binding = ptr_expr;
 		if (find_pattern_branch(walk, left->data.fat_ptr.ptr, right, location, binding, target_type, binding_changed) == 1){
@@ -8907,6 +8914,7 @@ find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** c
 		expr_ast* len_expr = pool_request(walk->parse->mem, sizeof(expr_ast));
 		len_expr->tag = STRUCT_ACCESS_EXPR;
 		len_expr->data.access.left = fat_bind_outer;
+		len_expr->data.access.left->type = fat_type_outer;
 		len_expr->data.access.right = mk_binding(walk->parse->mem, &len_token);
 		*binding = len_expr;
 		if (find_pattern_branch(walk, left->data.fat_ptr.len, right, location, binding, target_type, binding_changed) == 1){
@@ -8955,6 +8963,7 @@ find_pattern_branch(walker* const walk, pattern_ast* const left, pattern_ast** c
 		expr_ast* selector_access = pool_request(walk->parse->mem, sizeof(expr_ast));
 		selector_access->tag = STRUCT_ACCESS_EXPR;
 		selector_access->data.access.left = *binding;
+		selector_access->data.access.left->type = *target_type;
 		selector_access->data.access.right = selector_binding;
 		*right = (*right)->data.union_selector.nest;
 		*binding = selector_access;
@@ -9418,7 +9427,7 @@ write_term_impl(genc* const generator, FILE* fd, term_ast* const term){
 	}
 	write_type_args(generator, fd, term->type, term->expression);
 	write_expression(generator, fd, term->expression, 0);
-	printf("\n");
+	fprintf(fd, "\n");
 }
 
 void
@@ -9432,6 +9441,7 @@ void
 write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t indent){
 	switch (expr->tag){
 	case APPL_EXPR:
+		fprintf(fd, "CALL expr");
 		//TODO
 		break;
 	case LAMBDA_EXPR:
@@ -9445,14 +9455,14 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 			fprintf(fd, ";\n");
 		}
 		ink_indent(fd, indent);
-		fprintf(fd, "}\n");
+		fprintf(fd, "}");
 		break;
 	case LIT_EXPR:
 		ink_indent(fd, indent);
 		if (expr->data.literal.tag == INT_LITERAL) fprintf(fd, "%ld", expr->data.literal.data.i);
-		if (expr->data.literal.tag == UINT_LITERAL) fprintf(fd, "%lu", expr->data.literal.data.i);
-		if (expr->data.literal.tag == FLOAT_LITERAL) fprintf(fd, "%f", expr->data.literal.data.i);
-		if (expr->data.literal.tag == DOUBLE_LITERAL) fprintf(fd, "%lf", expr->data.literal.data.i);
+		if (expr->data.literal.tag == UINT_LITERAL) fprintf(fd, "%lu", expr->data.literal.data.u);
+		if (expr->data.literal.tag == FLOAT_LITERAL) fprintf(fd, "%f", expr->data.literal.data.f);
+		if (expr->data.literal.tag == DOUBLE_LITERAL) fprintf(fd, "%lf", expr->data.literal.data.d);
 		break;
 	case TERM_EXPR:
 		if (is_generic(generator->parse, expr->data.term->type) == 1){
@@ -9461,23 +9471,30 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 		ink_indent(fd, indent);
 		write_type(generator, fd, expr->data.term->type);
 		fprintf(fd, " ");
-		write_name(generator, fd, expr->data.term.name);
-		fprintf(fd, " = ");
-		write_expression(generator, fd, expr->data.term.expression, 0);
+		write_name(generator, fd, expr->data.term->name);
+		if (expr->data.term->expression != NULL){
+			fprintf(fd, " = ");
+			write_expression(generator, fd, expr->data.term->expression, 0);
+		}
+		else{
+			fprintf(fd, ";");
+		}
 		break;
 	case STRING_EXPR:
 		ink_indent(fd, indent);
-		fprintf(fd, expr->data.str.data.name.str);
+		write_name(generator, fd, expr->data.str);
 		break;
 	case LIST_EXPR:
+		fprintf(fd, "LIST literal");
 		//TODO
 		break;
 	case STRUCT_EXPR:
+		fprintf(fd, "STRUCT literal");
 		//TODO
 		break;
 	case BINDING_EXPR:
 		ink_indent(fd, indent);
-		fprintf(fd, expr->data.binding.data.name.str);
+		write_name(generator, fd, expr->data.binding);
 		break;
 	case MUTATION_EXPR:
 		ink_indent(fd, indent);
@@ -9499,91 +9516,97 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 	case REF_EXPR:
 		ink_indent(fd, indent);
 		fprintf(fd, "&(");
-		write_expression(generation, fd, expr->data.ref, 0);
+		write_expression(generator, fd, expr->data.ref, 0);
 		fprintf(fd, ")");
 		break;
 	case DEREF_EXPR:
 		ink_indent(fd, indent);
 		fprintf(fd, "*(");
-		write_expression(generation, fd, expr->data.deref, 0);
+		write_expression(generator, fd, expr->data.deref, 0);
 		fprintf(fd, ")");
 		break;
 	case IF_EXPR:
 		ink_indent(fd, indent);
 		fprintf(fd, "if (");
-		write_expression(generation, fd, expr->data.if_statement.pred, 0);
-		fprintf(fd, ")\n");
-		write_expression(generation, fd, expr->data.if_statement.cons, indent);
+		write_expression(generator, fd, expr->data.if_statement.pred, 0);
+		fprintf(fd, ")");
+		write_expression(generator, fd, expr->data.if_statement.cons, indent);
 		if (expr->data.if_statement.alt != NULL){
 			fprintf(fd, "else\n");
-			write_expression(generation, fd, expr->data.if_statement.cons, indent);
+			write_expression(generator, fd, expr->data.if_statement.cons, indent);
 		}
 		break;
 	case FOR_EXPR:
 		ink_indent(fd, indent);
 		fprintf(fd, "for (");
-		//TODO
+		//TODO uh oh
 		fprintf(fd, ")");
-		write_expression(generation, fd, expr->data.for_statement.cons, indent);
+		write_expression(generator, fd, expr->data.for_statement.cons, indent);
 		break;
 	case WHILE_EXPR:
 		ink_indent(fd, indent);
 		fprintf(fd, "while (");
-		write_expression(generation, fd, expr->data.if_statement.pred, 0);
-		fprintf(fd, ")\n");
-		write_expression(generation, fd, expr->data.if_statement.cons, indent);
+		write_expression(generator, fd, expr->data.if_statement.pred, 0);
+		fprintf(fd, ")");
+		write_expression(generator, fd, expr->data.if_statement.cons, indent);
 		break;
 	case MATCH_EXPR:
 		assert(0);
 		break;
 	case CAST_EXPR:
-		//TODO
+		ink_indent(fd, indent);
+		fprintf(fd, "(");
+		write_type(generator, fd, expr->data.cast.target);
+		fprintf(fd, ")(");
+		write_expression(generator, fd, expr->data.cast.source, 0);
+		fprintf(fd, ")");
 		break;
 	case BREAK_EXPR:
-		ink_indent(indent);
+		ink_indent(fd, indent);
 		fprintf(fd, "break");
 		break;
 	case CONTINUE_EXPR:
-		ink_indent(indent);
+		ink_indent(fd, indent);
 		fprintf(fd, "continue");
 		break;
 	case NOP_EXPR:
 		break;
 	case STRUCT_ACCESS_EXPR:
-		ink_indent(indent);
-		write_expression(generation, fd, expr->data.access.left, 0);
-		if (expr->data.access.left->tag == PTR_TYPE){
+		ink_indent(fd, indent);
+		write_expression(generator, fd, expr->data.access.left, 0);
+		if (expr->data.access.left->type->tag == PTR_TYPE){
 			fprintf(fd, "->");
 		}
-		else if (expr->data.access.left->tag == FAT_PTR_TYPE){
+		else if (expr->data.access.left->type->tag == FAT_PTR_TYPE){
 			fprintf(fd, ".ptr->");
 		}
 		else{
 			fprintf(fd, ".");
 		}
-		write_expression(generation, fd, expr->data.access.right, 0);
+		write_expression(generator, fd, expr->data.access.right, 0);
 		break;
 	case ARRAY_ACCESS_EXPR:
-		ink_indent(indent);
-		write_expression(generation, fd, expr->data.access.left, indent);
-		if (expr->data.access.left->tag == FAT_PTR_EXPR){
+		ink_indent(fd, indent);
+		write_expression(generator, fd, expr->data.access.left, indent);
+		if (expr->data.access.left->type->tag == FAT_PTR_TYPE){
 			fprintf(fd, ".ptr");
 		}
 		fprintf(fd, "[");
-		write_expression(generation, fd, expr->data.access.right, 0);
+		write_expression(generator, fd, expr->data.access.right, 0);
 		fprintf(fd, "]");
 		break;
 	case FAT_PTR_EXPR:
-		ink_indent(indent);
-		fprintf("{\n");
-		ink_indent(indent+1);
-		fprintf(".ptr=");
-		write_expression(generation, fd, expr->data.fat_ptr.left);
-		fprintf(",\n");
-		ink_indent(indent+1);
-		fprintf(".len=");
-		write_expression(generation, fd, expr->data.fat_ptr.right);
-		fprintf("\n}\n");
+		ink_indent(fd, indent);
+		fprintf(fd, "{\n");
+		ink_indent(fd, indent+1);
+		fprintf(fd, ".ptr=");
+		write_expression(generator, fd, expr->data.fat_ptr.left, 0);
+		fprintf(fd, ",\n");
+		ink_indent(fd, indent+1);
+		fprintf(fd, ".len=");
+		write_expression(generator, fd, expr->data.fat_ptr.right, 0);
+		ink_indent(fd, indent+1);
+		fprintf(fd, "\n}");
 		break;
 	}
 }
@@ -9596,6 +9619,7 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
  * c code generation pass
  * 	check of which functions are actually called from main context?
  * 		put all function defs
+ * 		theres probably a bunch of special cases and stuff oof
  *
  *
  */

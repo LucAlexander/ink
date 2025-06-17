@@ -108,6 +108,7 @@ compile_file(char* input, const char* output){
 	term_ptr_buffer_map impl_terms = term_ptr_buffer_map_init(&mem);
 	term_ptr_map extern_terms = term_ptr_map_init(&mem);
 	typedef_ptr_map extern_types = typedef_ptr_map_init(&mem);
+	string_map symbol_to_name = string_map_init(&mem);
 	parser parse = {
 		.mem = &mem,
 		.temp_mem = &temp_mem,
@@ -144,7 +145,9 @@ compile_file(char* input, const char* output){
 		.extern_terms = &extern_terms,
 		.extern_types = &extern_types,
 		.extern_term_list = term_ast_buffer_init(&mem),
-		.extern_type_list = typedef_ast_buffer_init(&mem)
+		.extern_type_list = typedef_ast_buffer_init(&mem),
+		.symbol_to_name = &symbol_to_name,
+		.next_symbol_name = string_init(&mem, "?A")
 	};
 	parse.tokens = pool_request(parse.token_mem, sizeof(token));
 	lex_string(&parse);
@@ -396,6 +399,17 @@ lex_string(parser* const parse){
 					if (tok != NULL){
 						t->tag = *tok;
 					}
+					else{
+						string* mem_name = string_map_access(parse->symbol_to_name, t->data.name);
+						if (mem_name != NULL){
+							t->data.name = *mem_name;
+						}
+						else{
+							string_map_insert(parse->symbol_to_name, t->data.name, parse->next_symbol_name);
+							t->data.name = parse->next_symbol_name;
+							generate_new_symbol_name(parse);
+						}
+					}
 					pool_request(parse->token_mem, sizeof(token));
 					parse->token_count += 1;
 					t = &parse->tokens[parse->token_count];
@@ -417,6 +431,17 @@ lex_string(parser* const parse){
 				TOKEN* tok = TOKEN_map_access(parse->keymap, t->data.name);
 				if (tok != NULL){
 					t->tag = *tok;
+				}
+				else{
+					string* mem_name = string_map_access(parse->symbol_to_name, t->data.name);
+					if (mem_name != NULL){
+						t->data.name = *mem_name;
+					}
+					else{
+						string_map_insert(parse->symbol_to_name, t->data.name, parse->next_symbol_name);
+						t->data.name = parse->next_symbol_name;
+						generate_new_symbol_name(parse);
+					}
 				}
 				pool_request(parse->token_mem, sizeof(token));
 				parse->token_count += 1;
@@ -605,6 +630,32 @@ lex_string(parser* const parse){
 		assert_local(0, , "Unknown symbol");
 		return;
 	}
+}
+
+void generate_new_symbol_name(parser* const parse){
+	string old = parse->next_symbol_name;
+	uint64_t i = 1;
+	for (;i<old.len;++i){ // 1 because 0 is #
+		if (old.str[i] < 'Z'){
+			break;
+		}
+	}
+	if (i < old.len){
+		old = string_copy(parse->mem, &parse->next_symbol_name);
+		for (uint64_t k = 1;k<i;++k){
+			old.str[k] = 'A';
+		}
+		old.str[i] += 1;
+	}
+	else{
+		old.str = pool_request(parse->mem, old.len+1);
+		old.len += 1;
+		old.str[0] = '#';
+		for (uint64_t k = 1;k<old.len;++k){
+			old.str[k] = 'A';
+		}
+	}
+	parse->next_symbol_name = old;
 }
 
 void
@@ -9477,6 +9528,13 @@ ink_prefix(genc* const generator, string* const name){
 		copy.len -= 1;
 		string_cat(generator->mem, &new, &copy);
 	}
+	else if(name->str[0] == '?'){
+		new = string_init(generator->mem, "sym_ink_");
+		string copy = string_copy(generator->mem, name);
+		copy.str += 1;
+		copy.len -= 1;
+		string_cat(generator->mem, &new, &copy);
+	}
 	else{
 		new = string_init(generator->mem, "usr_ink_");
 		string_cat(generator->mem, &new, name);
@@ -9590,7 +9648,17 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 	switch (expr->tag){
 	case APPL_EXPR:
 		ink_indent(fd, indent);
-		write_call(generator, fd, expr, expr);
+		expr_ast* first = expr;
+		while (first->tag == APPL_EXPR){
+			first = first->data.appl.left;
+		}
+		uint64_t builtin = 0;
+		if (first->tag == BINDING_EXPR){
+			//TODO builtin cases
+		}
+		if (builtin == 0){
+			write_call(generator, fd, expr, expr);
+		}
 		fprintf(fd, ")");
 		break;
 	case LAMBDA_EXPR:
@@ -9842,6 +9910,7 @@ generate_main(genc* const generator, FILE* fd){
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		builtins
  * 		manual accesses to [].ptr are broken
+ * 		symbol to name translation in earlier stage
  */
 
 int

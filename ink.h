@@ -507,7 +507,11 @@ typedef struct parser {
 	typedef_ptr_map* extern_types;
 	term_ast_buffer extern_term_list;
 	typedef_ast_buffer extern_type_list;
+	string_map* symbol_to_name;
+	string next_symbol_name;
 } parser;
+
+void generate_new_symbol_name(parser* const parse);
 
 typedef struct binding {
 	token* name;

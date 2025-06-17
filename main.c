@@ -2731,6 +2731,7 @@ lex_err(parser* const parse, uint64_t goal, string filename){
 		case PIPE_TOKEN:
 		case CARROT_TOKEN:
 		case EQUAL_TOKEN:
+		case AMPERSAND_TOKEN:
 			if (issymbol(str.str[text_index])){
 				break;
 			}
@@ -2747,7 +2748,6 @@ lex_err(parser* const parse, uint64_t goal, string filename){
 		case BACKTICK_TOKEN:
 		case COMPOSE_TOKEN:
 		case SHIFT_TOKEN:
-		case AMPERSAND_TOKEN:
 		case HOLE_TOKEN:
 			index += 1;
 			continue;
@@ -3117,7 +3117,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 					}
 					else if (obj->tag == FAT_PTR_TYPE){
 						walk_assert(expr->data.appl.right->tag == BINDING_EXPR, nearest_token(expr->data.appl.right), "Expected field for structure access");
-						if (cstring_compare(&expr->data.appl.right->data.binding.data.name, "ptr")){
+						if (cstring_compare(&expr->data.appl.right->data.binding.data.name, "ptr") == 0){
 							expr->tag = STRUCT_ACCESS_EXPR;
 							expr_ast* struct_expr = expr->data.appl.left->data.appl.right;
 							expr_ast* field_expr = expr->data.appl.right;
@@ -3128,7 +3128,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 							expr->type = obj->data.fat_ptr.ptr;
 							return obj->data.fat_ptr.ptr;
 						}
-						if (cstring_compare(&expr->data.appl.right->data.binding.data.name, "len")){
+						if (cstring_compare(&expr->data.appl.right->data.binding.data.name, "len") == 0){
 							type_ast* lenlit = pool_request(walk->parse->mem, sizeof(type_ast));
 							lenlit->tag = LIT_TYPE;
 							lenlit->data.lit = U64_TYPE;
@@ -9230,7 +9230,7 @@ generate_c(parser* const parse, const char* input, const char* output){
 			fprintf(stderr, "File '%s' could not be opened for writing\n", cfile);
 			return;
 		}
-		fprintf(cfd, "#include \"%s\"\n", hfile);
+		fprintf(cfd, "#include<unistd.h>\n#include \"%s\"\n", hfile);
 		//function implementations
 		for (uint64_t i = 0;i<parse->term_list.count;++i){
 			if (is_generic(parse, parse->term_list.buffer[i].type) == 1){
@@ -10075,15 +10075,13 @@ generate_main(genc* const generator, FILE* fd){
 		 nearest type token function?
  * -CODE GENERATION-----------------------------------------
  * c code generation pass
- * 		check of which functions are actually called from main context?
  * 		I dont know what to do with for
  * 			for ; ; {
  *				will requires a whole rework
  * 			}
  * 		may need to do dependency resolution for the order the header file is generated in
- * 		builtins
  * 		manual accesses to [].ptr are broken
- * 		symbol to name translation in earlier stage
+ * 		more builtins
  */
 
 int

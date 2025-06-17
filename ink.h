@@ -772,5 +772,6 @@ void write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uin
 void generate_main(genc* const generator, FILE* fd);
 void generate_new_func_name(genc* const generator);
 void write_call(genc* const generator, FILE* fd, expr_ast* const expr, expr_ast* const first);
+void replace_with_poly_binding(genc* const generator, token* const bind, type_ast* const expected_type);
 
 #endif

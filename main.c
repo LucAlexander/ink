@@ -5098,14 +5098,31 @@ check_program(parser* const parse){
 				assert_local(class->members[k].type->tag == DEPENDENCY_TYPE, , "class definition functions should have had dependencies distributed over them by now...");
 				assert_local(type_equiv(&walk, impl->members[t].type, class->members[k].type->data.dependency.type) == 1, , "Type of implemented typeclass function did not match definition in typeclass");
 			}
-			assert_local(found == 1, , "Unable to find implementated function in source typeclass");
+			assert_local(found == 1, , "Unable to find implemented function in source typeclass");
 			term_ptr_buffer* impls = term_ptr_buffer_map_access(parse->implemented_terms, impl->members[t].name.data.name);
 			if (impls == NULL){
+				string locator = impl->members[i].name.data.name;
 				term_ptr_buffer new = term_ptr_buffer_init(parse->mem);
+				token newname = {
+					.content_tag = STRING_TOKEN_TYPE,
+					.tag = IDENTIFIER_TOKEN,
+					.index = 0,
+					.data.name = walk.next_lambda
+				};
+				generate_new_lambda(&walk);
+				impl->members[i].name = newname;
 				term_ptr_buffer_insert(&new, &impl->members[t]);
-				term_ptr_buffer_map_insert(parse->implemented_terms, impl->members[t].name.data.name, new);
+				term_ptr_buffer_map_insert(parse->implemented_terms, locator, new);
 			}
 			else{
+				token newname = {
+					.content_tag = STRING_TOKEN_TYPE,
+					.tag = IDENTIFIER_TOKEN,
+					.index = 0,
+					.data.name = walk.next_lambda
+				};
+				generate_new_lambda(&walk);
+				impl->members[i].name = newname;
 				term_ptr_buffer_insert(impls, &impl->members[t]);
 			}
 		}
@@ -9232,6 +9249,15 @@ generate_c(parser* const parse, const char* input, const char* output){
 		}
 		fprintf(cfd, "#include<unistd.h>\n#include \"%s\"\n", hfile);
 		//function implementations
+		for (uint64_t i = 0;i<parse->implementation_list.count;++i){
+			implementation_ast* impl = &parse->implementation_list.buffer[i];
+			for (uint64_t t = 0;t<impl->member_count;++t){
+				if (is_generic(parse, impl->members[t].type) == 1){
+					continue;
+				}
+				write_term_impl(&generator, cfd, &impl->members[t]);
+			}
+		}
 		for (uint64_t i = 0;i<parse->term_list.count;++i){
 			if (is_generic(parse, parse->term_list.buffer[i].type) == 1){
 				continue;
@@ -9273,6 +9299,15 @@ generate_c(parser* const parse, const char* input, const char* output){
 			write_typedef(&generator, hfd, &parse->type_list.buffer[i]);
 		}
 		//function declarations
+		for (uint64_t i = 0;i<parse->implementation_list.count;++i){
+			implementation_ast* impl = &parse->implementation_list.buffer[i];
+			for (uint64_t t = 0;t<impl->member_count;++t){
+				if (is_generic(parse, impl->members[t].type) == 1){
+					continue;
+				}
+				write_term_decl(&generator, hfd, &impl->members[t]);
+			}
+		}
 		for (uint64_t i = 0;i<parse->term_list.count;++i){
 			if (is_generic(parse, parse->term_list.buffer[i].type) == 1){
 				continue;
@@ -9917,6 +9952,7 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 		fprintf(fd, "\n}");
 		break;
 	case BINDING_EXPR:
+		replace_with_poly_binding(generator, &expr->data.binding, expr->type);
 		ink_indent(fd, indent);
 		if (term_ptr_map_access(generator->parse->extern_terms, expr->data.binding.data.name) != NULL){
 			write_name(generator, fd, expr->data.binding);
@@ -10065,6 +10101,24 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 }
 
 void
+replace_with_poly_binding(genc* const generator, token* const bind, type_ast* const expected_type){
+	if (expected_type == NULL){
+		return;
+	}
+	term_ptr_buffer* poly_funcs = term_ptr_buffer_map_access(generator->parse->implemented_terms, bind->data.name);
+	if (poly_funcs != NULL){
+		for (uint64_t i = 0;i<poly_funcs->count;++i){
+			term_ast* term = poly_funcs->buffer[i];
+			type_ast* type = term->type;
+			if (type_equal(generator->parse, expected_type, type) == 1){
+				*bind = term->name;
+				return;
+			}
+		}
+	}
+}
+
+void
 generate_main(genc* const generator, FILE* fd){
 	fprintf(fd, "int main(){\n\treturn usr_ink_main();\n}\n");
 }
@@ -10082,6 +10136,7 @@ generate_main(genc* const generator, FILE* fd){
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		manual accesses to [].ptr are broken
  * 		more builtins
+ * 		casting needs special cases "hello" as string : (string)("hello") doesnt work
  */
 
 int

@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <stddef.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/wait.h>
 #include "ink.h"
 
 MAP_IMPL(TOKEN);
@@ -6640,7 +6642,9 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			.data.name = walk->next_lambda
 		};
 		generate_new_lambda(walk);
-		expr_ast* stringterm = mk_term(walk->parse->mem, expr->type, &stringname, expr);
+		expr_ast* stringcopy = pool_request(walk->parse->mem, sizeof(expr_ast));
+		*stringcopy = *expr;
+		expr_ast* stringterm = mk_term(walk->parse->mem, expr->type, &stringname, stringcopy);
 		line_relay_append(newlines, stringterm);
 		expr_ast* stringbinding = mk_binding(walk->parse->mem, &stringname);
 		stringbinding->type = expr->type;
@@ -9396,6 +9400,15 @@ generate_c(parser* const parse, const char* input, const char* output){
 		}
 		fprintf(hfd, "#endif\n");
 		fclose(hfd);
+	}
+	pid_t pid = fork();
+	if (pid == 0){
+		execlp("gcc", "gcc", cfile, "-w", "-o", output, NULL);
+		fprintf(stderr, "code gen failed\n");
+		_exit(1);
+	}
+	else{
+		wait(NULL);
 	}
 }
 

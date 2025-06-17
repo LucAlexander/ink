@@ -5,4 +5,4 @@ build:
 	gcc -o ink main.c kickstart.c
 
 test:
-	./ink -o test hello.ink
+	./ink -o hello hello.ink

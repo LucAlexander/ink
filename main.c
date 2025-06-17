@@ -6945,7 +6945,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				),
 				mk_ref(walk->parse->mem, expr->data.cast.source)
 			),
-			mk_sizeof(walk->parse->mem, expr->data.cast.source->type)
+			mk_sizeof(walk->parse->mem, expr->data.cast.target)
 		);
 		line_relay_append(newlines, actual_cast_op);
 		try_structure_monomorph(walk, expr->data.cast.target);
@@ -9403,7 +9403,7 @@ generate_c(parser* const parse, const char* input, const char* output){
 	}
 	pid_t pid = fork();
 	if (pid == 0){
-		execlp("gcc", "gcc", cfile, "-w", "-o", output, NULL);
+		execlp("gcc", "gcc", cfile, "-g", "-w", "-o", output, NULL);
 		fprintf(stderr, "code gen failed\n");
 		_exit(1);
 	}
@@ -10245,6 +10245,7 @@ generate_main(genc* const generator, FILE* fd){
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		manual accesses to [].ptr are broken
  * 		more builtins
+ * 		polyfunc should check if types are aliased or typedefs
  */
 
 int

@@ -6633,7 +6633,18 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		pop_binding(walk->local_scope, pos);
 		return expr;
 	case STRING_EXPR:
-		return expr;
+		token stringname = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = walk->next_lambda
+		};
+		generate_new_lambda(walk);
+		expr_ast* stringterm = mk_term(walk->parse->mem, expr->type, &stringname, expr);
+		line_relay_append(newlines, stringterm);
+		expr_ast* stringbinding = mk_binding(walk->parse->mem, &stringname);
+		stringbinding->type = expr->type;
+		return stringbinding;
 	case LIST_EXPR:
 		for (uint64_t i = 0;i<expr->data.list.line_count;++i){
 			expr->data.list.lines[i] = *transform_expr(walk, &expr->data.list.lines[i], 0, newlines, 1);

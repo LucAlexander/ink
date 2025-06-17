@@ -6903,12 +6903,39 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				expr->data.cast.source = swrapper;
 			}
 		}
-		//TODO cast as memcpy
 		expr->data.cast.source = transform_expr(walk, expr->data.cast.source, 0, newlines, 1);
 		walk_assert_prop();
+		token termname = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = walk->next_lambda
+		};
+		generate_new_lambda(walk);
+		expr_ast* newterm = mk_term(walk->parse->mem, expr->data.cast.target, &termname, NULL);
+		line_relay_append(newlines, newterm);
+		expr_ast* termbinding = mk_binding(walk->parse->mem, &termname);
+		token cast_mem_cpy = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = string_init(walk->parse->mem, "memcpy")
+		};
+		expr_ast* cast_memcpy_binding = mk_binding(walk->parse->mem, &cast_mem_cpy);
+		expr_ast* actual_cast_op = mk_appl(walk->parse->mem,
+			mk_appl(walk->parse->mem,
+				mk_appl(walk->parse->mem,
+					cast_memcpy_binding,
+					mk_ref(walk->parse->mem, termbinding)
+				),
+				mk_ref(walk->parse->mem, expr->data.cast.source)
+			),
+			mk_sizeof(walk->parse->mem, expr->data.cast.source->type)
+		);
+		line_relay_append(newlines, actual_cast_op);
 		try_structure_monomorph(walk, expr->data.cast.target);
 		walk_assert(type_valid(walk->parse, expr->data.cast.target) == 1, nearest_token(expr), "Cast target type invalid");
-		return expr;
+		return termbinding;
 	case BREAK_EXPR:
 		return expr;
 	case CONTINUE_EXPR:
@@ -9289,7 +9316,7 @@ generate_c(parser* const parse, const char* input, const char* output){
 			fprintf(stderr, "File '%s' could not be opened for writing\n", cfile);
 			return;
 		}
-		fprintf(cfd, "#include<unistd.h>\n#include \"%s\"\n", hfile);
+		fprintf(cfd, "#include<unistd.h>\n#include<string.h>\n#include \"%s\"\n", hfile);
 		//function implementations
 		for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 			implementation_ast* impl = &parse->implementation_list.buffer[i];

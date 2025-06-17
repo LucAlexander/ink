@@ -10031,8 +10031,14 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 			return;
 		}
 		if (from_fat == 1){
-			write_name(generator, fd, expr->data.binding);
-			return;
+			if (cstring_compare(&expr->data.binding.data.name, "ptr") == 0){
+				write_name(generator, fd, expr->data.binding);
+				return;
+			}
+			if (cstring_compare(&expr->data.binding.data.name, "len") == 0){
+				write_name(generator, fd, expr->data.binding);
+				return;
+			}
 		}
 		token* memoized = token_map_access(generator->translated_names, expr->data.binding.data.name);
 		if (memoized != NULL){

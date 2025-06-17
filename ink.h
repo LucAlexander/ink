@@ -768,7 +768,7 @@ void write_name(genc* const generator, FILE* hfd, token name);
 string ink_prefix(genc* const generator, string* const name);
 void ink_indent(FILE* fd, uint64_t indent);
 void write_term_impl(genc* const generator, FILE* fd, term_ast* const term);
-void write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t indent, uint8_t free);
+void write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t indent, uint8_t free, uint8_t from_fat);
 void generate_main(genc* const generator, FILE* fd);
 void generate_new_func_name(genc* const generator);
 void write_call(genc* const generator, FILE* fd, expr_ast* const expr, expr_ast* const first);

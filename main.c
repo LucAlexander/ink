@@ -6862,6 +6862,48 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		expr_ast* match_setter_binding = mk_binding(walk->parse->mem, &match_setter_name);
 		return match_setter_binding;
 	case CAST_EXPR:
+		type_ast* reduced = reduce_alias_and_type(walk->parse, expr->data.cast.target);
+		if (reduced->tag == FAT_PTR_TYPE){
+			type_ast* rightreduced = reduce_alias_and_type(walk->parse, expr->data.cast.source->type);
+			if (rightreduced->tag == PTR_TYPE){
+				expr_ast* swrapper = pool_request(walk->parse->mem, sizeof(expr_ast));
+				swrapper->tag = STRUCT_EXPR;
+				swrapper->type = pool_request(walk->parse->mem, sizeof(type_ast));
+				swrapper->type->tag = FAT_PTR_TYPE;
+				swrapper->type->data.fat_ptr.ptr = expr->data.cast.source->type;
+				swrapper->data.constructor.member_count = 2;
+				swrapper->data.constructor.members = pool_request(walk->parse->mem, sizeof(expr_ast)*2);
+				swrapper->data.constructor.members[0] = *expr->data.cast.source;
+				swrapper->data.constructor.members[1].tag = LIT_EXPR;
+				swrapper->data.constructor.members[1].data.literal.tag = UINT_LITERAL;
+				if (expr->data.cast.source->tag == STRING_EXPR){
+					swrapper->data.constructor.members[1].data.literal.data.u = expr->data.cast.source->data.str.data.name.len;
+				}
+				else if (expr->data.cast.source->tag == LIST_EXPR){
+					swrapper->data.constructor.members[1].data.literal.data.u = expr->data.cast.source->data.list.line_count;
+				}
+				else{
+					swrapper->data.constructor.members[1].data.literal.data.u = 1;
+				}
+				swrapper->data.constructor.names = pool_request(walk->parse->mem, sizeof(token)*2);
+				token ptrname = {
+					.content_tag = STRING_TOKEN_TYPE,
+					.tag = IDENTIFIER_TOKEN,
+					.index = 0,
+					.data.name = string_init(walk->parse->mem, "ptr")
+				};
+				token lenname = {
+					.content_tag = STRING_TOKEN_TYPE,
+					.tag = IDENTIFIER_TOKEN,
+					.index = 0,
+					.data.name = string_init(walk->parse->mem, "len")
+				};
+				swrapper->data.constructor.names[0] = ptrname;
+				swrapper->data.constructor.names[1] = lenname;
+				expr->data.cast.source = swrapper;
+			}
+		}
+		//TODO cast as memcpy
 		expr->data.cast.source = transform_expr(walk, expr->data.cast.source, 0, newlines, 1);
 		walk_assert_prop();
 		try_structure_monomorph(walk, expr->data.cast.target);
@@ -9932,11 +9974,7 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 		break;
 	case STRUCT_EXPR:
 		ink_indent(fd, indent);
-		if (expr->type != NULL){
-			fprintf(fd, "(");
-			write_type(generator, fd, expr->type);
-			fprintf(fd, "){");
-		}
+		fprintf(fd, "{\n");
 		for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
 			if (i != 0){
 				fprintf(fd, ",\n");
@@ -10136,7 +10174,7 @@ generate_main(genc* const generator, FILE* fd){
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		manual accesses to [].ptr are broken
  * 		more builtins
- * 		casting needs special cases "hello" as string : (string)("hello") doesnt work
+ * 		casting as memcpy
  */
 
 int

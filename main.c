@@ -224,9 +224,11 @@ keymap_fill(TOKEN_map* const map){
 uint8_t
 issymbol(char c){
 	return (
-		(c > ' ' && c < '0') ||
+		(c > ' ' && c < '\'') ||
+		(c > ')' && c < '0') ||
 		(c > ';' && c < 'A') ||
-		(c > '[' && c < '_') ||
+		(c == '`') ||
+		(c == '^') ||
 		(c == '~') ||
 		(c == '|')
 	);
@@ -252,6 +254,7 @@ lex_string(parser* const parse){
 		case PIPE_TOKEN:
 		case CARROT_TOKEN:
 		case EQUAL_TOKEN:
+		case AMPERSAND_TOKEN:
 			if (issymbol(parse->text.str[parse->text_index])){
 				break;
 			}
@@ -268,7 +271,6 @@ lex_string(parser* const parse){
 		case BACKTICK_TOKEN:
 		case COMPOSE_TOKEN:
 		case SHIFT_TOKEN:
-		case AMPERSAND_TOKEN:
 		case HOLE_TOKEN:
 			t->data.name.len += 1;
 			t->tag = c;
@@ -400,14 +402,52 @@ lex_string(parser* const parse){
 						t->tag = *tok;
 					}
 					else{
-						string* mem_name = string_map_access(parse->symbol_to_name, t->data.name);
-						if (mem_name != NULL){
-							t->data.name = *mem_name;
+						if (cstring_compare(&t->data.name, "+") == 0){
+							t->data.name = string_init(parse->mem, "~add");
+						}
+						else if (cstring_compare(&t->data.name, "-") == 0){
+							t->data.name = string_init(parse->mem, "~sub");
+						}
+						else if (cstring_compare(&t->data.name, "*") == 0){
+							t->data.name = string_init(parse->mem, "~mul");
+						}
+						else if (cstring_compare(&t->data.name, "/") == 0){
+							t->data.name = string_init(parse->mem, "~div");
+						}
+						else if (cstring_compare(&t->data.name, "%") == 0){
+							t->data.name = string_init(parse->mem, "~mod");
+						}
+						else if (cstring_compare(&t->data.name, "!") == 0){
+							t->data.name = string_init(parse->mem, "~not");
+						}
+						else if (cstring_compare(&t->data.name, "&&") == 0){
+							t->data.name = string_init(parse->mem, "~and");
+						}
+						else if (cstring_compare(&t->data.name, "^&") == 0){
+							t->data.name = string_init(parse->mem, "~bitand");
+						}
+						else if (cstring_compare(&t->data.name, "||") == 0){
+							t->data.name = string_init(parse->mem, "~or");
+						}
+						else if (cstring_compare(&t->data.name, "^|") == 0){
+							t->data.name = string_init(parse->mem, "~bitor");
+						}
+						else if (cstring_compare(&t->data.name, "^^") == 0){
+							t->data.name = string_init(parse->mem, "~bitxor");
+						}
+						else if (cstring_compare(&t->data.name, "^~") == 0){
+							t->data.name = string_init(parse->mem, "~bitcomp");
 						}
 						else{
-							string_map_insert(parse->symbol_to_name, t->data.name, parse->next_symbol_name);
-							t->data.name = parse->next_symbol_name;
-							generate_new_symbol_name(parse);
+							string* mem_name = string_map_access(parse->symbol_to_name, t->data.name);
+							if (mem_name != NULL){
+								t->data.name = *mem_name;
+							}
+							else{
+								string_map_insert(parse->symbol_to_name, t->data.name, parse->next_symbol_name);
+								t->data.name = parse->next_symbol_name;
+								generate_new_symbol_name(parse);
+							}
 						}
 					}
 					pool_request(parse->token_mem, sizeof(token));
@@ -433,14 +473,52 @@ lex_string(parser* const parse){
 					t->tag = *tok;
 				}
 				else{
-					string* mem_name = string_map_access(parse->symbol_to_name, t->data.name);
-					if (mem_name != NULL){
-						t->data.name = *mem_name;
+					if (cstring_compare(&t->data.name, "+") == 0){
+						t->data.name = string_init(parse->mem, "~add");
+					}
+					else if (cstring_compare(&t->data.name, "-") == 0){
+						t->data.name = string_init(parse->mem, "~sub");
+					}
+					else if (cstring_compare(&t->data.name, "*") == 0){
+						t->data.name = string_init(parse->mem, "~mul");
+					}
+					else if (cstring_compare(&t->data.name, "/") == 0){
+						t->data.name = string_init(parse->mem, "~div");
+					}
+					else if (cstring_compare(&t->data.name, "%") == 0){
+						t->data.name = string_init(parse->mem, "~mod");
+					}
+					else if (cstring_compare(&t->data.name, "!") == 0){
+						t->data.name = string_init(parse->mem, "~not");
+					}
+					else if (cstring_compare(&t->data.name, "&&") == 0){
+						t->data.name = string_init(parse->mem, "~and");
+					}
+					else if (cstring_compare(&t->data.name, "^&") == 0){
+						t->data.name = string_init(parse->mem, "~bitand");
+					}
+					else if (cstring_compare(&t->data.name, "||") == 0){
+						t->data.name = string_init(parse->mem, "~or");
+					}
+					else if (cstring_compare(&t->data.name, "^|") == 0){
+						t->data.name = string_init(parse->mem, "~bitor");
+					}
+					else if (cstring_compare(&t->data.name, "^^") == 0){
+						t->data.name = string_init(parse->mem, "~bitxor");
+					}
+					else if (cstring_compare(&t->data.name, "^~") == 0){
+						t->data.name = string_init(parse->mem, "~bitcomp");
 					}
 					else{
-						string_map_insert(parse->symbol_to_name, t->data.name, parse->next_symbol_name);
-						t->data.name = parse->next_symbol_name;
-						generate_new_symbol_name(parse);
+						string* mem_name = string_map_access(parse->symbol_to_name, t->data.name);
+						if (mem_name != NULL){
+							t->data.name = *mem_name;
+						}
+						else{
+							string_map_insert(parse->symbol_to_name, t->data.name, parse->next_symbol_name);
+							t->data.name = parse->next_symbol_name;
+							generate_new_symbol_name(parse);
+						}
 					}
 				}
 				pool_request(parse->token_mem, sizeof(token));
@@ -6297,14 +6375,14 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			.content_tag = STRING_TOKEN_TYPE,
 			.tag = IDENTIFIER_TOKEN,
 			.index = 0,
-			.data.name = string_init(walk->parse->mem, "+")
+			.data.name = string_init(walk->parse->mem, "~add")
 		};
 		expr_ast* plus_binding = mk_binding(walk->parse->mem, &plus);
 		token minus = {
 			.content_tag = STRING_TOKEN_TYPE,
 			.tag = IDENTIFIER_TOKEN,
 			.index = 0,
-			.data.name = string_init(walk->parse->mem, "-")
+			.data.name = string_init(walk->parse->mem, "~sub")
 		};
 		expr_ast* minus_binding = mk_binding(walk->parse->mem, &minus);
 		token len_access = {
@@ -7411,13 +7489,13 @@ closure_call(walker* const walk, expr_ast* input_binding, line_relay* const newl
 		.content_tag = STRING_TOKEN_TYPE,
 		.tag = IDENTIFIER_TOKEN,
 		.index = 0,
-		.data.name = string_init(walk->parse->mem, "+")
+		.data.name = string_init(walk->parse->mem, "~add")
 	};
 	token minus = {
 		.content_tag = STRING_TOKEN_TYPE,
 		.tag = IDENTIFIER_TOKEN,
 		.index = 0,
-		.data.name = string_init(walk->parse->mem, "-")
+		.data.name = string_init(walk->parse->mem, "~sub")
 	};
 	token ptr_accessor_name = {
 		.content_tag = STRING_TOKEN_TYPE,
@@ -7562,13 +7640,13 @@ create_wrapper(walker* const walk, expr_ast* func_binding, type_ast* const conve
 		.content_tag = STRING_TOKEN_TYPE,
 		.tag = IDENTIFIER_TOKEN,
 		.index = 0,
-		.data.name = string_init(walk->parse->mem, "+")
+		.data.name = string_init(walk->parse->mem, "~add")
 	};
 	token minus = {
 		.content_tag = STRING_TOKEN_TYPE,
 		.tag = IDENTIFIER_TOKEN,
 		.index = 0,
-		.data.name = string_init(walk->parse->mem, "-")
+		.data.name = string_init(walk->parse->mem, "~sub")
 	};
 	expr_ast* memcpy_binding = mk_binding(walk->parse->mem, &mem_cpy);
 	expr_ast* plus_binding = mk_binding(walk->parse->mem, &plus);
@@ -9649,17 +9727,112 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 	case APPL_EXPR:
 		ink_indent(fd, indent);
 		expr_ast* first = expr;
+		expr_ast* prev_0 = NULL;
+		expr_ast* prev_1 = NULL;
 		while (first->tag == APPL_EXPR){
+			prev_1 = prev_0;
+			prev_0 = first;
 			first = first->data.appl.left;
 		}
 		uint64_t builtin = 0;
 		if (first->tag == BINDING_EXPR){
-			//TODO builtin cases
+			if (cstring_compare(&first->data.binding.data.name, "~add") == 0){
+				fprintf(fd, "(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1);
+				fprintf(fd, ")+(");
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
+			else if (cstring_compare(&first->data.binding.data.name, "~sub") == 0){
+				fprintf(fd, "(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1);
+				fprintf(fd, ")-(");
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
+			else if (cstring_compare(&first->data.binding.data.name, "~mul") == 0){
+				fprintf(fd, "(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1);
+				fprintf(fd, ")*(");
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
+			else if (cstring_compare(&first->data.binding.data.name, "~div") == 0){
+				fprintf(fd, "(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1);
+				fprintf(fd, ")/(");
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
+			else if (cstring_compare(&first->data.binding.data.name, "~mod") == 0){
+				fprintf(fd, "(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1);
+				fprintf(fd, ")%%(");
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
+			else if (cstring_compare(&first->data.binding.data.name, "~and") == 0){
+				fprintf(fd, "(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1);
+				fprintf(fd, ")&&(");
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
+			else if (cstring_compare(&first->data.binding.data.name, "~or") == 0){
+				fprintf(fd, "(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1);
+				fprintf(fd, ")||(");
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
+			else if (cstring_compare(&first->data.binding.data.name, "~bitor") == 0){
+				fprintf(fd, "(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1);
+				fprintf(fd, ")|(");
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
+			else if (cstring_compare(&first->data.binding.data.name, "~bitand") == 0){
+				fprintf(fd, "(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1);
+				fprintf(fd, ")&(");
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
+			else if (cstring_compare(&first->data.binding.data.name, "~bitxor") == 0){
+				fprintf(fd, "(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1);
+				fprintf(fd, ")^(");
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
+			else if (cstring_compare(&first->data.binding.data.name, "~bitcomp") == 0){
+				fprintf(fd, "~(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
+			else if (cstring_compare(&first->data.binding.data.name, "~not") == 0){
+				fprintf(fd, "!(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
 		}
 		if (builtin == 0){
 			write_call(generator, fd, expr, expr);
+			fprintf(fd, ")");
 		}
-		fprintf(fd, ")");
 		break;
 	case LAMBDA_EXPR:
 		write_expression(generator, fd, expr->data.lambda.expression, indent, 1);

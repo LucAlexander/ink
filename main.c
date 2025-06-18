@@ -8603,7 +8603,8 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 string
 generate_mono_struct_name(walker* const walk, type_ast* const type){
 	string val = string_init(walk->parse->mem, "!");
-	stringify_type(walk->parse->mem, &val, type);
+	type_ast* reduced = reduce_alias_and_type(walk->parse, type);
+	stringify_type(walk->parse->mem, &val, reduced);
 	string* memname = string_map_access(walk->struct_mono_names, val);
 	if (memname != NULL){
 		return *memname;

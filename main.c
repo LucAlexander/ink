@@ -4088,6 +4088,10 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type, type_as
 	if (expected_type != NULL){
 		expected_type = reduce_alias(walk->parse, expected_type);
 	}
+	type_ast* builtin = is_builtin(walk, bind, expected_type);
+	if (builtin != NULL){
+		return builtin;
+	}
 	term_ast** term = term_ptr_map_access(walk->parse->terms, bind->data.name);
 	if (term != NULL){
 		return (*term)->type;
@@ -4167,6 +4171,41 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type, type_as
 				}
 			}
 		}
+	}
+	return NULL;
+}
+
+type_ast*
+is_builtin(walker* const walk, token* const bind, type_ast* const expected_type){
+	if ((cstring_compare(&bind->data.name, "~add") == 0)
+	|| (cstring_compare(&bind->data.name, "~sub") == 0)
+	|| (cstring_compare(&bind->data.name, "~mul") == 0)
+	|| (cstring_compare(&bind->data.name, "~div") == 0)
+	|| (cstring_compare(&bind->data.name, "~mod") == 0)
+	|| (cstring_compare(&bind->data.name, "~and") == 0)
+	|| (cstring_compare(&bind->data.name, "~bitand") == 0)
+	|| (cstring_compare(&bind->data.name, "~or") == 0)
+	|| (cstring_compare(&bind->data.name, "~bitor") == 0)
+	|| (cstring_compare(&bind->data.name, "~bitxor") == 0)){
+		type_ast* any = mk_lit(walk->parse->mem, INT_ANY);
+		type_ast* builtin_binary = mk_func(walk->parse->mem, any, mk_func(walk->parse->mem, any, any));
+		if (expected_type != NULL){
+			if (type_equal(walk->parse, expected_type, builtin_binary)){
+				return expected_type;
+			}
+		}
+		return builtin_binary;
+	}
+	if ( (cstring_compare(&bind->data.name, "~not") == 0)
+	|| (cstring_compare(&bind->data.name, "~bitcomp") == 0)){
+		type_ast* any = mk_lit(walk->parse->mem, INT_ANY);
+		type_ast* builtin_unary = mk_func(walk->parse->mem, any, any);
+		if (expected_type != NULL){
+			if (type_equal(walk->parse, expected_type, builtin_unary)){
+				return expected_type;
+			}
+		}
+		return builtin_unary;
 	}
 	return NULL;
 }
@@ -10266,7 +10305,7 @@ generate_main(genc* const generator, FILE* fd){
  * 		all function calls should check if literal types are aliased or typedefs
  * 		constants to global definition so null works
  * 		test closures / partial application
- * 		class members arent having their dependencies distributed
+ * 		move builtin type checking from extern responsibility to walk in_scope special case where we can check on either f64 or int_any for any given function
  */
 
 int

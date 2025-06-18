@@ -6,19 +6,20 @@ external {
 	u8^ -> u8 -> u64 -> u8 memset;
 	u64 -> u8^ -> u64 -> u64 write;
 	u8^ -> u64 -> u64 -> u64 -> u64 -> u64 -> u8^ mmap;
-	u64 -> u64 -> u64 +;
-	u64 -> u64 -> u64 -;
-	u64 -> u64 -> u64 *;
-	u64 -> u64 -> u64 /;
-	u64 -> u64 -> u64 %;
-	u64 -> u64 -> u64 &&;
-	u64 -> u64 -> u64 ||;
-	u64 -> u64 -> u64 ^&;
-	u64 -> u64 -> u64 ^|;
-	u64 -> u64 -> u64 ^^;
-	u64 -> u64 !;
-	u64 -> u64 ^~;
 }
+
+T -> T -> T + = \x y: 0;
+T -> T -> T - = \x y: 0;
+T -> T -> T * = \x y: 0;
+T -> T -> T / = \x y: 0;
+T -> T -> T % = \x y: 0;
+T -> T -> T && = \x y: 0;
+T -> T -> T || = \x y: 0;
+T -> T -> T ^| = \x y: 0;
+T -> T -> T ^& = \x y: 0;
+T -> T -> T ^^ = \x y: 0;
+T -> T ! = \x: 0;
+T -> T ^~ = \x: 0;
 
 (A -> B) -> (C -> A) -> C -> B
 compose = \f g x:
@@ -58,6 +59,7 @@ arena_init = \size:{
 typeclass Allocator A {
 	A -> T -> Maybe T^ =:>;
 	A -> T^ -> Maybe T^ =:>>;
+	A -> u64 -> Maybe u8^ #;
 }
 
 arena implements Allocator {
@@ -73,7 +75,15 @@ arena implements Allocator {
 
 	arena -> T^ -> Maybe T^
 	=:>> = \a val:{
-		return {Nothing};
+		T^ pooled = a # sizeof(T);
+		^T = ^val;
+		return {Just, pooled};
+	};
+
+	A -> u64 -> Maybe u8^
+	# = \a size:{
+		u64 pos = a.ptr;
+		a.ptr = a.ptr + size;
+		return {Just, &(a.buffer[pos])};
 	};
 }
-

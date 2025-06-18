@@ -405,42 +405,23 @@ lex_string(parser* const parse){
 						t->tag = *tok;
 					}
 					else{
-						if (cstring_compare(&t->data.name, "+") == 0){
-							t->data.name = string_init(parse->mem, "~add");
-						}
-						else if (cstring_compare(&t->data.name, "-") == 0){
-							t->data.name = string_init(parse->mem, "~sub");
-						}
-						else if (cstring_compare(&t->data.name, "*") == 0){
-							t->data.name = string_init(parse->mem, "~mul");
-						}
-						else if (cstring_compare(&t->data.name, "/") == 0){
-							t->data.name = string_init(parse->mem, "~div");
-						}
-						else if (cstring_compare(&t->data.name, "%") == 0){
-							t->data.name = string_init(parse->mem, "~mod");
-						}
-						else if (cstring_compare(&t->data.name, "!") == 0){
-							t->data.name = string_init(parse->mem, "~not");
-						}
-						else if (cstring_compare(&t->data.name, "&&") == 0){
-							t->data.name = string_init(parse->mem, "~and");
-						}
-						else if (cstring_compare(&t->data.name, "^&") == 0){
-							t->data.name = string_init(parse->mem, "~bitand");
-						}
-						else if (cstring_compare(&t->data.name, "||") == 0){
-							t->data.name = string_init(parse->mem, "~or");
-						}
-						else if (cstring_compare(&t->data.name, "^|") == 0){
-							t->data.name = string_init(parse->mem, "~bitor");
-						}
-						else if (cstring_compare(&t->data.name, "^^") == 0){
-							t->data.name = string_init(parse->mem, "~bitxor");
-						}
-						else if (cstring_compare(&t->data.name, "^~") == 0){
-							t->data.name = string_init(parse->mem, "~bitcomp");
-						}
+						if (cstring_compare(&t->data.name, "+") == 0) t->data.name = string_init(parse->mem, "~add");
+						else if (cstring_compare(&t->data.name, "-") == 0) t->data.name = string_init(parse->mem, "~sub");
+						else if (cstring_compare(&t->data.name, "*") == 0) t->data.name = string_init(parse->mem, "~mul");
+						else if (cstring_compare(&t->data.name, "/") == 0) t->data.name = string_init(parse->mem, "~div");
+						else if (cstring_compare(&t->data.name, "%") == 0) t->data.name = string_init(parse->mem, "~mod");
+						else if (cstring_compare(&t->data.name, "!") == 0) t->data.name = string_init(parse->mem, "~not");
+						else if (cstring_compare(&t->data.name, "&&") == 0) t->data.name = string_init(parse->mem, "~and");
+						else if (cstring_compare(&t->data.name, "^&") == 0) t->data.name = string_init(parse->mem, "~bitand");
+						else if (cstring_compare(&t->data.name, "||") == 0) t->data.name = string_init(parse->mem, "~or");
+						else if (cstring_compare(&t->data.name, "^|") == 0) t->data.name = string_init(parse->mem, "~bitor");
+						else if (cstring_compare(&t->data.name, "^^") == 0) t->data.name = string_init(parse->mem, "~bitxor");
+						else if (cstring_compare(&t->data.name, "<") == 0) t->data.name = string_init(parse->mem, "~lt");
+						else if (cstring_compare(&t->data.name, ">") == 0) t->data.name = string_init(parse->mem, "~gt");
+						else if (cstring_compare(&t->data.name, "<=") == 0) t->data.name = string_init(parse->mem, "~le");
+						else if (cstring_compare(&t->data.name, ">=") == 0) t->data.name = string_init(parse->mem, "~ge");
+						else if (cstring_compare(&t->data.name, "==") == 0) t->data.name = string_init(parse->mem, "~eq");
+						else if (cstring_compare(&t->data.name, "!=") == 0) t->data.name = string_init(parse->mem, "~neq");
 						else{
 							string* mem_name = string_map_access(parse->symbol_to_name, t->data.name);
 							if (mem_name != NULL){
@@ -476,42 +457,24 @@ lex_string(parser* const parse){
 					t->tag = *tok;
 				}
 				else{
-					if (cstring_compare(&t->data.name, "+") == 0){
-						t->data.name = string_init(parse->mem, "~add");
-					}
-					else if (cstring_compare(&t->data.name, "-") == 0){
-						t->data.name = string_init(parse->mem, "~sub");
-					}
-					else if (cstring_compare(&t->data.name, "*") == 0){
-						t->data.name = string_init(parse->mem, "~mul");
-					}
-					else if (cstring_compare(&t->data.name, "/") == 0){
-						t->data.name = string_init(parse->mem, "~div");
-					}
-					else if (cstring_compare(&t->data.name, "%") == 0){
-						t->data.name = string_init(parse->mem, "~mod");
-					}
-					else if (cstring_compare(&t->data.name, "!") == 0){
-						t->data.name = string_init(parse->mem, "~not");
-					}
-					else if (cstring_compare(&t->data.name, "&&") == 0){
-						t->data.name = string_init(parse->mem, "~and");
-					}
-					else if (cstring_compare(&t->data.name, "^&") == 0){
-						t->data.name = string_init(parse->mem, "~bitand");
-					}
-					else if (cstring_compare(&t->data.name, "||") == 0){
-						t->data.name = string_init(parse->mem, "~or");
-					}
-					else if (cstring_compare(&t->data.name, "^|") == 0){
-						t->data.name = string_init(parse->mem, "~bitor");
-					}
-					else if (cstring_compare(&t->data.name, "^^") == 0){
-						t->data.name = string_init(parse->mem, "~bitxor");
-					}
-					else if (cstring_compare(&t->data.name, "^~") == 0){
-						t->data.name = string_init(parse->mem, "~bitcomp");
-					}
+					if (cstring_compare(&t->data.name, "+") == 0) t->data.name = string_init(parse->mem, "~add");
+					else if (cstring_compare(&t->data.name, "-") == 0) t->data.name = string_init(parse->mem, "~sub");
+					else if (cstring_compare(&t->data.name, "*") == 0) t->data.name = string_init(parse->mem, "~mul");
+					else if (cstring_compare(&t->data.name, "/") == 0) t->data.name = string_init(parse->mem, "~div");
+					else if (cstring_compare(&t->data.name, "%") == 0) t->data.name = string_init(parse->mem, "~mod");
+					else if (cstring_compare(&t->data.name, "!") == 0) t->data.name = string_init(parse->mem, "~not");
+					else if (cstring_compare(&t->data.name, "&&") == 0) t->data.name = string_init(parse->mem, "~and");
+					else if (cstring_compare(&t->data.name, "^&") == 0) t->data.name = string_init(parse->mem, "~bitand");
+					else if (cstring_compare(&t->data.name, "||") == 0) t->data.name = string_init(parse->mem, "~or");
+					else if (cstring_compare(&t->data.name, "^|") == 0) t->data.name = string_init(parse->mem, "~bitor");
+					else if (cstring_compare(&t->data.name, "^^") == 0) t->data.name = string_init(parse->mem, "~bitxor");
+					else if (cstring_compare(&t->data.name, "^~") == 0) t->data.name = string_init(parse->mem, "~bitcomp");
+					else if (cstring_compare(&t->data.name, "<") == 0) t->data.name = string_init(parse->mem, "~lt");
+					else if (cstring_compare(&t->data.name, ">") == 0) t->data.name = string_init(parse->mem, "~gt");
+					else if (cstring_compare(&t->data.name, "<=") == 0) t->data.name = string_init(parse->mem, "~le");
+					else if (cstring_compare(&t->data.name, ">=") == 0) t->data.name = string_init(parse->mem, "~ge");
+					else if (cstring_compare(&t->data.name, "==") == 0) t->data.name = string_init(parse->mem, "~eq");
+					else if (cstring_compare(&t->data.name, "!=") == 0) t->data.name = string_init(parse->mem, "~neq");
 					else{
 						string* mem_name = string_map_access(parse->symbol_to_name, t->data.name);
 						if (mem_name != NULL){
@@ -4181,7 +4144,12 @@ is_builtin(walker* const walk, token* const bind, type_ast* const expected_type)
 	|| (cstring_compare(&bind->data.name, "~sub") == 0)
 	|| (cstring_compare(&bind->data.name, "~mul") == 0)
 	|| (cstring_compare(&bind->data.name, "~div") == 0)
-	|| (cstring_compare(&bind->data.name, "~mod") == 0)
+	|| (cstring_compare(&bind->data.name, "~lt") == 0)
+	|| (cstring_compare(&bind->data.name, "~gt") == 0)
+	|| (cstring_compare(&bind->data.name, "~le") == 0)
+	|| (cstring_compare(&bind->data.name, "~ge") == 0)
+	|| (cstring_compare(&bind->data.name, "~eq") == 0)
+	|| (cstring_compare(&bind->data.name, "~neq") == 0)
 	|| (cstring_compare(&bind->data.name, "~and") == 0)
 	|| (cstring_compare(&bind->data.name, "~bitand") == 0)
 	|| (cstring_compare(&bind->data.name, "~or") == 0)
@@ -4196,7 +4164,18 @@ is_builtin(walker* const walk, token* const bind, type_ast* const expected_type)
 		}
 		return builtin_binary;
 	}
-	if ( (cstring_compare(&bind->data.name, "~not") == 0)
+	else if (cstring_compare(&bind->data.name, "~mod") == 0){
+		type_ast* any = mk_lit(walk->parse->mem, INT_ANY);
+		type_ast* builtin_binary = mk_func(walk->parse->mem, any, mk_func(walk->parse->mem, any, any));
+		if (expected_type != NULL){
+			if (type_equal(walk->parse, expected_type, builtin_binary)){
+				walk_assert(expected_type->data.function.left->data.lit <= INT_ANY, 0, " %% can only be used with integral types\n");
+				return expected_type;
+			}
+		}
+		return builtin_binary;
+	}
+	else if ( (cstring_compare(&bind->data.name, "~not") == 0)
 	|| (cstring_compare(&bind->data.name, "~bitcomp") == 0)){
 		type_ast* any = mk_lit(walk->parse->mem, INT_ANY);
 		type_ast* builtin_unary = mk_func(walk->parse->mem, any, any);
@@ -10001,6 +9980,54 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 				fprintf(fd, ")");
 				builtin = 1;
 			}
+			else if (cstring_compare(&first->data.binding.data.name, "~lt") == 0){
+				fprintf(fd, "(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				fprintf(fd, ")<(");
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
+			else if (cstring_compare(&first->data.binding.data.name, "~gt") == 0){
+				fprintf(fd, "(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				fprintf(fd, ")>(");
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
+			else if (cstring_compare(&first->data.binding.data.name, "~le") == 0){
+				fprintf(fd, "(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				fprintf(fd, ")<=(");
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
+			else if (cstring_compare(&first->data.binding.data.name, "~ge") == 0){
+				fprintf(fd, "(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				fprintf(fd, ")>=(");
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
+			else if (cstring_compare(&first->data.binding.data.name, "~eq") == 0){
+				fprintf(fd, "(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				fprintf(fd, ")==(");
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
+			else if (cstring_compare(&first->data.binding.data.name, "~neq") == 0){
+				fprintf(fd, "(");
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				fprintf(fd, ")!=(");
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				fprintf(fd, ")");
+				builtin = 1;
+			}
 			else if (cstring_compare(&first->data.binding.data.name, "~bitcomp") == 0){
 				fprintf(fd, "~(");
 				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
@@ -10300,12 +10327,11 @@ generate_main(genc* const generator, FILE* fd){
  *				will requires a whole rework
  * 			}
  * 		may need to do dependency resolution for the order the header file is generated in
- * 		more builtins, float, < > <= >= == != 
+ * 		more builtins, < > <= >= == != 
  * 		polyfunc should check if types are aliased or typedefs
  * 		all function calls should check if literal types are aliased or typedefs
  * 		constants to global definition so null works
  * 		test closures / partial application
- * 		move builtin type checking from extern responsibility to walk in_scope special case where we can check on either f64 or int_any for any given function
  */
 
 int

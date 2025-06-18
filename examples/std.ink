@@ -18,6 +18,12 @@ T -> T -> T || = \x y: 0;
 T -> T -> T ^| = \x y: 0;
 T -> T -> T ^& = \x y: 0;
 T -> T -> T ^^ = \x y: 0;
+T -> T -> T < = \x y: 0;
+T -> T -> T > = \x y: 0;
+T -> T -> T <= = \x y: 0;
+T -> T -> T >= = \x y: 0;
+T -> T -> T == = \x y: 0;
+T -> T -> T != = \x y: 0;
 T -> T ! = \x: 0;
 T -> T ^~ = \x: 0;
 
@@ -65,12 +71,12 @@ typeclass Allocator A {
 arena implements Allocator {
 	arena -> T -> Maybe T^
 	=:> = \a val:{
-		//if a.ptr + (sizeof T) < a.size {
+		if a.ptr + (sizeof T) < a.size {
 			u64 pos = a.ptr;
 			a.ptr = a.ptr + (sizeof T);
 			return {Just, &(a.buffer[pos])};
-		//};
-		//return {Nothing};
+		};
+		return {Nothing};
 	};
 
 	arena -> T^ -> Maybe T^

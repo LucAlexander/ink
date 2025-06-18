@@ -6355,7 +6355,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 					.index = 0,
 					.data.name = walk->next_lambda
 				};
-				generate_new_lambda(walk);
+				generate_new_lambda( walk);
 				setter->data.term->name = setter_name;
 				setter->data.term->expression = pool_request(walk->parse->mem, sizeof(expr_ast));
 				expr_ast* cons = setter->data.term->expression;
@@ -9516,13 +9516,13 @@ write_typedef_forward(genc* const generator, FILE* hfd, typedef_ast* const def){
 void
 write_alias(genc* const generator, FILE* hfd, alias_ast* const def){
 	fprintf(hfd, "typedef ");
-	uint8_t save = def->type->variable;
-	def->type->variable = 1;
-	write_type(generator, hfd, def->type);
-	def->type->variable = save;
-	fprintf(hfd, " ");
 	token* memoized = token_map_access(generator->translated_names, def->name.data.name);
 	if (memoized != NULL){
+		uint8_t save = def->type->variable;
+		def->type->variable = 1;
+		write_type(generator, hfd, def->type, memoized);
+		def->type->variable = save;
+		fprintf(hfd, " ");
 		write_name(generator, hfd, *memoized);
 		fprintf(hfd, ";\n");
 		return;
@@ -9534,6 +9534,11 @@ write_alias(genc* const generator, FILE* hfd, alias_ast* const def){
 		.data.name = ink_prefix(generator, &def->name.data.name)
 	};
 	token_map_insert(generator->translated_names, def->name.data.name, newname);
+	uint8_t save = def->type->variable;
+	def->type->variable = 1;
+	write_type(generator, hfd, def->type, &newname);
+	def->type->variable = save;
+	fprintf(hfd, " ");
 	write_name(generator, hfd, newname);
 	fprintf(hfd, ";\n");
 }
@@ -9541,13 +9546,13 @@ write_alias(genc* const generator, FILE* hfd, alias_ast* const def){
 void
 write_typedef(genc* const generator, FILE* hfd, typedef_ast* const def){
 	fprintf(hfd, "typedef ");
-	uint8_t save = def->type->variable;
-	def->type->variable = 1;
-	write_type(generator, hfd, def->type);
-	def->type->variable = save;
-	fprintf(hfd, " ");
 	token* memoized = token_map_access(generator->translated_names, def->name.data.name);
 	if (memoized != NULL){
+		uint8_t save = def->type->variable;
+		def->type->variable = 1;
+		write_type(generator, hfd, def->type, memoized);
+		def->type->variable = save;
+		fprintf(hfd, " ");
 		write_name(generator, hfd, *memoized);
 		fprintf(hfd, ";\n");
 		return;
@@ -9559,6 +9564,11 @@ write_typedef(genc* const generator, FILE* hfd, typedef_ast* const def){
 		.data.name = ink_prefix(generator, &def->name.data.name)
 	};
 	token_map_insert(generator->translated_names, def->name.data.name, newname);
+	uint8_t save = def->type->variable;
+	def->type->variable = 1;
+	write_type(generator, hfd, def->type, &newname);
+	def->type->variable = save;
+	fprintf(hfd, " ");
 	write_name(generator, hfd, newname);
 	fprintf(hfd, ";\n");
 }
@@ -9570,7 +9580,7 @@ write_func_typedef(genc* const generator, FILE* hfd, typedef_ast* const def){
 	while (last->tag == FUNCTION_TYPE){
 		last = last->data.function.right;
 	}
-	write_type(generator, hfd, last);
+	write_type(generator, hfd, last, NULL);
 	fprintf(hfd, "(*");
 	write_name(generator, hfd, def->name);
 	fprintf(hfd, ")(");
@@ -9580,7 +9590,7 @@ write_func_typedef(genc* const generator, FILE* hfd, typedef_ast* const def){
 		if (arg_index != 0){
 			fprintf(hfd, ",");
 		}
-		write_type(generator, hfd, walk->data.function.left);
+		write_type(generator, hfd, walk->data.function.left, NULL);
 		arg_index += 1;
 		walk = walk->data.function.right;
 	}
@@ -9593,7 +9603,7 @@ write_term_decl(genc* const generator, FILE* hfd, term_ast* const term){
 	while (last->tag == FUNCTION_TYPE){
 		last = last->data.function.right;
 	}
-	write_type(generator, hfd, last);
+	write_type(generator, hfd, last, NULL);
 	fprintf(hfd, " ");
 	token* memoized = token_map_access(generator->translated_names, term->name.data.name);
 	if (memoized != NULL){
@@ -9628,7 +9638,7 @@ write_type_args(genc* const generator, FILE* fd, type_ast* const arg_types, expr
 			.index = 0,
 			.data.name = ink_prefix(generator, &lam->data.lambda.args[arg_index].data.binding.data.name)
 		};
-		write_type(generator, fd, walk->data.function.left);
+		write_type(generator, fd, walk->data.function.left, NULL);
 		fprintf(fd, " ");
 		write_name(generator, fd, newname);
 		arg_index += 1;
@@ -9638,10 +9648,10 @@ write_type_args(genc* const generator, FILE* fd, type_ast* const arg_types, expr
 }
 
 void
-write_type(genc* const generator, FILE* fd, type_ast* const type){
+write_type(genc* const generator, FILE* fd, type_ast* const type, token* const structname){
 	switch (type->tag){
 	case DEPENDENCY_TYPE:
-		write_type(generator, fd, type->data.dependency.type);
+		write_type(generator, fd, type->data.dependency.type, structname);
 		return;
 	case FUNCTION_TYPE:
 		string stringified = string_init(generator->mem, "!");
@@ -9670,7 +9680,6 @@ write_type(genc* const generator, FILE* fd, type_ast* const type){
 		}
 		return;
 	case LIT_TYPE:
-		if (type->variable == 0) fprintf(fd, "const ");
 		if (type->data.lit == U8_TYPE)       fprintf(fd, "uint8_t");
 		else if (type->data.lit == U16_TYPE) fprintf(fd, "uint16_t");
 		else if (type->data.lit == U32_TYPE) fprintf(fd, "uint32_t");
@@ -9684,22 +9693,18 @@ write_type(genc* const generator, FILE* fd, type_ast* const type){
 		else if (type->data.lit == F64_TYPE) fprintf(fd, "double");
 		return;
 	case PTR_TYPE:
-		write_type(generator, fd, type->data.ptr);
+		write_type(generator, fd, type->data.ptr, structname);
 		fprintf(fd, "*");
-		if (type->variable == 0) fprintf(fd, " const");
 		return;
 	case FAT_PTR_TYPE:
-		if (type->variable == 0) fprintf(fd, "const ");
 		fprintf(fd, "struct {");
-		write_type(generator, fd, type->data.fat_ptr.ptr);
+		write_type(generator, fd, type->data.fat_ptr.ptr, structname);
 		fprintf(fd, "* ptr;uint64_t len;}");
 		return;
 	case STRUCT_TYPE:
-		if (type->variable == 0) fprintf(fd, "const ");
-		write_structure_type(generator, fd, type->data.structure);
+		write_structure_type(generator, fd, type->data.structure, structname);
 		return;
 	case NAMED_TYPE:
-		if (type->variable == 0) fprintf(fd, "const ");
 		token* memoized = token_map_access(generator->translated_names, type->data.named.name.data.name);
 		if (memoized != NULL){
 			write_name(generator, fd, *memoized);
@@ -9749,17 +9754,21 @@ ink_prefix(genc* const generator, string* const name){
 }
 
 void
-write_structure_type(genc* const generator, FILE* fd, structure_ast* const s){
+write_structure_type(genc* const generator, FILE* fd, structure_ast* const s, token* const structname){
 	switch (s->tag){
 	case STRUCT_STRUCT:
 		if (s->data.structure.packed == 1){
-			fprintf(fd, "struct __attribute__((packed, aligned(1))){");
+			fprintf(fd, "struct __attribute__((packed, aligned(1)))");
 		}
 		else{
-			fprintf(fd, "struct {");
+			fprintf(fd, "struct ");
 		}
+		if (structname != NULL){
+			write_name(generator, fd, *structname);
+		}
+		fprintf(fd, "{");
 		for (uint64_t i = 0;i<s->data.structure.count;++i){
-			write_type(generator, fd, &s->data.structure.members[i]);
+			write_type(generator, fd, &s->data.structure.members[i], structname);
 			fprintf(fd, " ");
 			write_name(generator, fd, s->data.structure.names[i]);
 			fprintf(fd, ";");
@@ -9767,9 +9776,13 @@ write_structure_type(genc* const generator, FILE* fd, structure_ast* const s){
 		fprintf(fd, "}");
 		return;
 	case UNION_STRUCT:
-		fprintf(fd, "union {");
+		fprintf(fd, "union ");
+		if (structname != NULL){
+			write_name(generator, fd, *structname);
+		}
+		fprintf(fd, "{");
 		for (uint64_t i = 0;i<s->data.union_structure.count;++i){
-			write_type(generator, fd, &s->data.union_structure.members[i]);
+			write_type(generator, fd, &s->data.union_structure.members[i], structname);
 			fprintf(fd, " ");
 			write_name(generator, fd, s->data.union_structure.names[i]);
 			fprintf(fd, ";");
@@ -9777,7 +9790,11 @@ write_structure_type(genc* const generator, FILE* fd, structure_ast* const s){
 		fprintf(fd, "}");
 		return;
 	case ENUM_STRUCT:
-		fprintf(fd, "enum {");
+		fprintf(fd, "enum ");
+		if (structname != NULL){
+			write_name(generator, fd, *structname);
+		}
+		fprintf(fd, "{");
 		for (uint64_t i = 0;i<s->data.enumeration.count;++i){
 			token newname = {
 				.content_tag = STRING_TOKEN_TYPE,
@@ -9807,7 +9824,7 @@ write_term_impl(genc* const generator, FILE* fd, term_ast* const term){
 	while (last->tag == FUNCTION_TYPE){
 		last = last->data.function.right;
 	}
-	write_type(generator, fd, last);
+	write_type(generator, fd, last, NULL);
 	fprintf(fd, " ");
 	token* memoized = token_map_access(generator->translated_names, term->name.data.name);
 	if (memoized != NULL){
@@ -9987,7 +10004,7 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 			return;
 		}
 		ink_indent(fd, indent);
-		write_type(generator, fd, expr->data.term->type);
+		write_type(generator, fd, expr->data.term->type, NULL);
 		fprintf(fd, " ");
 		token* term_memoized = token_map_access(generator->translated_names, expr->data.term->name.data.name);
 		if (term_memoized != NULL){
@@ -10098,7 +10115,7 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 	case SIZEOF_EXPR:
 		ink_indent(fd, indent);
 		fprintf(fd, "sizeof(");
-		write_type(generator, fd, expr->data.size_type);
+		write_type(generator, fd, expr->data.size_type, NULL);
 		fprintf(fd, ")");
 		break;
 	case REF_EXPR:
@@ -10144,7 +10161,7 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 	case CAST_EXPR:
 		ink_indent(fd, indent);
 		fprintf(fd, "(");
-		write_type(generator, fd, expr->data.cast.target);
+		write_type(generator, fd, expr->data.cast.target, NULL);
 		fprintf(fd, ")(");
 		write_expression(generator, fd, expr->data.cast.source, 0, 1, 0);
 		fprintf(fd, ")");
@@ -10243,9 +10260,10 @@ generate_main(genc* const generator, FILE* fd){
  *				will requires a whole rework
  * 			}
  * 		may need to do dependency resolution for the order the header file is generated in
- * 		manual accesses to [].ptr are broken
  * 		more builtins
  * 		polyfunc should check if types are aliased or typedefs
+ * 		all function calls should check if literal types are aliased or typedefs
+ * 		constants to global definition so null works
  */
 
 int

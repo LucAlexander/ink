@@ -55,7 +55,6 @@ arena_init = \size:{
 	return a;
 };
 
-/*
 typeclass Allocator A {
 	A -> T -> Maybe T^ =:>;
 	A -> T^ -> Maybe T^ =:>>;
@@ -74,8 +73,7 @@ arena implements Allocator {
 
 	arena -> T^ -> Maybe T^
 	=:>> = \a val:{
-		
+		return {Nothing};
 	};
 }
 
-*/

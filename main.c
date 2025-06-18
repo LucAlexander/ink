@@ -232,6 +232,7 @@ issymbol(char c){
 		(c == '`') ||
 		(c == '^') ||
 		(c == '~') ||
+		(c == ':') ||
 		(c == '|')
 	);
 }
@@ -5075,7 +5076,7 @@ check_program(parser* const parse){
 				outer->data.dependency.dependency_typenames = pool_request(parse->mem, sizeof(token));
 				outer->data.dependency.typeclass_dependencies[0] = name;
 				outer->data.dependency.dependency_typenames[0] = generic;
-				class->members[i].type = outer;
+				class->members[t].type = outer;
 			}
 			realias_type_term(&realias, &class->members[i]);
 		}
@@ -10260,10 +10261,12 @@ generate_main(genc* const generator, FILE* fd){
  *				will requires a whole rework
  * 			}
  * 		may need to do dependency resolution for the order the header file is generated in
- * 		more builtins
+ * 		more builtins, float, < > <= >= == != 
  * 		polyfunc should check if types are aliased or typedefs
  * 		all function calls should check if literal types are aliased or typedefs
  * 		constants to global definition so null works
+ * 		test closures / partial application
+ * 		class members arent having their dependencies distributed
  */
 
 int

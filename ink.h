@@ -643,7 +643,7 @@ typedef struct clash_relation {
 	type_ast_map* pointer_only;
 } clash_relation;
 
-clash_relation clash_types(parser* const parse, type_ast* const left, type_ast* const right);
+clash_relation clash_types(parser* const parse, type_ast* left, type_ast* const right);
 uint8_t clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* pointer_only, type_ast* const left, type_ast* const right);
 uint8_t clash_structure_worker(parser* const parse, type_ast_map* relation, type_ast_map* pointer_only, structure_ast* const left, structure_ast* const right);
 type_ast* deep_copy_type_replace(pool* const mem, clash_relation* relation, type_ast* const source);

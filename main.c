@@ -4610,7 +4610,7 @@ is_member(type_ast* const outer, expr_ast* const field){
 }
 
 clash_relation
-clash_types(parser* const parse, type_ast* const left, type_ast* const right){
+clash_types(parser* const parse, type_ast* left, type_ast* const right){
 	type_ast_map* relation = pool_request(parse->mem, sizeof(type_ast_map));
 	*relation = type_ast_map_init(parse->mem);
 	type_ast_map* pointer_only = pool_request(parse->mem, sizeof(type_ast_map));
@@ -4628,7 +4628,13 @@ clash_types(parser* const parse, type_ast* const left, type_ast* const right){
 uint8_t
 clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* pointer_only, type_ast* const left, type_ast* const right){
 	if (left->tag != right->tag){
-		if (left->tag == FAT_PTR_TYPE && right->tag == FUNCTION_TYPE){
+		if (left->tag == FAT_PTR_TYPE && right->tag == PTR_TYPE){
+			return clash_types_worker(parse, relation, pointer_only, left->data.fat_ptr.ptr, right->data.ptr);
+		}
+		else if (left->tag == PTR_TYPE && right->tag == FAT_PTR_TYPE){
+			return clash_types_worker(parse, relation, pointer_only, left->data.ptr, right->data.fat_ptr.ptr);
+		}
+		else if (left->tag == FAT_PTR_TYPE && right->tag == FUNCTION_TYPE){
 			if (left->data.fat_ptr.ptr->tag == NAMED_TYPE){
 				type_ast* existing_ptr = type_ast_map_access(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name);
 				if (existing_ptr != NULL){
@@ -4654,7 +4660,8 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* po
 		typedef_ast** isextern = typedef_ptr_map_access(parse->extern_types, left->data.named.name.data.name);
 		alias_ast** isalias = alias_ptr_map_access(parse->aliases, left->data.named.name.data.name);
 		if (istypedef != NULL || isalias != NULL || isextern != NULL){
-			return 0;
+			type_ast* aliased_left = reduce_alias(parse, left);
+			return clash_types_worker(parse, relation, pointer_only, aliased_left, right);
 		}
 		type_ast* confirm = type_ast_map_access(relation, left->data.named.name.data.name);
 		if (confirm != NULL){
@@ -4808,6 +4815,14 @@ clash_structure_worker(parser* const parse, type_ast_map* relation, type_ast_map
 void
 clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* pointer_only, type_ast* const left, type_ast* const right){
 	if (left->tag != right->tag){
+		if (left->tag == FAT_PTR_TYPE && right->tag == PTR_TYPE){
+			clash_types_priority(walk, relation, pointer_only, left->data.fat_ptr.ptr, right->data.ptr);
+			return;
+		}
+		else if (left->tag == PTR_TYPE && right->tag == FAT_PTR_TYPE){
+			clash_types_priority(walk, relation, pointer_only, left->data.ptr, right->data.fat_ptr.ptr);
+			return;
+		}
 		if (left->tag == FAT_PTR_TYPE && right->tag == FUNCTION_TYPE){
 			if (left->data.fat_ptr.ptr->tag == NAMED_TYPE){
 				if (is_generic(walk->parse, right) == 1){
@@ -5872,7 +5887,13 @@ clash_types_equiv(walker* const walk, type_ast* const left, type_ast* const righ
 uint8_t
 clash_types_equiv_worker(walker* const walk, type_ast_map* const relation, type_ast_map* const pointer_only, type_ast* const left, type_ast* const right){
 	if (left->tag == NAMED_TYPE){
-		if (is_generic(walk->parse, left) == 1){
+		if (left->tag == FAT_PTR_TYPE && right->tag == PTR_TYPE){
+			return clash_types_equiv_worker(walk, relation, pointer_only, left->data.fat_ptr.ptr, right->data.ptr);
+		}
+		else if (left->tag == PTR_TYPE && right->tag == FAT_PTR_TYPE){
+			return clash_types_equiv_worker(walk, relation, pointer_only, left->data.ptr, right->data.fat_ptr.ptr);
+		}
+		else if (is_generic(walk->parse, left) == 1){
 			type_ast* exists = type_ast_map_access(relation, left->data.named.name.data.name);
 			if (exists != NULL){
 				if (exists->tag == NAMED_TYPE){
@@ -10310,11 +10331,13 @@ generate_main(genc* const generator, FILE* fd){
  *				will requires a whole rework
  * 			}
  * 		may need to do dependency resolution for the order the header file is generated in
- * 		more builtins, < > <= >= == != 
  * 		polyfunc should check if types are aliased or typedefs
  * 		all function calls should check if literal types are aliased or typedefs
  * 		constants to global definition so null works
+ * 			constants need a lot of handling actually
  * 		test closures / partial application
+ * 		[^] -> ^ downgading
+ * 		^ -> [^] upgrading
  */
 
 int

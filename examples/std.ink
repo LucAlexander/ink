@@ -1,6 +1,8 @@
 
 alias string = [i8];
 
+constant null = 0;
+
 external {
 	u8^ -> u8^ -> u64 -> u8 memcpy;
 	u8^ -> u8 -> u64 -> u8 memset;
@@ -37,7 +39,6 @@ print = \msg:
 
 u64 -> u8^
 alloc = \size:{
-	u8 null = 0;
 	return mmap (null as u8^) size (1 ^| 2) (2 ^| 32) 0 0;
 };
 

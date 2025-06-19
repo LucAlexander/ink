@@ -660,6 +660,7 @@ uint8_t clash_types_equiv_worker(walker* const walk, type_ast_map* const relatio
 uint8_t clash_struct_equiv_worker(walker* const walk, type_ast_map* relation, type_ast_map* pointer_only, structure_ast* const left, structure_ast* const right);
 
 type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, type_ast* const outer_type, uint8_t is_outer);
+uint8_t const_complex(walker* const walk, expr_ast* const expr);
 type_ast* walk_const(walker* const walk, const_ast* const c);
 type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected_type, uint8_t is_outer);
 type_ast* walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* const expected_type);

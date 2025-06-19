@@ -3950,11 +3950,68 @@ promote_pointer_arg(walker* const walk, expr_ast* const expr){
 
 type_ast*
 walk_const(walker* const walk, const_ast* const c){
-	walk_assert(c->value->tag != LAMBDA_EXPR, nearest_token(c->value), "Constants cannot be bound to terms");
+	walk_assert(const_complex(walk, c->value) == 0, nearest_token(c->value), "Constant must be simply reducible");
 	type_ast* real_type = walk_expr(walk, c->value, NULL, NULL, 0);
 	walk_assert_prop();
 	walk_assert(real_type != NULL, nearest_token(c->value), "Constant did not simply resolve to type");
 	return c->value->type;
+}
+
+uint8_t
+const_complex(walker* const walk, expr_ast* const expr){
+	switch (expr->tag){
+	case APPL_EXPR:
+	case LAMBDA_EXPR:
+	case BLOCK_EXPR:
+	case TERM_EXPR:
+	case BREAK_EXPR:
+	case CONTINUE_EXPR:
+	case MUTATION_EXPR:
+	case RETURN_EXPR:
+	case REF_EXPR:
+	case DEREF_EXPR:
+	case IF_EXPR:
+	case FOR_EXPR:
+	case WHILE_EXPR:
+	case CAST_EXPR:
+	case NOP_EXPR:
+	case MATCH_EXPR:
+	case ARRAY_ACCESS_EXPR:
+		return 1;
+	case LIT_EXPR:
+	case STRING_EXPR:
+		return 0;
+	case LIST_EXPR:
+		for (uint64_t i = 0;i<expr->data.list.line_count;++i){
+			if (const_complex(walk, &expr->data.list.lines[i]) == 1){
+				return 1;
+			}
+		}
+		return 0;
+	case STRUCT_EXPR:
+		for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
+			if (const_complex(walk, &expr->data.constructor.members[i]) == 1){
+				return 1;
+			}
+		}
+		return 0;
+	case BINDING_EXPR:
+		for (uint64_t i = 0;i<walk->parse->const_list.count;++i){
+			if (string_compare(&expr->data.binding.data.name, &walk->parse->const_list.buffer[i].name.data.name) == 0){
+				return 0;
+			}
+		}
+		return 1;
+	case SIZEOF_EXPR:
+		if (type_valid(walk->parse, expr->data.size_type) == 0){
+			return 1;
+		}
+		return 0;
+	case STRUCT_ACCESS_EXPR:
+	case FAT_PTR_EXPR:
+		return 0;
+	}
+	return 1;
 }
 
 type_ast*
@@ -5168,6 +5225,7 @@ check_program(parser* const parse){
 	}
 	for (uint64_t i = 0;i<parse->const_list.count;++i){
 		walk_const(&walk, &parse->const_list.buffer[i]);
+		assert_prop();
 #ifdef DEBUG
 		show_constant(&parse->const_list.buffer[i]);
 		printf("\n");

@@ -198,3 +198,38 @@ int8_t cstring_compare(string* const a, char* b){
 	}
 	return strncmp(a->str, b, a->len);
 }
+
+string string_escape(pool* const mem, string* const src){
+	string new = {
+		.str = pool_request(mem, 1),
+		.len = 0
+	};
+	for (uint64_t i = 0;i<src->len;++i){
+		char c = src->str[i];
+		if (src->str[i] != '\\'){
+			new.str[new.len] = c;
+			new.len += 1;
+			pool_request(mem, 1);
+			continue;
+		}
+		i += 1;
+		c = src->str[i];
+		switch (c){
+		case 'a': c = '\a'; break;
+		case 'b': c = '\b'; break;
+		case 'f': c = '\f'; break;
+		case 'r': c = '\r'; break;
+		case 't': c = '\t'; break;
+		case 'v': c = '\v'; break;
+		case '\\': c = '\\'; break;
+		case '\'': c = '\''; break;
+		case '"': c = '"'; break;
+		case '?': c = '\?'; break;
+		case 'n': c = '\n'; break;
+		}
+		new.str[new.len] = c;
+		new.len += 1;
+		pool_request(mem, 1);
+	}
+	return new;
+}

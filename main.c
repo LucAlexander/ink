@@ -3465,7 +3465,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			swrapper->data.fat_ptr.right = pool_request(walk->parse->mem, sizeof(expr_ast));
 			swrapper->data.fat_ptr.right->tag = LIT_EXPR;
 			swrapper->data.fat_ptr.right->data.literal.tag = UINT_LITERAL;
-			swrapper->data.fat_ptr.right->data.literal.data.u = expr->data.str.data.name.len;
+			swrapper->data.fat_ptr.right->data.literal.data.u = string_escape(walk->parse->temp_mem, &expr->data.str.data.name).len-2;
 			*expr = *swrapper;
 			pop_binding(walk->local_scope, scope_pos);
 			token_stack_pop(walk->term_stack, token_pos);
@@ -3917,7 +3917,7 @@ promote_pointer_arg(walker* const walk, expr_ast* const expr){
 		fat_wrapper->data.fat_ptr.right->tag = LIT_EXPR;
 		fat_wrapper->data.fat_ptr.right->data.literal.tag = UINT_LITERAL;
 		if (expr->data.appl.right->tag == STRING_EXPR){
-			fat_wrapper->data.fat_ptr.right->data.literal.data.u = expr->data.appl.right->data.str.data.name.len;
+			fat_wrapper->data.fat_ptr.right->data.literal.data.u = string_escape(walk->parse->temp_mem, &expr->data.appl.right->data.str.data.name).len-2;
 		}
 		else if (expr->data.appl.right->tag == LIST_EXPR){
 			fat_wrapper->data.fat_ptr.right->data.literal.data.u = expr->data.appl.right->data.list.line_count;
@@ -7024,7 +7024,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				swrapper->data.fat_ptr.right->tag = LIT_EXPR;
 				swrapper->data.fat_ptr.right->data.literal.tag = UINT_LITERAL;
 				if (expr->data.cast.source->tag == STRING_EXPR){
-					swrapper->data.fat_ptr.right->data.literal.data.u = expr->data.cast.source->data.str.data.name.len;
+					swrapper->data.fat_ptr.right->data.literal.data.u = string_escape(walk->parse->temp_mem, &expr->data.cast.source->data.str.data.name).len-2;
 				}
 				else if (expr->data.cast.source->tag == LIST_EXPR){
 					swrapper->data.fat_ptr.right->data.literal.data.u = expr->data.cast.source->data.list.line_count;
@@ -10439,8 +10439,9 @@ generate_main(genc* const generator, FILE* fd){
  * 		polyfunc should check if types are aliased or typedefs
  * 		constants to global definition so null works
  * 			constants need a lot of handling actually
+ * 				semantic pass which infers type
+ * 				turn into global definition in C
  * 		test closures / partial application
- * 		pointer grading needs explicit casting
  * 		string character escaping, removing the length of ""
  */
 

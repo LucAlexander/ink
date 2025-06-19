@@ -525,6 +525,16 @@ typedef struct scope {
 	uint64_t binding_count;
 } scope;
 
+typedef struct u64_stack {
+	pool* mem;
+	uint64_t* vals;
+	uint64_t capacity;
+	uint64_t count;
+} u64_stack;
+
+uint64_t u64_stack_push(u64_stack* const stack, uint64_t val);
+void u64_stack_pop(u64_stack* const stack, uint64_t pos);
+
 typedef struct expr_stack expr_stack;
 typedef struct expr_stack {
 	pool* mem;
@@ -573,6 +583,7 @@ void term_map_stack_pop(term_map_stack* const stack, uint64_t pos);
 typedef struct walker {
 	parser* parse;
 	scope* local_scope;
+	u64_stack* scope_mono_offsets;
 	scope_ptr_stack* scope_ptrs;
 	expr_stack* outer_exprs;
 	string next_lambda;

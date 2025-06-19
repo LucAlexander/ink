@@ -4050,13 +4050,30 @@ walk_term(walker* const walk, term_ast* const term, type_ast* expected_type, uin
 }
 
 uint64_t
+u64_stack_push(u64_stack* const stack, uint64_t val){
+	if (stack->count == stack->capacity){
+		stack->capacity *= 2;
+		uint64_t* vals = pool_request(stack->mem, sizeof(uint64_t)*stack->capacity);
+		for (uint64_t i = 0;i<stack->count;++i){
+			vals[i] = stack->vals[i];
+		}
+		stack->vals = vals;
+	}
+	stack->vals[stack->count] = val;
+	stack->count += 1;
+	return stack->count-1;
+}
+
+void
+u64_stack_pop(u64_stack* const stack, uint64_t pos){
+	stack->count = pos;
+}
+
+uint64_t
 push_binding(walker* const walk, scope* const s, token* const t, type_ast* const type){
 	parser* parse = walk->parse;
-	for (uint64_t i = 0;i<s->binding_count;++i){
+	for (uint64_t i = walk->scope_mono_offsets->vals[walk->scope_mono_offsets->count-1];i<s->binding_count;++i){
 		uint8_t duplicate = string_compare(&t->data.name, &s->bindings[i].name->data.name);
-		if (duplicate == 0){
-			printf("here\n"); // TODO remove
-		}
 		assert_local(duplicate != 0, 0, "Duplicate bound name");
 	}
 	if (s->binding_count == s->binding_capacity){
@@ -4227,7 +4244,7 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type, type_as
 		any->data.lit = INT_ANY;
 		return any;
 	}
-	for (uint64_t i = 0;i<walk->local_scope->binding_count;++i){
+	for (uint64_t i = walk->scope_mono_offsets->vals[walk->scope_mono_offsets->count-1];i<walk->local_scope->binding_count;++i){
 		if (string_compare(&bind->data.name, &walk->local_scope->bindings[i].name->data.name) == 0){
 			if (i < walk->scope_ptrs->ptrs[walk->scope_ptrs->count-1]){
 				if (real_type != NULL){
@@ -5168,6 +5185,12 @@ check_program(parser* const parse){
 		.binding_capacity = 2,
 		.binding_count = 0
 	};
+	u64_stack scope_mono_offsets = {
+		.mem = parse->mem,
+		.vals = pool_request(parse->mem, sizeof(uint64_t)*2),
+		.capacity = 2,
+		.count = 0
+	};
 	scope_ptr_stack ptrs = {
 		.mem = parse->mem,
 		.ptrs = pool_request(parse->mem, sizeof(uint64_t)*2),
@@ -5206,6 +5229,7 @@ check_program(parser* const parse){
 	walker walk = {
 		.parse = parse,
 		.local_scope = &local_scope,
+		.scope_mono_offsets = &scope_mono_offsets,
 		.scope_ptrs = &ptrs,
 		.outer_exprs = &outer_exprs,
 		.next_lambda = string_init(parse->mem, "#A"),
@@ -5220,6 +5244,7 @@ check_program(parser* const parse){
 		.next_generic = string_init(parse->mem, "@A"),
 		.generic_collection_buffer = token_buffer_init(parse->mem)
 	};
+	u64_stack_push(walk.scope_mono_offsets, 0);
 	for (uint64_t i = 0;i<parse->extern_term_list.count;++i){
 		assert_local(type_valid(parse, parse->extern_term_list.buffer[i].type) == 1, , "Invalid type for external term definition");
 	}
@@ -5795,6 +5820,7 @@ realias_type_expr(realias_walker* const walk, expr_ast* const expr){
 	case CAST_EXPR:
 		realias_type(walk, expr->data.cast.target);
 		assert_prop();
+		realias_type_expr(walk, expr->data.cast.source);
 		return;
 	case BREAK_EXPR:
 	case CONTINUE_EXPR:
@@ -7597,7 +7623,7 @@ in_scope_transform(walker* const walk, token* const bind, type_ast* expected_typ
 		};
 		return ret;
 	}
-	for (uint64_t i = 0;i<walk->local_scope->binding_count;++i){
+	for (uint64_t i = walk->scope_mono_offsets->vals[walk->scope_mono_offsets->count-1];i<walk->local_scope->binding_count;++i){
 		if (string_compare(&bind->data.name, &walk->local_scope->bindings[i].name->data.name) == 0){
 			if (i < walk->scope_ptrs->ptrs[walk->scope_ptrs->count-1]){
 				scrape_binding(walk, &walk->local_scope->bindings[i]);
@@ -8648,10 +8674,12 @@ monomorph(walker* const walk, expr_ast* const expr, type_ast_map* const relation
 			type_ast_map_clear(relation);
 			type_ast_map_clear(pointer_only);
 			clash_types_priority(walk, relation, pointer_only, expr->type, left);
+			uint64_t mono_offset = u64_stack_push(walk->scope_mono_offsets, walk->local_scope->binding_count);
 			*expr = *deep_copy_expr_type_replace_prevent_recursion(walk, expr, &clash, &is_generic->name, left);
 			expr->type = NULL;
 			uint64_t pos = token_stack_push(walk->term_stack, is_generic->name);
 			type_ast* correct_type = walk_expr(walk, expr, left, left, 0);
+			u64_stack_pop(walk->scope_mono_offsets, mono_offset);
 			walk_assert_prop();
 			walk_assert(correct_type != NULL, nearest_token(expr), "Could not monomorphize generic expression");
 			token_stack_pop(walk->term_stack, pos);
@@ -8665,9 +8693,11 @@ monomorph(walker* const walk, expr_ast* const expr, type_ast_map* const relation
 	type_ast_map_clear(relation);
 	type_ast_map_clear(pointer_only);
 	clash_types_priority(walk, relation, pointer_only, expr->type, left);
+	uint64_t mono_offset = u64_stack_push(walk->scope_mono_offsets, walk->local_scope->binding_count);
 	*expr = *deep_copy_expr_type_replace_prevent_recursion(walk, expr, &clash, NULL, NULL);
 	expr->type = NULL;
 	type_ast* correct_type = walk_expr(walk, expr, left, left, 0);
+	u64_stack_pop(walk->scope_mono_offsets, mono_offset);
 	walk_assert_prop();
 	walk_assert(correct_type != NULL, nearest_token(expr), "Could not monomorphize generic expression");
 	return correct_type;
@@ -10554,6 +10584,7 @@ generate_main(genc* const generator, FILE* fd){
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		polyfunc should check if types are aliased or typedefs
  * 		test closures / partial application
+ * 		coersion to u8^
  */
 
 int

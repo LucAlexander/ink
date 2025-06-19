@@ -63,15 +63,15 @@ arena_init = \size:{
 };
 
 typeclass Allocator A {
-	A -> T -> Maybe T^ =:>;
-	A -> T^ -> Maybe T^ =:>>;
-	A -> u64 -> Maybe u8^ #;
+	A -> T -> Maybe (T^) =:>;
+	A -> T^ -> Maybe (T^) =:>>;
+	A -> u64 -> Maybe (u8^) #;
 }
 
 arena implements Allocator {
-	arena -> T -> Maybe T^
+	arena -> T -> Maybe (T^)
 	=:> = \a val:{
-		if a.ptr + (sizeof T) < a.size {
+		if a.ptr + (sizeof T) < (a.size) {
 			u64 pos = a.ptr;
 			a.ptr = a.ptr + (sizeof T);
 			return {Just, &(a.buffer[pos])};
@@ -79,17 +79,20 @@ arena implements Allocator {
 		return {Nothing};
 	};
 
-	arena -> T^ -> Maybe T^
+	arena -> T^ -> Maybe (T^)
 	=:>> = \a val:{
 		T^ pooled = a # sizeof(T);
 		^T = ^val;
 		return {Just, pooled};
 	};
 
-	A -> u64 -> Maybe u8^
+	arena -> u64 -> Maybe (u8^)
 	# = \a size:{
-		u64 pos = a.ptr;
-		a.ptr = a.ptr + size;
-		return {Just, &(a.buffer[pos])};
+		if a.ptr + size < (a.size) {
+			u64 pos = a.ptr;
+			a.ptr = a.ptr + size;
+			return {Just, &(a.buffer[pos])};
+		};
+		return {Nothing};
 	};
 }

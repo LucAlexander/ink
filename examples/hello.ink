@@ -1,4 +1,4 @@
 import "std.ink"
 
-u64 main = print ("Hello world\n" as string);
+u64 main = print "Hello world\n";
 

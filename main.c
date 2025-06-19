@@ -6750,6 +6750,14 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			function_to_structure_recursive(walk, expr->data.term->type);
 		}
 		uint64_t pos = push_binding(walk, walk->local_scope, &expr->data.term->name, expr->data.term->type);
+		if (expr->data.term->type != expr->data.term->expression->type){
+			expr_ast* cast = mk_cast(walk->parse->mem, expr->data.term->expression, expr->data.term->type);
+			cast->type = expr->data.term->type;
+			expr->data.term->expression = transform_expr(walk, cast, 0, newlines, 1);
+			walk_assert_prop();
+			pop_binding(walk->local_scope, pos);
+			return expr;
+		}
 		expr->data.term->expression = transform_expr(walk, expr->data.term->expression, 0, newlines, 1);
 		walk_assert_prop();
 		pop_binding(walk->local_scope, pos);
@@ -6859,6 +6867,12 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 	case MUTATION_EXPR:
 		expr->data.mutation.left = transform_expr(walk, expr->data.mutation.left, 0, newlines, 1);
 		walk_assert_prop();
+		if (expr->data.mutation.left->type != NULL && (expr->data.mutation.left->type != expr->data.mutation.right->type)){
+			expr_ast* cast = mk_cast(walk->parse->mem, expr->data.mutation.right, expr->data.mutation.left->type);
+			cast->type = expr->data.mutation.left->type;
+			expr->data.mutation.right = transform_expr(walk, cast, 0, newlines, 1);
+			return expr;
+		}
 		expr->data.mutation.right = transform_expr(walk, expr->data.mutation.right, 0, newlines, 1);
 		return expr;
 	case RETURN_EXPR:

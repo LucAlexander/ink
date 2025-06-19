@@ -1086,7 +1086,8 @@ parse_type_worker(parser* const parse, uint8_t named, TOKEN end){
 				base->data.named.arg_count += 1;
 				break;
 			case BRACK_OPEN_TOKEN:
-				*arg = *parse_type_worker(parse, 0, BRACK_CLOSE_TOKEN);
+				arg->tag = FAT_PTR_TYPE;
+				arg->data.fat_ptr.ptr = parse_type_worker(parse, 0, BRACK_CLOSE_TOKEN);
 				assert_prop(NULL);
 				parse->token_index += 1;
 				base->data.named.arg_count += 1;
@@ -4053,6 +4054,9 @@ push_binding(walker* const walk, scope* const s, token* const t, type_ast* const
 	parser* parse = walk->parse;
 	for (uint64_t i = 0;i<s->binding_count;++i){
 		uint8_t duplicate = string_compare(&t->data.name, &s->bindings[i].name->data.name);
+		if (duplicate == 0){
+			printf("here\n"); // TODO remove
+		}
 		assert_local(duplicate != 0, 0, "Duplicate bound name");
 	}
 	if (s->binding_count == s->binding_capacity){
@@ -4258,7 +4262,7 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type, type_as
 						broke = 1;
 						break;
 					}
-					if (type_equal(walk->parse, candidate, type->data.function.left) == 0){
+					if (type_equiv(walk, candidate, type->data.function.left) == 0){
 						broke = 1;
 						break;
 					}
@@ -4273,8 +4277,8 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type, type_as
 				}
 			}
 			else{
-				if (type_equal(walk->parse, expected_type, type) == 1){
-					return expected_type;
+				if (type_equiv(walk, expected_type, type) == 1){
+					return deep_copy_type(walk, type);
 				}
 			}
 		}
@@ -4795,7 +4799,9 @@ clash_types(parser* const parse, type_ast* left, type_ast* const right){
 }
 
 uint8_t
-clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* pointer_only, type_ast* const left, type_ast* const right){
+clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* pointer_only, type_ast* left, type_ast* right){
+	left = reduce_alias(parse, left);
+	right = reduce_alias(parse, right);
 	if (left->tag != right->tag){
 		if (left->tag == FAT_PTR_TYPE && right->tag == PTR_TYPE){
 			return clash_types_worker(parse, relation, pointer_only, left->data.fat_ptr.ptr, right->data.ptr);
@@ -4982,7 +4988,9 @@ clash_structure_worker(parser* const parse, type_ast_map* relation, type_ast_map
 
 //NOTE these next two function assume that type checking has already occured, and that everything lines up correctly
 void
-clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* pointer_only, type_ast* const left, type_ast* const right){
+clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* pointer_only, type_ast* left, type_ast* right){
+	left = reduce_alias(walk->parse, left);
+	right = reduce_alias(walk->parse, right);
 	if (left->tag != right->tag){
 		if (left->tag == FAT_PTR_TYPE && right->tag == PTR_TYPE){
 			clash_types_priority(walk, relation, pointer_only, left->data.fat_ptr.ptr, right->data.ptr);
@@ -5302,7 +5310,7 @@ check_program(parser* const parse){
 			assert_local(found == 1, , "Unable to find implemented function in source typeclass");
 			term_ptr_buffer* impls = term_ptr_buffer_map_access(parse->implemented_terms, impl->members[t].name.data.name);
 			if (impls == NULL){
-				string locator = impl->members[i].name.data.name;
+				string locator = impl->members[t].name.data.name;
 				term_ptr_buffer new = term_ptr_buffer_init(parse->mem);
 				token newname = {
 					.content_tag = STRING_TOKEN_TYPE,
@@ -5311,7 +5319,7 @@ check_program(parser* const parse){
 					.data.name = walk.next_lambda
 				};
 				generate_new_lambda(&walk);
-				impl->members[i].name = newname;
+				impl->members[t].name = newname;
 				term_ptr_buffer_insert(&new, &impl->members[t]);
 				term_ptr_buffer_map_insert(parse->implemented_terms, locator, new);
 			}
@@ -5323,7 +5331,7 @@ check_program(parser* const parse){
 					.data.name = walk.next_lambda
 				};
 				generate_new_lambda(&walk);
-				impl->members[i].name = newname;
+				impl->members[t].name = newname;
 				term_ptr_buffer_insert(impls, &impl->members[t]);
 			}
 		}
@@ -6062,7 +6070,9 @@ clash_types_equiv(walker* const walk, type_ast* const left, type_ast* const righ
 }
 
 uint8_t
-clash_types_equiv_worker(walker* const walk, type_ast_map* const relation, type_ast_map* const pointer_only, type_ast* const left, type_ast* const right){
+clash_types_equiv_worker(walker* const walk, type_ast_map* const relation, type_ast_map* const pointer_only, type_ast* left, type_ast* right){
+	left = reduce_alias(walk->parse, left);
+	right = reduce_alias(walk->parse, right);
 	if (left->tag == NAMED_TYPE){
 		if (left->tag == FAT_PTR_TYPE && right->tag == PTR_TYPE){
 			return clash_types_equiv_worker(walk, relation, pointer_only, left->data.fat_ptr.ptr, right->data.ptr);
@@ -7614,7 +7624,7 @@ in_scope_transform(walker* const walk, token* const bind, type_ast* expected_typ
 						broke = 1;
 						break;
 					}
-					if (type_equal(walk->parse, candidate, type->data.function.left) == 0){
+					if (type_equiv(walk, candidate, type->data.function.left) == 0){
 						broke = 1;
 						break;
 					}
@@ -7632,7 +7642,7 @@ in_scope_transform(walker* const walk, token* const bind, type_ast* expected_typ
 				}
 			}
 			else{
-				if (type_equal(walk->parse, expected_type, type) == 1){
+				if (type_equiv(walk, expected_type, type) == 1){
 					scope_info ret = {
 						.top_level = 1,
 						.term = term
@@ -8490,7 +8500,7 @@ is_tracked_generic(walker* const walk, token* const name, type_ast* const expect
 						broke = 1;
 						break;
 					}
-					if (type_equal(walk->parse, candidate, type->data.function.left) == 0){
+					if (type_equiv(walk, candidate, type->data.function.left) == 0){
 						broke = 1;
 						break;
 					}
@@ -8507,7 +8517,7 @@ is_tracked_generic(walker* const walk, token* const name, type_ast* const expect
 				}
 			}
 			else{
-				if (type_equal(walk->parse, expected_type, type) == 1){
+				if (type_equiv(walk, expected_type, type) == 1){
 					if (is_generic(walk->parse, term->type) == 1){
 						return term;
 					}
@@ -8583,7 +8593,7 @@ try_monomorph(walker* const walk, expr_ast* expr, expr_ast* const right, type_as
 		clash_types_priority(walk, &relation, &pointer_only, expected, left);
 		expected = deep_copy_type_replace(walk->parse->mem, &clash, expected);
 	}
-	walk_assert(is_generic(walk->parse, left) == 0, nearest_token(expr), "Not enough type information to monmorphize expression");
+	walk_assert(is_generic(walk->parse, left) == 0, nearest_token(expr), "Not enough type information to monomorphize expression");
 	uint64_t index = walk->outer_exprs->expr_count;
 	type_ast* focus = left;
 	if (focus->tag == DEPENDENCY_TYPE){
@@ -10539,14 +10549,10 @@ generate_main(genc* const generator, FILE* fd){
  * c code generation pass
  * 		I dont know what to do with for
  * 			for ; ; {
- *				will requires a whole rework
+ *				will require a whole rework
  * 			}
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		polyfunc should check if types are aliased or typedefs
- * 		constants to global definition so null works
- * 			constants need a lot of handling actually
- * 				semantic pass which infers type
- * 				turn into global definition in C
  * 		test closures / partial application
  */
 

@@ -3456,9 +3456,9 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		if (expected_type->tag == FAT_PTR_TYPE){
 			walk_assert(expected_type->data.fat_ptr.ptr->tag == LIT_TYPE && expected_type->data.fat_ptr.ptr->data.lit == I8_TYPE, nearest_token(expr), "String must be assigned to [i8] or i8^");
 			expr_ast* swrapper = pool_request(walk->parse->mem, sizeof(expr_ast));
-			swrapper->type = mk_fat_ptr(walk->parse->mem, expr->type);
 			swrapper->tag = FAT_PTR_EXPR;
 			swrapper->data.fat_ptr.left = pool_request(walk->parse->mem, sizeof(expr_ast));
+			expr->type = mk_ptr(walk->parse->mem, mk_lit(walk->parse->mem, I8_TYPE));
 			*swrapper->data.fat_ptr.left = *expr;
 			swrapper->data.fat_ptr.right = pool_request(walk->parse->mem, sizeof(expr_ast));
 			swrapper->data.fat_ptr.right->tag = LIT_EXPR;
@@ -3598,17 +3598,59 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 	case BINDING_EXPR:
 		type_ast* actual = in_scope(walk, &expr->data.binding, expected_type, NULL);
 		walk_assert(actual != NULL, nearest_token(expr), "Binding not found in scope");
-		if (expected_type == NULL){
-			pop_binding(walk->local_scope, scope_pos);
-			token_stack_pop(walk->term_stack, token_pos);
-			expr->type = actual;
-			return actual;
+		type_ast* prev_actual = actual;
+		if (expected_type != NULL){
+			actual = reduce_alias_and_type(walk->parse, actual);
+			if (actual->tag == PTR_TYPE && expected_type->tag == FAT_PTR_TYPE){
+				expr_ast* fat_wrapper = pool_request(walk->parse->mem, sizeof(expr_ast));
+				fat_wrapper->tag = FAT_PTR_TYPE;
+				fat_wrapper->data.fat_ptr.left = pool_request(walk->parse->mem, sizeof(expr_ast));
+				*fat_wrapper->data.fat_ptr.left = *expr;
+				fat_wrapper->data.fat_ptr.left->type = actual;
+				fat_wrapper->data.fat_ptr.right = pool_request(walk->parse->mem, sizeof(expr_ast));
+				fat_wrapper->data.fat_ptr.right->tag = LIT_EXPR;
+				fat_wrapper->data.fat_ptr.right->data.literal.tag = UINT_LITERAL;
+				fat_wrapper->data.fat_ptr.right->data.literal.data.u = 1;
+				fat_wrapper->data.fat_ptr.right->type = mk_lit(walk->parse->mem, U64_TYPE);
+				fat_wrapper->type = mk_fat_ptr(walk->parse->mem, actual->data.ptr);
+				uint8_t bind_equal = type_equiv(walk, fat_wrapper->type, expected_type);
+				walk_assert(bind_equal == 1, nearest_token(expr), "Binding was not the expected type");
+				*expr = *fat_wrapper;
+				pop_binding(walk->local_scope, scope_pos);
+				token_stack_pop(walk->term_stack, token_pos);
+				expr->type = expected_type;
+				return expected_type;
+			}
+			else if (actual->tag == FAT_PTR_TYPE && expected_type->tag == PTR_TYPE){
+				token ptrtoken = {
+					.content_tag = STRING_TOKEN_TYPE,
+					.tag = IDENTIFIER_TOKEN,
+					.index = 0,
+					.data.name = string_init(walk->parse->mem, "ptr")
+				};
+				expr_ast* fat_access = mk_struct_access(walk->parse->mem,
+					pool_request(walk->parse->mem, sizeof(expr_ast)),
+					mk_binding(walk->parse->mem, &ptrtoken)
+				);
+				*fat_access->data.access.left = *expr;
+				fat_access->data.access.left->type = actual;
+				fat_access->type = mk_ptr(walk->parse->mem, actual->data.fat_ptr.ptr);
+				uint8_t bind_equal = type_equiv(walk, fat_access->type, expected_type);
+				walk_assert(bind_equal == 1, nearest_token(expr), "Binding was not the expected type");
+				*expr = *fat_access;
+				pop_binding(walk->local_scope, scope_pos);
+				token_stack_pop(walk->term_stack, token_pos);
+				expr->type = expected_type;
+				return expected_type;
+			}
+			else{
+				uint8_t bind_equal = type_equiv(walk, prev_actual, expected_type);
+				walk_assert(bind_equal == 1, nearest_token(expr), "Binding was not the expected type");
+			}
 		}
-		uint8_t bind_equal = type_equiv(walk, actual, expected_type);
-		walk_assert(bind_equal == 1, nearest_token(expr), "Binding was not the expected type");
 		pop_binding(walk->local_scope, scope_pos);
 		token_stack_pop(walk->term_stack, token_pos);
-		expr->type = actual;
+		expr->type = prev_actual;
 		return actual;
 	case MUTATION_EXPR:
 		walk_assert(expected_type == NULL, nearest_token(expr), "Mutation should not be expected to resolve to a type");
@@ -6032,24 +6074,16 @@ type_equiv(walker* const walk, type_ast* left, type_ast* right){
 		right = right->data.dependency.type;
 	}
 	while (type_equal(walk->parse, left, right) == 0){
-		type_ast* last_left = left;
-		type_ast* last_right = right;
 		clash_relation rel = clash_types_equiv(walk, left, right);
 		if (rel.relation == NULL){
 			return 0;
 		}
 		left = deep_copy_type_replace(walk->parse->temp_mem, &rel, left);
-		if (type_equal(walk->parse, left, last_left) == 1){
-			return 1;
-		}
 		rel = clash_types_equiv(walk, right, left);
 		if (rel.relation == NULL){
 			return 0;
 		}
 		right = deep_copy_type_replace(walk->parse->temp_mem, &rel, right);
-		if (type_equal(walk->parse, right, last_right) == 1){
-			return 1;
-		}
 	}
 	return 1;
 }
@@ -6483,7 +6517,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			};
 			generate_new_lambda(walk);
 			expr_ast* arg_set = mk_term(walk->parse->mem,
-				NULL,
+				outer_arg->data.appl.right->type,
 				&arg_name,
 				outer_arg->data.appl.right
 			);
@@ -9089,6 +9123,7 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* target
 		cond->tag = IF_EXPR;
 		expr_ast* string_expr = pool_request(walk->parse->mem, sizeof(expr_ast));
 		string_expr->tag = STRING_EXPR;
+		string_expr->type = mk_ptr(walk->parse->mem, mk_lit(walk->parse->mem, I8_TYPE));
 		string_expr->data.str = pat->data.str;
 		cond->data.if_statement.pred = mk_appl(walk->parse->mem,
 			mk_appl(walk->parse->mem,
@@ -10208,7 +10243,7 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 		write_expression(generator, fd, expr->data.if_statement.cons, indent, 1);
 		if (expr->data.if_statement.alt != NULL){
 			fprintf(fd, "else\n");
-			write_expression(generator, fd, expr->data.if_statement.cons, indent, 1);
+			write_expression(generator, fd, expr->data.if_statement.alt, indent, 1);
 		}
 		break;
 	case FOR_EXPR:
@@ -10338,6 +10373,7 @@ generate_main(genc* const generator, FILE* fd){
  * 		test closures / partial application
  * 		[^] -> ^ downgading
  * 		^ -> [^] upgrading
+ * 		string character escaping, removing the length of ""
  */
 
 int

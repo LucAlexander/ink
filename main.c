@@ -3617,7 +3617,9 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				fat_wrapper->type = mk_fat_ptr(walk->parse->mem, actual->data.ptr);
 				uint8_t bind_equal = type_equiv(walk, fat_wrapper->type, expected_type);
 				walk_assert(bind_equal == 1, nearest_token(expr), "Binding was not the expected type");
-				*expr = *fat_wrapper;
+				expr_ast* cast = mk_cast(walk->parse->mem, fat_wrapper, original);
+				cast->type = original;
+				*expr = *cast;
 				pop_binding(walk->local_scope, scope_pos);
 				token_stack_pop(walk->term_stack, token_pos);
 				expr->type = expected_type;
@@ -3914,10 +3916,20 @@ promote_pointer_arg(walker* const walk, expr_ast* const expr){
 		fat_wrapper->data.fat_ptr.right = pool_request(walk->parse->mem, sizeof(expr_ast));
 		fat_wrapper->data.fat_ptr.right->tag = LIT_EXPR;
 		fat_wrapper->data.fat_ptr.right->data.literal.tag = UINT_LITERAL;
-		fat_wrapper->data.fat_ptr.right->data.literal.data.u = 1;
+		if (expr->data.appl.right->tag == STRING_EXPR){
+			fat_wrapper->data.fat_ptr.right->data.literal.data.u = expr->data.appl.right->data.str.data.name.len;
+		}
+		else if (expr->data.appl.right->tag == LIST_EXPR){
+			fat_wrapper->data.fat_ptr.right->data.literal.data.u = expr->data.appl.right->data.list.line_count;
+		}
+		else{
+			fat_wrapper->data.fat_ptr.right->data.literal.data.u = 1;
+		}
 		fat_wrapper->data.fat_ptr.right->type = mk_lit(walk->parse->mem, U64_TYPE);
 		fat_wrapper->type = mk_fat_ptr(walk->parse->mem, current->data.ptr);
-		expr->data.appl.right = fat_wrapper;
+		expr_ast* cast = mk_cast(walk->parse->mem, fat_wrapper, expr->data.appl.left->type->data.function.left);
+		cast->type = expr->data.appl.left->type->data.function.left;
+		expr->data.appl.right = cast;
 	}
 	else if (expected->tag == PTR_TYPE && current->tag == FAT_PTR_TYPE){
 		token ptrtoken = {
@@ -10414,8 +10426,7 @@ generate_main(genc* const generator, FILE* fd){
  * 		constants to global definition so null works
  * 			constants need a lot of handling actually
  * 		test closures / partial application
- * 		[^] -> ^ downgading in arg
- * 		^ -> [^] upgrading in arg
+ * 		pointer grading needs explicit casting
  * 		string character escaping, removing the length of ""
  */
 

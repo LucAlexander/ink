@@ -3949,6 +3949,15 @@ promote_pointer_arg(walker* const walk, expr_ast* const expr){
 }
 
 type_ast*
+walk_const(walker* const walk, const_ast* const c){
+	walk_assert(c->value->tag != LAMBDA_EXPR, nearest_token(c->value), "Constants cannot be bound to terms");
+	type_ast* real_type = walk_expr(walk, c->value, NULL, NULL, 0);
+	walk_assert_prop();
+	walk_assert(real_type != NULL, nearest_token(c->value), "Constant did not simply resolve to type");
+	return c->value->type;
+}
+
+type_ast*
 walk_term(walker* const walk, term_ast* const term, type_ast* expected_type, uint8_t is_outer){
 	if (is_generic(walk->parse, term->type) == 1){
 		if (term->type->tag == NAMED_TYPE && term->type->data.named.arg_count == 0){
@@ -4211,6 +4220,11 @@ in_scope(walker* const walk, token* const bind, type_ast* expected_type, type_as
 					return expected_type;
 				}
 			}
+		}
+	}
+	for (uint64_t i = 0;i<walk->parse->const_list.count;++i){
+		if (string_compare(&bind->data.name, &walk->parse->const_list.buffer[i].name.data.name) == 0){
+			return walk->parse->const_list.buffer[i].value->type;
 		}
 	}
 	return NULL;
@@ -5151,6 +5165,13 @@ check_program(parser* const parse){
 		pool_empty(parse->temp_mem);
 		realias_type_term(&realias, &parse->term_list.buffer[i]);
 		assert_prop();
+	}
+	for (uint64_t i = 0;i<parse->const_list.count;++i){
+		walk_const(&walk, &parse->const_list.buffer[i]);
+#ifdef DEBUG
+		show_constant(&parse->const_list.buffer[i]);
+		printf("\n");
+#endif
 	}
 	assert(realias.relations == NULL);
 	pool_empty(parse->temp_mem);
@@ -9451,6 +9472,10 @@ generate_c(parser* const parse, const char* input, const char* output){
 			return;
 		}
 		fprintf(cfd, "#include<unistd.h>\n#include<string.h>\n#include \"%s\"\n", hfile);
+		//constants
+		for (uint64_t i = 0;i<parse->const_list.count;++i){
+			write_constant(&generator, cfd, &parse->const_list.buffer[i]);
+		}
 		//function implementations
 		for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 			implementation_ast* impl = &parse->implementation_list.buffer[i];
@@ -9529,6 +9554,29 @@ generate_c(parser* const parse, const char* input, const char* output){
 	else{
 		wait(NULL);
 	}
+}
+
+void
+write_constant(genc* const generator, FILE* fd, const_ast* const constant){
+	write_type(generator, fd, constant->value->type, NULL);
+	fprintf(fd, " ");
+	token* memoized = token_map_access(generator->translated_names, constant->name.data.name);
+	if (memoized != NULL){
+		write_name(generator, fd, *memoized);
+	}
+	else{
+		token newname = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = ink_prefix(generator, &constant->name.data.name)
+		};
+		token_map_insert(generator->translated_names, constant->name.data.name, newname);
+		write_name(generator, fd, newname);
+	}
+	fprintf(fd, " = ");
+	write_expression(generator, fd, constant->value, 0, 0);
+	fprintf(fd, ";\n");
 }
 
 void
@@ -10442,7 +10490,6 @@ generate_main(genc* const generator, FILE* fd){
  * 				semantic pass which infers type
  * 				turn into global definition in C
  * 		test closures / partial application
- * 		string character escaping, removing the length of ""
  */
 
 int

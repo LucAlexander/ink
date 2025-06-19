@@ -660,6 +660,7 @@ uint8_t clash_types_equiv_worker(walker* const walk, type_ast_map* const relatio
 uint8_t clash_struct_equiv_worker(walker* const walk, type_ast_map* relation, type_ast_map* pointer_only, structure_ast* const left, structure_ast* const right);
 
 type_ast* walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, type_ast* const outer_type, uint8_t is_outer);
+type_ast* walk_const(walker* const walk, const_ast* const c);
 type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected_type, uint8_t is_outer);
 type_ast* walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* const expected_type);
 void check_program(parser* const parse);
@@ -766,6 +767,7 @@ void write_typedef(genc* const generator, FILE* hfd, typedef_ast* const def);
 void write_term_decl(genc* const generator, FILE* hfd, term_ast* const term);
 void write_type_args(genc* const generator, FILE* fd, type_ast* const arg_types, expr_ast* const lam);
 void write_type(genc* const generator, FILE* hfd, type_ast* const type, token* const structname);
+void write_constant(genc* const generator, FILE* fd, const_ast* const constant);
 void write_structure_type(genc* const generator, FILE* fd, structure_ast* const s, token* const structname);
 void write_name(genc* const generator, FILE* hfd, token name);
 string ink_prefix(genc* const generator, string* const name);

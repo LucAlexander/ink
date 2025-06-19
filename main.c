@@ -3160,6 +3160,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			walk_assert_prop();
 			walk_assert(left_real != NULL, nearest_token(expr->data.appl.left), "Left type of application expression did not resolve to type");
 			walk_assert(left_real->tag == FUNCTION_TYPE || (left_real->tag == DEPENDENCY_TYPE && left_real->data.dependency.type->tag == FUNCTION_TYPE), nearest_token(expr->data.appl.left), "Left side of application expression was not a function");
+			promote_pointer_arg(walk, expr);
 			left_real = deep_copy_type(walk, left_real);
 			right = deep_copy_type(walk, expr->data.appl.right->type);
 			type_ast* left_outer = NULL;
@@ -3232,6 +3233,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert_prop();
 		walk_assert(left != NULL, nearest_token(expr->data.appl.left), "Unable to infer type of left of application");
 		walk_assert(left->tag == FUNCTION_TYPE || (left->tag == DEPENDENCY_TYPE && left->data.dependency.type->tag == FUNCTION_TYPE), nearest_token(expr->data.appl.left), "Left of application type needs to be function");
+		promote_pointer_arg(walk, expr);
 		left = deep_copy_type(walk, left);
 		right = deep_copy_type(walk, expr->data.appl.right->type);
 		type_ast* left_outer = NULL;
@@ -3600,10 +3602,10 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert(actual != NULL, nearest_token(expr), "Binding not found in scope");
 		type_ast* prev_actual = actual;
 		if (expected_type != NULL){
-			actual = reduce_alias_and_type(walk->parse, actual);
+			actual = reduce_alias(walk->parse, actual);
 			if (actual->tag == PTR_TYPE && expected_type->tag == FAT_PTR_TYPE){
 				expr_ast* fat_wrapper = pool_request(walk->parse->mem, sizeof(expr_ast));
-				fat_wrapper->tag = FAT_PTR_TYPE;
+				fat_wrapper->tag = FAT_PTR_EXPR;
 				fat_wrapper->data.fat_ptr.left = pool_request(walk->parse->mem, sizeof(expr_ast));
 				*fat_wrapper->data.fat_ptr.left = *expr;
 				fat_wrapper->data.fat_ptr.left->type = actual;
@@ -3898,6 +3900,40 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		return expr->type;
 	}
 	return NULL;
+}
+
+void
+promote_pointer_arg(walker* const walk, expr_ast* const expr){
+	type_ast* expected = reduce_alias(walk->parse, expr->data.appl.left->type->data.function.left);
+	type_ast* current = reduce_alias(walk->parse, expr->data.appl.right->type);
+	if (expected->tag == FAT_PTR_TYPE && current->tag == PTR_TYPE){
+		expr_ast* fat_wrapper = pool_request(walk->parse->mem, sizeof(expr_ast));
+		fat_wrapper->tag = FAT_PTR_EXPR;
+		fat_wrapper->data.fat_ptr.left = pool_request(walk->parse->mem, sizeof(expr_ast));
+		*fat_wrapper->data.fat_ptr.left = *expr->data.appl.right;
+		fat_wrapper->data.fat_ptr.right = pool_request(walk->parse->mem, sizeof(expr_ast));
+		fat_wrapper->data.fat_ptr.right->tag = LIT_EXPR;
+		fat_wrapper->data.fat_ptr.right->data.literal.tag = UINT_LITERAL;
+		fat_wrapper->data.fat_ptr.right->data.literal.data.u = 1;
+		fat_wrapper->data.fat_ptr.right->type = mk_lit(walk->parse->mem, U64_TYPE);
+		fat_wrapper->type = mk_fat_ptr(walk->parse->mem, current->data.ptr);
+		expr->data.appl.right = fat_wrapper;
+	}
+	else if (expected->tag == PTR_TYPE && current->tag == FAT_PTR_TYPE){
+		token ptrtoken = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = string_init(walk->parse->mem, "ptr")
+		};
+		expr_ast* fat_access = mk_struct_access(walk->parse->mem,
+			pool_request(walk->parse->mem, sizeof(expr_ast)),
+			mk_binding(walk->parse->mem, &ptrtoken)
+		);
+		*fat_access->data.access.left = *expr->data.appl.right;
+		fat_access->type = mk_ptr(walk->parse->mem, current->data.fat_ptr.ptr);
+		expr->data.appl.right = fat_access;
+	}
 }
 
 type_ast*
@@ -4226,8 +4262,16 @@ type_equal(parser* const parse, type_ast* const left, type_ast* const right){
 }
 
 uint8_t
-type_equal_worker(parser* const parse, token_map* const generics, type_ast* const left, type_ast* const right){
+type_equal_worker(parser* const parse, token_map* const generics, type_ast* left, type_ast* right){
+	left = reduce_alias(parse, left);
+	right = reduce_alias(parse, right);
 	if (left->tag != right->tag){
+		if (left->tag == FAT_PTR_TYPE && right->tag == PTR_TYPE){
+			return 1;
+		}
+		if (right->tag == FAT_PTR_TYPE && left->tag == PTR_TYPE){
+			return 1;
+		}
 		return 0;
 	}
 	switch (left->tag){
@@ -10367,12 +10411,11 @@ generate_main(genc* const generator, FILE* fd){
  * 			}
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		polyfunc should check if types are aliased or typedefs
- * 		all function calls should check if literal types are aliased or typedefs
  * 		constants to global definition so null works
  * 			constants need a lot of handling actually
  * 		test closures / partial application
- * 		[^] -> ^ downgading
- * 		^ -> [^] upgrading
+ * 		[^] -> ^ downgading in arg
+ * 		^ -> [^] upgrading in arg
  * 		string character escaping, removing the length of ""
  */
 

@@ -664,6 +664,8 @@ type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected
 type_ast* walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* const expected_type);
 void check_program(parser* const parse);
 
+void promote_pointer_arg(walker* const walk, expr_ast* const expr);
+
 typedef struct line_relay_node line_relay_node;
 typedef struct line_relay_node {
 	line_relay_node* next;

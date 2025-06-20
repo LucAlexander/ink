@@ -5,7 +5,8 @@ build:
 	gcc -o ink main.c kickstart.c
 
 test:
-	./ink -o funret funret.ink
+	./ink -o effects effects.ink
+	#./ink -o funret funret.ink
 	#./ink -o funarg funarg.ink
 	#./ink -o partial partial.ink
 	#./ink -o memory memory.ink

@@ -4139,7 +4139,9 @@ void pop_expr(expr_stack* const s, uint64_t pos){
 
 void push_expr_stack(walker* const walk){
 	if (walk->outer_exprs->next != NULL){
+		pool* mem = walk->outer_exprs->mem;
 		walk->outer_exprs = walk->outer_exprs->next;
+		walk->outer_exprs->mem = mem;
 		walk->outer_exprs->expr_count = 0;
 		return;
 	}
@@ -4682,11 +4684,13 @@ deep_copy_structure_replace(pool* const mem, clash_relation* relation, structure
 	*dest = *source;
 	switch (source->tag){
 	case STRUCT_STRUCT:
+		dest->data.structure.members = pool_request(mem, sizeof(type_ast)*source->data.structure.count);
 		for (uint64_t i = 0;i<source->data.structure.count;++i){
 			dest->data.structure.members[i] = *deep_copy_type_replace(mem, relation, &source->data.structure.members[i]);
 		}
 		return dest;
 	case UNION_STRUCT:
+		dest->data.union_structure.members = pool_request(mem, sizeof(type_ast)*source->data.union_structure.count);
 		for (uint64_t i = 0;i<source->data.union_structure.count;++i){
 			dest->data.union_structure.members[i] = *deep_copy_type_replace(mem, relation, &source->data.union_structure.members[i]);
 		}
@@ -5610,11 +5614,13 @@ deep_copy_structure(walker* const walk, structure_ast* const source){
 	*new = *source;
 	switch (source->tag){
 	case STRUCT_STRUCT:
+		new->data.structure.members = pool_request(walk->parse->mem, sizeof(type_ast)*source->data.structure.count);
 		for (uint64_t i = 0;i<source->data.structure.count;++i){
 			new->data.structure.members[i] = *deep_copy_type(walk, &source->data.structure.members[i]);
 		}
 		return new;
 	case UNION_STRUCT:
+		new->data.union_structure.members = pool_request(walk->parse->mem, sizeof(type_ast)*source->data.union_structure.count);
 		for (uint64_t i = 0;i<source->data.union_structure.count;++i){
 			new->data.union_structure.members[i] = *deep_copy_type(walk, &source->data.union_structure.members[i]);
 		}
@@ -10698,9 +10704,8 @@ generate_main(genc* const generator, FILE* fd){
  * 			}
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		polyfunc should check if types are aliased or typedefs
- * 		test closures 
+ * 		test closures : somewhere they typdef parameters are being replaced at the source, messing it up for future declarations
  * 		coersion to u8^ ?
- * 		import std instead of import "std.ink"
  */
 
 int

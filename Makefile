@@ -6,3 +6,4 @@ build:
 
 test:
 	./ink -o memory memory.ink
+	#./ink -o hello hello.ink

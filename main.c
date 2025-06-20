@@ -6571,7 +6571,9 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				}
 				if (farg_count == arg_count){
 					if (convert_args == arg_count){
-						return expr;
+						expr_ast* call_wrapper = new_term(walk, expr->type, expr);
+						line_relay_append(newlines, call_wrapper);
+						return term_name(walk, call_wrapper->data.term);
 					}
 				}
 				type_ast* full_type_copy = deep_copy_type(walk, info.term->type);
@@ -6757,11 +6759,16 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			current_arg_type_info = current_arg_type_info->data.function.right;
 		}
 		if (arg_count < farg_count){
-			return last_reference;
+			expr_ast* call_wrapper = new_term(walk, last_reference->type, last_reference);
+			line_relay_append(newlines, call_wrapper);
+			return term_name(walk, call_wrapper->data.term);
 		}
 		type_ast* converted_root = deep_copy_type(walk, refind_root->type);
 		function_to_structure_recursive(walk, converted_root);
-		return closure_call(walk, last_reference, newlines, &converted_root->data.ptr->data.structure->data.structure.members[converted_root->data.ptr->data.structure->data.structure.count-2]);
+		expr_ast* closure_call_expr = closure_call(walk, last_reference, newlines, &converted_root->data.ptr->data.structure->data.structure.members[converted_root->data.ptr->data.structure->data.structure.count-2]);
+		expr_ast* call_wrapper = new_term(walk, closure_call_expr->type, closure_call_expr);
+		line_relay_append(newlines, call_wrapper);
+		return term_name(walk, call_wrapper->data.term);
 	case STRUCT_ACCESS_EXPR:
 		expr->data.access.left = transform_expr(walk, expr->data.access.left, 0, newlines, 1);
 		return expr;
@@ -6999,9 +7006,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		return expr;
 	case REF_EXPR:
 		expr->data.ref = transform_expr(walk, expr->data.ref, 0, newlines, 1);
-		expr_ast* ref_wrapper = new_term(walk, expr->data.ref->type, expr->data.ref);
-		line_relay_append(newlines, ref_wrapper);
-		return mk_ref(walk->parse->mem, term_name(walk, ref_wrapper->data.term));
+		return expr;
 	case DEREF_EXPR:
 		expr->data.deref = transform_expr(walk, expr->data.deref, 0, newlines, 1);
 		return expr;
@@ -7172,7 +7177,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		};
 		expr_ast* cast_memcpy_binding = mk_binding(walk->parse->mem, &cast_mem_cpy);
 		expr_ast* cast_source = mk_ref(walk->parse->mem, expr->data.cast.source);
-		cast_source->type = expr->data.cast.source->type;
+		cast_source->type = mk_ptr(walk->parse->mem, expr->data.cast.source->type);
 		expr_ast* actual_cast_op = mk_appl(walk->parse->mem,
 			mk_appl(walk->parse->mem,
 				mk_appl(walk->parse->mem,
@@ -10620,7 +10625,6 @@ generate_main(genc* const generator, FILE* fd){
  * 		polyfunc should check if types are aliased or typedefs
  * 		test closures / partial application
  * 		coersion to u8^ ?
- * 		transform fat pointers to types
  * 		casts on expected mismatch
  */
 

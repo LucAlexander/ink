@@ -6590,7 +6590,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 					.index = 0,
 					.data.name = walk->next_lambda
 				};
-				generate_new_lambda( walk);
+				generate_new_lambda(walk);
 				setter->data.term->name = setter_name;
 				setter->data.term->expression = pool_request(walk->parse->mem, sizeof(expr_ast));
 				expr_ast* cons = setter->data.term->expression;
@@ -6601,6 +6601,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				cons->data.constructor.names[0].data.name = string_init(walk->parse->mem, "func");
 				cons->data.constructor.members[0].tag = BINDING_EXPR;
 				cons->data.constructor.members[0].data.binding = wrapper_name;
+				cons->data.constructor.members[0].type = &full_type_copy->data.ptr->data.structure->data.structure.members[full_type_copy->data.ptr->data.structure->data.structure.count-2];
 				cons->data.constructor.names[1].data.name = string_init(walk->parse->mem, "size");
 				cons->data.constructor.members[1].tag = LIT_EXPR;
 				cons->data.constructor.members[1].data.literal.tag = UINT_LITERAL;
@@ -10435,7 +10436,12 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 				write_name(generator, fd, newname);
 				fprintf(fd,"=");
 			}
-			write_expression(generator, fd, &expr->data.constructor.members[i], 0, 1);
+			if (expr->data.constructor.members[i].type != NULL && (expr->data.constructor.members[i].type->tag == FUNCTION_TYPE)){
+				write_expression(generator, fd, &expr->data.constructor.members[i], 0, 0);
+			}
+			else{
+				write_expression(generator, fd, &expr->data.constructor.members[i], 0, 1);
+			}
 		}
 		fprintf(fd, "\n}");
 		break;

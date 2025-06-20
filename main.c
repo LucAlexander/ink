@@ -8788,6 +8788,7 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 		return;
 	case FAT_PTR_TYPE:
 		try_structure_monomorph(walk, type->data.fat_ptr.ptr);
+		try_fat_monomorph(walk, type);
 		return;
 	case STRUCT_TYPE:
 		if (is_generic(walk->parse, type) == 1){
@@ -8839,6 +8840,36 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 		.params = NULL,
 		.param_count = 0,
 		.type = deep_copy_type(walk, reduced)
+	};
+	typedef_ast_buffer_insert(&walk->parse->type_list, newdef);
+	typedef_ptr_map_insert(walk->parse->types, newdef.name.data.name, typedef_ast_buffer_top(&walk->parse->type_list));
+	type->tag = NAMED_TYPE;
+	type->data.named.name = newname;
+	type->data.named.args = NULL;
+	type->data.named.arg_count = 0;
+}
+
+void
+try_fat_monomorph(walker* const walk, type_ast* const type){
+	token newname = {
+		.content_tag = STRING_TOKEN_TYPE,
+		.tag = IDENTIFIER_TOKEN,
+		.index = 0,
+		.data.name = generate_mono_struct_name(walk, type)
+	};
+	typedef_ast** olddef = typedef_ptr_map_access(walk->parse->types, newname.data.name);
+	if (olddef != NULL){
+		type->tag = NAMED_TYPE;
+		type->data.named.name = newname;
+		type->data.named.args = NULL;
+		type->data.named.arg_count = 0;
+		return;
+	}
+	typedef_ast newdef = {
+		.name = newname,
+		.params = NULL,
+		.param_count = 0,
+		.type = deep_copy_type(walk, type)
 	};
 	typedef_ast_buffer_insert(&walk->parse->type_list, newdef);
 	typedef_ptr_map_insert(walk->parse->types, newdef.name.data.name, typedef_ast_buffer_top(&walk->parse->type_list));
@@ -10589,6 +10620,8 @@ generate_main(genc* const generator, FILE* fd){
  * 		polyfunc should check if types are aliased or typedefs
  * 		test closures / partial application
  * 		coersion to u8^ ?
+ * 		transform fat pointers to types
+ * 		casts on expected mismatch
  */
 
 int

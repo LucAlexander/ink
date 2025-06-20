@@ -6999,7 +6999,9 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		return expr;
 	case REF_EXPR:
 		expr->data.ref = transform_expr(walk, expr->data.ref, 0, newlines, 1);
-		return expr;
+		expr_ast* ref_wrapper = new_term(walk, expr->data.ref->type, expr->data.ref);
+		line_relay_append(newlines, ref_wrapper);
+		return mk_ref(walk->parse->mem, term_name(walk, ref_wrapper->data.term));
 	case DEREF_EXPR:
 		expr->data.deref = transform_expr(walk, expr->data.deref, 0, newlines, 1);
 		return expr;
@@ -7169,13 +7171,15 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			.data.name = string_init(walk->parse->mem, "memcpy")
 		};
 		expr_ast* cast_memcpy_binding = mk_binding(walk->parse->mem, &cast_mem_cpy);
+		expr_ast* cast_source = mk_ref(walk->parse->mem, expr->data.cast.source);
+		cast_source->type = expr->data.cast.source->type;
 		expr_ast* actual_cast_op = mk_appl(walk->parse->mem,
 			mk_appl(walk->parse->mem,
 				mk_appl(walk->parse->mem,
 					cast_memcpy_binding,
 					mk_ref(walk->parse->mem, termbinding)
 				),
-				mk_ref(walk->parse->mem, expr->data.cast.source)
+				transform_expr(walk, cast_source, 0, newlines, 0)
 			),
 			mk_sizeof(walk->parse->mem, expr->data.cast.target)
 		);
@@ -10584,7 +10588,7 @@ generate_main(genc* const generator, FILE* fd){
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		polyfunc should check if types are aliased or typedefs
  * 		test closures / partial application
- * 		coersion to u8^
+ * 		coersion to u8^ ?
  */
 
 int

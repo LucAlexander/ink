@@ -7251,7 +7251,8 @@ expr_ast*
 new_term(walker* const walk, type_ast* const type, expr_ast* const expression){
 	term_ast* term = pool_request(walk->parse->mem, sizeof(term_ast));
 	term->type = type;
-	term->expression = expression;
+	term->expression = pool_request(walk->parse->mem, sizeof(expr_ast));
+	*term->expression = *expression;
 	token newname = {
 		.content_tag = STRING_TOKEN_TYPE,
 		.tag = IDENTIFIER_TOKEN,
@@ -10637,7 +10638,6 @@ generate_main(genc* const generator, FILE* fd){
  * 		polyfunc should check if types are aliased or typedefs
  * 		test closures / partial application
  * 		coersion to u8^ ?
- * 		casts on expected mismatch
  */
 
 int

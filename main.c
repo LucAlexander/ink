@@ -3497,19 +3497,19 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			expr->type = first;
 			return first;
 		}
-		walk_assert(expected_type->tag == FAT_PTR_TYPE || expected_type->tag == PTR_TYPE, nearest_token(expr), "List assignment to non pointer type");
+		walk_assert(expected_type->tag == FAT_PTR_TYPE || expected_type->tag == PTR_TYPE || expected_type->tag == FUNCTION_TYPE, nearest_token(expr), "List assignment to non pointer type");
 		if (expected_type->tag == FAT_PTR_TYPE){
-			walk_assert(expr->data.block.line_count == 2, nearest_token(expr), "Expected fat pointer constructor to be in the format [pointer, length]");
+			walk_assert(expr->data.list.line_count == 2, nearest_token(expr), "Expected fat pointer constructor to be in the format [pointer, length]");
 			type_ast* synth_ptr = mk_ptr(walk->parse->mem, expected_type->data.fat_ptr.ptr);
 			type_ast* integer = mk_lit(walk->parse->mem, INT_ANY);
-			type_ast* ptr = walk_expr(walk, &expr->data.block.lines[0], synth_ptr, synth_ptr, 0);
+			type_ast* ptr = walk_expr(walk, &expr->data.list.lines[0], synth_ptr, synth_ptr, 0);
 			walk_assert_prop();
-			walk_assert(ptr != NULL, nearest_token(&expr->data.block.lines[0]), "Expected pointer to expression for fat pointer constructor");
-			type_ast* len = walk_expr(walk, &expr->data.block.lines[1], integer, integer, 0);
+			walk_assert(ptr != NULL, nearest_token(&expr->data.list.lines[0]), "Expected pointer to expression for fat pointer constructor");
+			type_ast* len = walk_expr(walk, &expr->data.list.lines[1], integer, integer, 0);
 			walk_assert_prop();
-			walk_assert(len != NULL, nearest_token(&expr->data.block.lines[1]), "Expected integer expressino for fat pointer constructor length");
-			expr_ast* fat_left = &expr->data.block.lines[0];
-			expr_ast* fat_right = &expr->data.block.lines[1];
+			walk_assert(len != NULL, nearest_token(&expr->data.list.lines[1]), "Expected integer expressino for fat pointer constructor length");
+			expr_ast* fat_left = &expr->data.list.lines[0];
+			expr_ast* fat_right = &expr->data.list.lines[1];
 			expr->tag = FAT_PTR_EXPR;
 			expr->data.fat_ptr.left = fat_left;
 			expr->data.fat_ptr.right = fat_right;
@@ -3518,8 +3518,28 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			expr->type = expected_type;
 			return expected_type;
 		}
-		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
-			type_ast* rest = walk_expr(walk, &expr->data.block.lines[i], expected_type->data.ptr, expected_type->data.ptr, 0);
+		else if (expected_type->tag == FUNCTION_TYPE){
+			walk_assert(expr->data.list.line_count == 2, nearest_token(expr), "Expected function set to fat pointer constructor to be in the format [pointer, length]");
+			type_ast* synth_ptr = mk_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE));
+			type_ast* integer = mk_lit(walk->parse->mem, INT_ANY);
+			type_ast* ptr = walk_expr(walk, &expr->data.list.lines[0], synth_ptr, synth_ptr, 0);
+			walk_assert_prop();
+			walk_assert(ptr != NULL, nearest_token(&expr->data.list.lines[0]), "Expected pointer to expression for fat pointer constructor");
+			type_ast* len = walk_expr(walk, &expr->data.list.lines[1], integer, integer, 0);
+			walk_assert_prop();
+			walk_assert(len != NULL, nearest_token(&expr->data.list.lines[1]), "Expected integer expressino for fat pointer constructor length");
+			expr_ast* fat_left = &expr->data.list.lines[0];
+			expr_ast* fat_right = &expr->data.list.lines[1];
+			expr->tag = FAT_PTR_EXPR;
+			expr->data.fat_ptr.left = fat_left;
+			expr->data.fat_ptr.right = fat_right;
+			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
+			expr->type = expected_type;
+			return expected_type;
+		}
+		for (uint64_t i = 0;i<expr->data.list.line_count;++i){
+			type_ast* rest = walk_expr(walk, &expr->data.list.lines[i], expected_type->data.ptr, expected_type->data.ptr, 0);
 			walk_assert_prop();
 			walk_assert(rest != NULL, nearest_token(expr), "List element not able to resolve to type");
 		}
@@ -3866,6 +3886,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		return first;
 	case CAST_EXPR:
 		type_ast* cast_confirm = walk_expr(walk, expr->data.cast.source, NULL, outer_type, 0);
+		walk_assert_prop();
 		walk_assert(cast_confirm != NULL, nearest_token(expr), "Could not infer source type of cast");
 		if (expected_type == NULL){
 			pop_binding(walk->local_scope, scope_pos);
@@ -6137,7 +6158,7 @@ clash_types_equiv_worker(walker* const walk, type_ast_map* const relation, type_
 						}
 						return 1;
 					}
-					type_ast_map_insert(pointer_only, left->data.named.name.data.name, *right);
+					type_ast_map_insert(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name, *right);
 					return 1;
 				}
 				return 0;
@@ -6145,7 +6166,7 @@ clash_types_equiv_worker(walker* const walk, type_ast_map* const relation, type_
 		}
 	}
 	if (left->tag != right->tag){
-		if (right->tag == NAMED_TYPE){
+		if (right->tag == NAMED_TYPE || right->tag == PTR_TYPE || right->tag == FAT_PTR_TYPE){
 			if (is_generic(walk->parse, right) == 1){
 				return 1;
 			}
@@ -6606,7 +6627,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				cons->data.constructor.members[1].tag = LIT_EXPR;
 				cons->data.constructor.members[1].data.literal.tag = UINT_LITERAL;
 				uint64_t packed_size = 0;
-				for (uint64_t i = 0;i<full_type_copy->data.ptr->data.structure->data.structure.count;++i){
+				for (uint64_t i = 0;i<full_type_copy->data.ptr->data.structure->data.structure.count-2;++i){
 					packed_size += sizeof_type(walk->parse, &full_type_copy->data.ptr->data.structure->data.structure.members[i]);
 				}
 				cons->data.constructor.members[1].data.literal.data.u = packed_size;
@@ -7988,9 +8009,16 @@ create_wrapper(walker* const walk, expr_ast* func_binding, type_ast* const conve
 		.index = 0,
 		.data.name = string_init(walk->parse->mem, "~sub")
 	};
+	token ptr_token = {
+		.content_tag = STRING_TOKEN_TYPE,
+		.tag = IDENTIFIER_TOKEN,
+		.index = 0,
+		.data.name = string_init(walk->parse->mem, "ptr")
+	};
 	expr_ast* memcpy_binding = mk_binding(walk->parse->mem, &mem_cpy);
 	expr_ast* plus_binding = mk_binding(walk->parse->mem, &plus);
 	expr_ast* minus_binding = mk_binding(walk->parse->mem, &minus);
+	expr_ast* ptrbinding = mk_binding(walk->parse->mem, &ptr_token);
 	expr_ast* last_ptr = NULL;
 	if (args == real_args){
 		uint64_t line_count = (args * 3 ) + 1;
@@ -8012,7 +8040,11 @@ create_wrapper(walker* const walk, expr_ast* func_binding, type_ast* const conve
 	initial_setter->tag = TERM_EXPR;
 	initial_setter->data.term = pool_request(walk->parse->mem, sizeof(term_ast));
 	initial_setter->data.term->type = u8ptr;
-	initial_setter->data.term->expression = initial_call;
+	initial_setter->data.term->expression = mk_struct_access(walk->parse->mem,
+		initial_call,
+		ptrbinding
+	);
+	initial_setter->data.term->expression->data.access.left->type = mk_closure_type(walk);
 	token setter_name = {
 		.content_tag = STRING_TOKEN_TYPE,
 		.tag = IDENTIFIER_TOKEN,
@@ -10640,7 +10672,7 @@ generate_main(genc* const generator, FILE* fd){
  * 			}
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		polyfunc should check if types are aliased or typedefs
- * 		test closures / partial application
+ * 		test closures 
  * 		coersion to u8^ ?
  * 		import std instead of import "std.ink"
  */

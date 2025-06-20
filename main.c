@@ -9783,19 +9783,24 @@ write_alias_forward(genc* const generator, FILE* hfd, alias_ast* const def){
 
 void
 write_typedef_forward(genc* const generator, FILE* hfd, typedef_ast* const def){
-	if (def->type->tag != STRUCT_TYPE){
-		return;
-	}
-	switch (def->type->data.structure->tag){
-	case STRUCT_STRUCT:
+	if (def->type->tag == FAT_PTR_TYPE){
 		fprintf(hfd, "typedef struct ");
-		break;
-	case UNION_STRUCT:
-		fprintf(hfd, "typedef union ");
-		break;
-	case ENUM_STRUCT:
-		fprintf(hfd, "typedef enum ");
-		break;
+	}
+	else if (def->type->tag == STRUCT_TYPE){
+		switch (def->type->data.structure->tag){
+		case STRUCT_STRUCT:
+			fprintf(hfd, "typedef struct ");
+			break;
+		case UNION_STRUCT:
+			fprintf(hfd, "typedef union ");
+			break;
+		case ENUM_STRUCT:
+			fprintf(hfd, "typedef enum ");
+			break;
+		}
+	}
+	else{
+		return;
 	}
 	token* memoized = token_map_access(generator->translated_names, def->name.data.name);
 	if (memoized != NULL){
@@ -10002,7 +10007,14 @@ write_type(genc* const generator, FILE* fd, type_ast* const type, token* const s
 		fprintf(fd, "*");
 		return;
 	case FAT_PTR_TYPE:
-		fprintf(fd, "struct {");
+		if (structname != NULL){
+			fprintf(fd, "struct ");
+			write_name(generator, fd, *structname);
+			fprintf(fd, "{");
+		}
+		else{
+			fprintf(fd, "struct {");
+		}
 		write_type(generator, fd, type->data.fat_ptr.ptr, structname);
 		fprintf(fd, "* ptr;uint64_t len;}");
 		return;

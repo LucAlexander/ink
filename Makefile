@@ -7,3 +7,7 @@ build:
 test:
 	./ink -o memory memory.ink
 	#./ink -o hello hello.ink
+
+clean:
+	rm *.ink.c
+	rm *.ink.h

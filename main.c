@@ -6416,7 +6416,7 @@ lift_lambda(walker* const walk, expr_ast* const expr, type_ast* const type, toke
 	type_ast* type_view = newtype;
 	expr->tag = BINDING_EXPR;
 	expr->data.binding = newname;
-	expr->type = type;
+	expr->type = newtype;
 	uint8_t found = 0;
 	for (uint64_t i = 0;i<scrapes->count;++i){
 		binding* bind = &scrapes->buffer[i];

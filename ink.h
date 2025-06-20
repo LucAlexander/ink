@@ -732,7 +732,7 @@ expr_ast* mk_fptr_cons(pool* const mem, expr_ast* left, expr_ast* right);
 type_ast* mk_func(pool* const mem, type_ast* const left, type_ast* const right);
 type_ast* mk_lit(pool* const mem, uint8_t lit);
 type_ast* mk_ptr(pool* const mem, type_ast* const inner);
-type_ast* mk_closure_type(pool* const mem);
+type_ast* mk_closure_type(walker* const walk);
 type_ast* mk_fat_ptr(pool* const mem, type_ast* val);
 
 expr_ast* closure_call(walker* const walk, expr_ast* input_binding, line_relay* const newlines, type_ast* const result_type);

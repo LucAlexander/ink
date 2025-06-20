@@ -5,7 +5,8 @@ build:
 	gcc -o ink main.c kickstart.c
 
 test:
-	./ink -o memory memory.ink
+	./ink -o partial partial.ink
+	#./ink -o memory memory.ink
 	#./ink -o hello hello.ink
 
 clean:

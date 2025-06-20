@@ -6615,7 +6615,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 					mk_ref(walk->parse->mem, setter_binding),
 					mk_sizeof(walk->parse->mem, full_type_copy->data.ptr)
 				);
-				root->type = mk_fat_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE));
+				root->type = mk_closure_type(walk);
 			}
 		}
 		token mem_cpy = {
@@ -6661,7 +6661,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		};
 		generate_new_lambda(walk);
 		expr_ast* reference = mk_term(walk->parse->mem,
-			mk_fat_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE)),
+			mk_closure_type(walk),
 			&ref_name,
 			root
 		);
@@ -6727,7 +6727,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			generate_new_lambda(walk);
 			expr_ast* new_binding = mk_binding(walk->parse->mem, &new_arg_name);
 			expr_ast* new_set = mk_term(walk->parse->mem,
-				mk_fat_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE)),
+				mk_closure_type(walk),
 				&new_arg_name,
 				mk_fptr_cons(walk->parse->mem,
 					mk_appl(walk->parse->mem,
@@ -6866,7 +6866,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			return expr;
 		}
 		if (expr->data.term->type->tag == FUNCTION_TYPE || expr->data.term->type->tag == DEPENDENCY_TYPE){
-			expr->data.term->type = mk_closure_type(walk->parse->mem);
+			expr->data.term->type = mk_closure_type(walk);
 		}
 		else{
 			function_to_structure_recursive(walk, expr->data.term->type);
@@ -7382,7 +7382,7 @@ function_to_closure_ptr_recursive(walker* const walk, type_ast* const type){
 	case DEPENDENCY_TYPE:
 		*type = *type->data.dependency.type;
 	case FUNCTION_TYPE:
-		*type = *mk_closure_type(walk->parse->mem);
+		*type = *mk_closure_type(walk);
 		return;
 	case LIT_TYPE:
 		return;
@@ -7866,13 +7866,9 @@ closure_call(walker* const walk, expr_ast* input_binding, line_relay* const newl
 	generate_new_lambda(walk);
 	expr_ast* fbinding = mk_binding(walk->parse->mem, &f_name);
 	expr_ast* sizebinding = mk_binding(walk->parse->mem, &size_name);
-	type_ast* fptr_type = mk_func(walk->parse->mem,
-		mk_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE)),
-		result_type
-	);
-	expr_ast* sizeof_fptr = mk_sizeof(walk->parse->mem, fptr_type);
+	expr_ast* sizeof_fptr = mk_sizeof(walk->parse->mem, result_type);
 	expr_ast* f = mk_term(walk->parse->mem,
-		fptr_type,
+		result_type,
 		&f_name,
 		NULL
 	);
@@ -8209,8 +8205,10 @@ standard_call_wrapper(walker* const walk, expr_ast* const func_binding, type_ast
 }
 
 type_ast*
-mk_closure_type(pool* const mem){
-	return mk_fat_ptr(mem, mk_lit(mem, U8_TYPE));
+mk_closure_type(walker* const walk){
+	type_ast* fat = mk_fat_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE));
+	try_structure_monomorph(walk, fat);
+	return fat;
 }
 
 uint8_t
@@ -10638,6 +10636,7 @@ generate_main(genc* const generator, FILE* fd){
  * 		polyfunc should check if types are aliased or typedefs
  * 		test closures / partial application
  * 		coersion to u8^ ?
+ * 		import std instead of import "std.ink"
  */
 
 int

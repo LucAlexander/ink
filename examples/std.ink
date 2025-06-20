@@ -8,6 +8,7 @@ external {
 	u8^ -> u8 -> u64 -> u8 memset;
 	u64 -> u8^ -> u64 -> u64 write;
 	u8^ -> u64 -> u64 -> u64 -> u64 -> u64 -> u8^ mmap;
+	u64 -> u8^ malloc;
 }
 
 T -> T -> T + = \x y: 0;
@@ -39,7 +40,8 @@ print = \msg:
 
 u64 -> u8^
 alloc = \size:{
-	return mmap (null as u8^) size (1 ^| 2) (2 ^| 32) 0 0;
+	return malloc size;
+	//return mmap (null as u8^) size (1 ^| 2) (2 ^| 32) 0 0;
 };
 
 type Maybe T = struct {
@@ -64,14 +66,14 @@ arena_init = \size:{
 };
 
 typeclass Allocator A {
-	A -> T -> Maybe (T^) =:>;
-	A -> T^ -> Maybe (T^) =:>>;
-	A -> u64 -> Maybe (u8^) #;
+	T -> A -> Maybe (T^) =:>;
+	[T] -> A -> Maybe [T] =:>>;
+	A -> u64 -> u8^ #;
 }
 
 arena implements Allocator {
-	arena -> T -> Maybe (T^)
-	=:> = \a val:{
+	T -> arena -> Maybe (T^)
+	=:> = \val a:{
 		if a.ptr + (sizeof T) < (a.size) {
 			u64 pos = a.ptr;
 			a.ptr = a.ptr + (sizeof T);
@@ -80,20 +82,23 @@ arena implements Allocator {
 		return {Nothing};
 	};
 
-	arena -> T^ -> Maybe (T^)
-	=:>> = \a val:{
-		T^ pooled = a # sizeof(T);
-		^T = ^val;
+	[T] -> arena -> Maybe [T]
+	=:>> = \val a:{
+		[T] pooled = [
+			(a # ((sizeof T) * (val.len))) as (T^),
+			val.len
+		];
+		memcpy (pooled.ptr as u8^) (val.ptr as u8^) (pooled.len * (sizeof T));
 		return {Just, pooled};
 	};
 
-	arena -> u64 -> Maybe (u8^)
+	arena -> u64 -> u8^
 	# = \a size:{
 		if a.ptr + size < (a.size) {
 			u64 pos = a.ptr;
 			a.ptr = a.ptr + size;
-			return {Just, &(a.buffer[pos])};
+			return &(a.buffer[pos]);
 		};
-		return {Nothing};
+		return null as u8^;
 	};
 }

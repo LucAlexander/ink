@@ -4391,11 +4391,25 @@ type_equal_worker(parser* const parse, token_map* const generics, type_ast* left
 	left = reduce_alias(parse, left);
 	right = reduce_alias(parse, right);
 	if (left->tag != right->tag){
-		if (left->tag == FAT_PTR_TYPE && right->tag == PTR_TYPE){
-			return 1;
+		if (left->tag == FAT_PTR_TYPE){
+			if (right->tag == PTR_TYPE){
+				return 1;
+			}
+			if (right->tag == FUNCTION_TYPE){
+				if (left->data.fat_ptr.ptr->tag == LIT_TYPE && left->data.fat_ptr.ptr->data.lit == U8_TYPE){
+					return 1;
+				}
+			}
 		}
-		if (right->tag == FAT_PTR_TYPE && left->tag == PTR_TYPE){
-			return 1;
+		if (right->tag == FAT_PTR_TYPE){
+		   	if (left->tag == PTR_TYPE){
+				return 1;
+			}
+			if (left->tag == FUNCTION_TYPE){
+				if (right->data.fat_ptr.ptr->tag == LIT_TYPE && right->data.fat_ptr.ptr->data.lit == U8_TYPE){
+					return 1;
+				}
+			}
 		}
 		return 0;
 	}
@@ -4862,7 +4876,10 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* po
 				if (istypedef != NULL || isalias != NULL || isextern != NULL){
 					return 0;
 				}
-				type_ast_map_insert(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name, *right);
+				type_ast* u8_hold = mk_lit(parse->mem, U8_TYPE);
+				type_ast* fat_hold = mk_fat_ptr(parse->mem, u8_hold);
+				type_ast_map_insert(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name, *fat_hold);
+				type_ast_map_insert(relation, left->data.fat_ptr.ptr->data.named.name.data.name, *u8_hold);
 				return 1;
 			}
 		}
@@ -4923,7 +4940,7 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* po
 	case NAMED_TYPE:
 		type_ast* supposed_pointer = type_ast_map_access(pointer_only, left->data.named.name.data.name);
 		if (supposed_pointer != NULL){
-			return 0;
+			return 1;
 		}
 		type_ast* confirm = type_ast_map_access(relation, left->data.named.name.data.name);
 		if (confirm != NULL){
@@ -5046,7 +5063,10 @@ clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* p
 				type_ast* existing_ptr = type_ast_map_access(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name);
 				if (existing_ptr != NULL){
 					if (is_generic(walk->parse, existing_ptr) == 1){
-						type_ast_map_insert(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name, *right);
+						type_ast* u8_hold = mk_lit(walk->parse->mem, U8_TYPE);
+						type_ast* fat_hold = mk_fat_ptr(walk->parse->mem, u8_hold);
+						type_ast_map_insert(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name, *fat_hold);
+						type_ast_map_insert(relation, left->data.fat_ptr.ptr->data.named.name.data.name, *u8_hold);
 					}
 					return;
 				}
@@ -5056,7 +5076,10 @@ clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* p
 				if (istypedef != NULL || isalias != NULL || isextern != NULL){
 					return;
 				}
-				type_ast_map_insert(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name, *right);
+				type_ast* u8_hold = mk_lit(walk->parse->mem, U8_TYPE);
+				type_ast* fat_hold = mk_fat_ptr(walk->parse->mem, u8_hold);
+				type_ast_map_insert(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name, *fat_hold);
+				type_ast_map_insert(relation, left->data.fat_ptr.ptr->data.named.name.data.name, *u8_hold);
 				return;
 			}
 		}
@@ -6158,7 +6181,10 @@ clash_types_equiv_worker(walker* const walk, type_ast_map* const relation, type_
 						}
 						return 1;
 					}
-					type_ast_map_insert(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name, *right);
+					type_ast* u8_hold = mk_lit(walk->parse->mem, U8_TYPE);
+					type_ast* fat_hold = mk_fat_ptr(walk->parse->mem, u8_hold);
+					type_ast_map_insert(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name, *fat_hold);
+					type_ast_map_insert(relation, left->data.fat_ptr.ptr->data.named.name.data.name, *u8_hold);
 					return 1;
 				}
 				return 0;

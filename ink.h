@@ -9,7 +9,7 @@
 #define TEMP_ARENA_SIZE 0x50000000
 #define ERROR_STRING_MAX 0x100
 
-//#define DEBUG
+#define DEBUG
 
 typedef enum TOKEN {
 	PAREN_OPEN_TOKEN='(',

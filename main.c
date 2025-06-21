@@ -3480,6 +3480,31 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		return expected_type;
 	case LIST_EXPR:
 		if (expected_type == NULL){
+			if (expr->data.block.line_count == 2){
+				type_ast* first = walk_expr(walk, &expr->data.list.lines[0], NULL, outer_type, 0);
+				walk_assert_prop();
+				walk_assert(first != NULL, nearest_token(expr), "List element not able to resolve to type");
+				type_ast* integer = mk_lit(walk->parse->mem, INT_ANY);
+				uint64_t save = walk->parse->token_index;
+				walk_expr(walk, &expr->data.list.lines[1], integer, outer_type, 0);
+				if (walk->parse->err.len != 0){
+					walk->parse->token_index = save - 1;
+					walk->parse->err.len = 0;
+				}
+				else {
+					walk_assert(first->tag == PTR_TYPE, nearest_token(expr), "First element of fat pointer constuctor was not a pointer");
+					expr_ast* fat_left = &expr->data.list.lines[0];
+					expr_ast* fat_right = &expr->data.list.lines[1];
+					expr->tag = FAT_PTR_EXPR;
+					expr->data.fat_ptr.left = fat_left;
+					expr->data.fat_ptr.right = fat_right;
+					type_ast* fat_type = mk_fat_ptr(walk->parse->mem, first->data.ptr);
+					pop_binding(walk->local_scope, scope_pos);
+					token_stack_pop(walk->term_stack, token_pos);
+					expr->type = fat_type;
+					return fat_type;
+				}
+			}
 			type_ast* first;
 			for (uint64_t i = 0;i<expr->data.block.line_count;++i){
 				if (i == 0){
@@ -4886,6 +4911,14 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* po
 				type_ast_map_insert(relation, left->data.fat_ptr.ptr->data.named.name.data.name, *u8_hold);
 				return 1;
 			}
+			else if (left->data.fat_ptr.ptr->tag == LIT_TYPE && left->data.fat_ptr.ptr->data.lit == U8_TYPE){
+				return 1;
+			}
+		}
+		else if (left->tag == FUNCTION_TYPE){
+			if (right->data.fat_ptr.ptr->tag == LIT_TYPE && right->data.fat_ptr.ptr->data.lit == U8_TYPE){
+				return 1;
+			}
 		}
 		if (left->tag != NAMED_TYPE){
 			return 0;
@@ -5084,6 +5117,14 @@ clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* p
 				type_ast* fat_hold = mk_fat_ptr(walk->parse->mem, u8_hold);
 				type_ast_map_insert(pointer_only, left->data.fat_ptr.ptr->data.named.name.data.name, *fat_hold);
 				type_ast_map_insert(relation, left->data.fat_ptr.ptr->data.named.name.data.name, *u8_hold);
+				return;
+			}
+			else if (left->data.fat_ptr.ptr->tag == LIT_TYPE && left->data.fat_ptr.ptr->data.lit == U8_TYPE){
+				return;
+			}
+		}
+		else if (left->tag == FUNCTION_TYPE){
+			if (right->data.fat_ptr.ptr->tag == LIT_TYPE && right->data.fat_ptr.ptr->data.lit == U8_TYPE){
 				return;
 			}
 		}
@@ -6196,6 +6237,14 @@ clash_types_equiv_worker(walker* const walk, type_ast_map* const relation, type_
 				return 0;
 			}
 		}
+		else if (left->data.fat_ptr.ptr->tag == LIT_TYPE && left->data.fat_ptr.ptr->data.lit == U8_TYPE){
+			return 1;
+		}
+	}
+	else if (left->tag == FUNCTION_TYPE){
+		if (right->data.fat_ptr.ptr->tag == LIT_TYPE && right->data.fat_ptr.ptr->data.lit == U8_TYPE){
+			return 1;
+		}
 	}
 	if (left->tag != right->tag){
 		if (right->tag == NAMED_TYPE || right->tag == PTR_TYPE || right->tag == FAT_PTR_TYPE){
@@ -6298,6 +6347,8 @@ type_equiv(walker* const walk, type_ast* left, type_ast* right){
 		right = right->data.dependency.type;
 	}
 	while (type_equal(walk->parse, left, right) == 0){
+		type_ast* prev_left = left;
+		type_ast* prev_right = right;
 		clash_relation rel = clash_types_equiv(walk, left, right);
 		if (rel.relation == NULL){
 			return 0;
@@ -6308,6 +6359,9 @@ type_equiv(walker* const walk, type_ast* left, type_ast* right){
 			return 0;
 		}
 		right = deep_copy_type_replace(walk->parse->temp_mem, &rel, right);
+		if (type_equal(walk->parse, prev_left, left) && type_equal(walk->parse, prev_right, right)){
+			return 0;
+		}
 	}
 	return 1;
 }
@@ -10702,7 +10756,7 @@ generate_main(genc* const generator, FILE* fd){
  * 			}
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		polyfunc should check if types are aliased or typedefs
- * 		test closures : somewhere they typdef parameters are being replaced at the source, messing it up for future declarations
+ * 		test closures : copy
  * 		coersion to u8^ ?
  */
 

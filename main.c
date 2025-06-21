@@ -3498,6 +3498,8 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 					expr->tag = FAT_PTR_EXPR;
 					expr->data.fat_ptr.left = fat_left;
 					expr->data.fat_ptr.right = fat_right;
+					expr->data.fat_ptr.left->type = first;
+					expr->data.fat_ptr.right->type = integer;
 					type_ast* fat_type = mk_fat_ptr(walk->parse->mem, first->data.ptr);
 					pop_binding(walk->local_scope, scope_pos);
 					token_stack_pop(walk->term_stack, token_pos);
@@ -6721,10 +6723,13 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				cons->data.constructor.members[1].data.literal.data.u = packed_size;
 				line_relay_append(newlines, setter);
 				expr_ast* setter_binding = mk_binding(walk->parse->mem, &setter_name);
+				setter_binding->type = mk_lit(walk->parse->mem, U8_TYPE);
 				root = mk_fptr_cons(walk->parse->mem,
 					mk_ref(walk->parse->mem, setter_binding),
 					mk_sizeof(walk->parse->mem, full_type_copy->data.ptr)
 				);
+				root->data.fat_ptr.left->type = mk_ptr(walk->parse->mem, setter_binding->type);
+				root->data.fat_ptr.right->type = mk_lit(walk->parse->mem, U64_TYPE);
 				root->type = mk_closure_type(walk);
 			}
 		}
@@ -7092,10 +7097,13 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			cons->data.constructor.members[1].data.literal.data.u = packed_size;
 			line_relay_append(newlines, setter);
 			expr_ast* setter_binding = mk_binding(walk->parse->mem, &setter_name);
+			setter_binding->type = mk_lit(walk->parse->mem, U8_TYPE);
 			expr_ast* final_ref = mk_fptr_cons(walk->parse->mem,
 				mk_ref(walk->parse->mem, setter_binding),
 				mk_sizeof(walk->parse->mem, full_type_copy->data.ptr)
 			);
+			final_ref->data.fat_ptr.left->type = mk_ptr(walk->parse->mem, setter_binding->type);
+			final_ref->data.fat_ptr.right->type = mk_lit(walk->parse->mem, U64_TYPE);
 			final_ref->type = mk_fat_ptr(walk->parse->mem, mk_lit(walk->parse->mem, U8_TYPE));
 			return final_ref;
 		}
@@ -7366,6 +7374,10 @@ transform_pattern(walker* const walk, pattern_ast* const pat, line_relay* const 
 expr_ast*
 new_term(walker* const walk, type_ast* const type, expr_ast* const expression){
 	term_ast* term = pool_request(walk->parse->mem, sizeof(term_ast));
+	if (type == NULL){
+		printf("here\n"); //TODO remove
+	}
+	assert(type != NULL);
 	term->type = type;
 	term->expression = pool_request(walk->parse->mem, sizeof(expr_ast));
 	*term->expression = *expression;

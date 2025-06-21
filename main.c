@@ -6624,7 +6624,9 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				}
 				if (farg_count == arg_count){
 					if (convert_args == arg_count){
-						expr_ast* call_wrapper = new_term(walk, expr->type, expr);
+						type_ast* receptor_type = deep_copy_type(walk, expr->type);
+						function_to_closure_ptr_recursive(walk, receptor_type);
+						expr_ast* call_wrapper = new_term(walk, receptor_type, expr);
 						line_relay_append(newlines, call_wrapper);
 						return term_name(walk, call_wrapper->data.term);
 					}
@@ -6813,14 +6815,18 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			current_arg_type_info = current_arg_type_info->data.function.right;
 		}
 		if (arg_count < farg_count){
-			expr_ast* call_wrapper = new_term(walk, last_reference->type, last_reference);
+			type_ast* receptor_type = deep_copy_type(walk, last_reference->type);
+			function_to_closure_ptr_recursive(walk, receptor_type);
+			expr_ast* call_wrapper = new_term(walk, receptor_type, last_reference);
 			line_relay_append(newlines, call_wrapper);
 			return term_name(walk, call_wrapper->data.term);
 		}
 		type_ast* converted_root = deep_copy_type(walk, refind_root->type);
 		function_to_structure_recursive(walk, converted_root);
 		expr_ast* closure_call_expr = closure_call(walk, last_reference, newlines, &converted_root->data.ptr->data.structure->data.structure.members[converted_root->data.ptr->data.structure->data.structure.count-2]);
-		expr_ast* call_wrapper = new_term(walk, closure_call_expr->type, closure_call_expr);
+		type_ast* receptor_type = deep_copy_type(walk, closure_call_expr->type);
+		function_to_closure_ptr_recursive(walk, receptor_type);
+		expr_ast* call_wrapper = new_term(walk, receptor_type, closure_call_expr);
 		line_relay_append(newlines, call_wrapper);
 		return term_name(walk, call_wrapper->data.term);
 	case STRUCT_ACCESS_EXPR:
@@ -7060,7 +7066,9 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		return expr;
 	case REF_EXPR:
 		expr->data.ref = transform_expr(walk, expr->data.ref, 0, newlines, 1);
-		return expr;
+		expr_ast* ref_wrapper = new_term(walk, expr->type, expr);
+		line_relay_append(newlines, ref_wrapper);
+		return term_name(walk, ref_wrapper->data.term);
 	case DEREF_EXPR:
 		expr->data.deref = transform_expr(walk, expr->data.deref, 0, newlines, 1);
 		return expr;

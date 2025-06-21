@@ -72,17 +72,19 @@ typeclass Allocator A {
 }
 
 arena implements Allocator {
-	T -> arena -> Maybe (T^)
+	T -> arena^ -> Maybe (T^)
 	=:> = \val a:{
 		if a.ptr + (sizeof T) < (a.size) {
 			u64 pos = a.ptr;
 			a.ptr = a.ptr + (sizeof T);
+			T^ source = &val;
+			memcpy (&(a.buffer[pos])) (source as u8^) (sizeof T);
 			return {Just, &(a.buffer[pos])};
 		};
 		return {Nothing};
 	};
 
-	[T] -> arena -> Maybe [T]
+	[T] -> arena^ -> Maybe [T]
 	=:>> = \val a:{
 		[T] pooled = [
 			(a # ((sizeof T) * (val.len))) as (T^),
@@ -92,7 +94,7 @@ arena implements Allocator {
 		return {Just, pooled};
 	};
 
-	arena -> u64 -> u8^
+	arena^ -> u64 -> u8^
 	# = \a size:{
 		if a.ptr + size < (a.size) {
 			u64 pos = a.ptr;

@@ -8952,7 +8952,7 @@ string
 generate_mono_struct_name(walker* const walk, type_ast* const type){
 	string val = string_init(walk->parse->mem, "!");
 	type_ast* reduced = reduce_alias_and_type(walk->parse, type);
-	stringify_type(walk->parse->mem, &val, reduced);
+	stringify_type(walk->parse, walk->parse->mem, &val, reduced);
 	string* memname = string_map_access(walk->struct_mono_names, val);
 	if (memname != NULL){
 		return *memname;
@@ -8964,7 +8964,7 @@ generate_mono_struct_name(walker* const walk, type_ast* const type){
 }
 
 void
-stringify_type(pool* const mem, string* const acc, type_ast* const x){
+stringify_type(parser* const parse, pool* const mem, string* const acc, type_ast* const x){
 	string lval = string_init(mem, " ");
 	switch (x->tag){
 	case DEPENDENCY_TYPE:
@@ -8982,15 +8982,15 @@ stringify_type(pool* const mem, string* const acc, type_ast* const x){
 			string_set(mem, &lval, ")=>");
 			string_cat(mem, acc, &lval);
 		}
-		stringify_type(mem, acc, x->data.dependency.type);
+		stringify_type(parse, mem, acc, x->data.dependency.type);
 		return;
 	case FUNCTION_TYPE:
 		string_set(mem, &lval, "(");
 		string_cat(mem, acc, &lval);
-		stringify_type(mem, acc, x->data.function.left);
+		stringify_type(parse, mem, acc, x->data.function.left);
 		string_set(mem, &lval, ":");
 		string_cat(mem, acc, &lval);
-		stringify_type(mem, acc, x->data.function.right);
+		stringify_type(parse, mem, acc, x->data.function.right);
 		string_set(mem, &lval, ")");
 		string_cat(mem, acc, &lval);
 		return;
@@ -9009,46 +9009,36 @@ stringify_type(pool* const mem, string* const acc, type_ast* const x){
 		string_cat(mem, acc, &lval);
 		return;
 	case PTR_TYPE:
-		stringify_type(mem, acc, x->data.ptr);
+		stringify_type(parse, mem, acc, x->data.ptr);
 		string_set(mem, &lval, "^");
 		string_cat(mem, acc, &lval);
 		return;
 	case FAT_PTR_TYPE:
 		string_set(mem, &lval, "[");
 		string_cat(mem, acc, &lval);
-		stringify_type(mem, acc, x->data.fat_ptr.ptr);
+		stringify_type(parse, mem, acc, x->data.fat_ptr.ptr);
 		string_set(mem, &lval, "]");
 		string_cat(mem, acc, &lval);
 		return;
 	case STRUCT_TYPE:
-		stringify_struct(mem, acc, x->data.structure);
+		stringify_struct(parse, mem, acc, x->data.structure);
 		return;
 	case NAMED_TYPE:
-		string_set(mem, &lval, "<");
-		string_cat(mem, acc, &lval);
-		string_cat(mem, acc, &x->data.named.name.data.name);
-		if (x->data.named.arg_count > 0){
-			string_set(mem, &lval, ",");
-			for (uint64_t i = 0;i<x->data.named.arg_count;++i){
-				string_cat(mem, acc, &lval);
-				stringify_type(mem, acc, &x->data.named.args[i]);
-			}
-		}
-		string_set(mem, &lval, ">");
-		string_cat(mem, acc, &lval);
+		type_ast* unwrapped = reduce_alias_and_type(parse, x);
+		stringify_type(parse, mem, acc, unwrapped);
 		return;
 	}
 }
 
 void
-stringify_struct(pool* const mem, string* const acc, structure_ast* const x){
+stringify_struct(parser* const parse, pool* const mem, string* const acc, structure_ast* const x){
 	string lval = string_init(mem, " ");
 	switch (x->tag){
 	case STRUCT_STRUCT:
 		string_set(mem, &lval, "struct{");
 		string_cat(mem, acc, &lval);
 		for (uint64_t i = 0;i<x->data.structure.count;++i){
-			stringify_type(mem, acc, &x->data.structure.members[i]);
+			stringify_type(parse, mem, acc, &x->data.structure.members[i]);
 			string_set(mem, &lval, " ");
 			string_cat(mem, acc, &lval);
 			string_cat(mem, acc, &x->data.structure.names[i].data.name);
@@ -9062,7 +9052,7 @@ stringify_struct(pool* const mem, string* const acc, structure_ast* const x){
 		string_set(mem, &lval, "union{");
 		string_cat(mem, acc, &lval);
 		for (uint64_t i = 0;i<x->data.union_structure.count;++i){
-			stringify_type(mem, acc, &x->data.union_structure.members[i]);
+			stringify_type(parse, mem, acc, &x->data.union_structure.members[i]);
 			string_set(mem, &lval, " ");
 			string_cat(mem, acc, &lval);
 			string_cat(mem, acc, &x->data.union_structure.names[i].data.name);
@@ -10029,7 +10019,7 @@ write_type(genc* const generator, FILE* fd, type_ast* const type, token* const s
 		return;
 	case FUNCTION_TYPE:
 		string stringified = string_init(generator->mem, "!");
-		stringify_type(generator->mem, &stringified, type);
+		stringify_type(generator->parse, generator->parse->mem, &stringified, type);
 		token* funcname = token_map_access(generator->func_names, stringified);
 		if (funcname != NULL){
 			write_name(generator, fd, *funcname);

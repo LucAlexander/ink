@@ -1180,7 +1180,7 @@ parse_struct_type(parser* const parse){
 	uint64_t capacity = 2;
 	switch (t->tag){
 	case PACKED_TOKEN:
-		structure->data.structure.packed = 1;
+		structure->data.structure.packed = USER_PACKED;
 	case STRUCT_TOKEN:
 		structure->tag = STRUCT_STRUCT;
 		t = &parse->tokens[parse->token_index];
@@ -7087,6 +7087,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			cons->data.constructor.names[0].data.name = string_init(walk->parse->mem, "func");
 			cons->data.constructor.members[0].tag = BINDING_EXPR;
 			cons->data.constructor.members[0].data.binding = wrapper_name;
+			cons->data.constructor.members[0].type = &setter->data.term->type->data.structure->data.structure.members[setter->data.term->type->data.structure->data.structure.count-2];
 			cons->data.constructor.names[1].data.name = string_init(walk->parse->mem, "size");
 			cons->data.constructor.members[1].tag = LIT_EXPR;
 			cons->data.constructor.members[1].data.literal.tag = UINT_LITERAL;
@@ -7374,9 +7375,6 @@ transform_pattern(walker* const walk, pattern_ast* const pat, line_relay* const 
 expr_ast*
 new_term(walker* const walk, type_ast* const type, expr_ast* const expression){
 	term_ast* term = pool_request(walk->parse->mem, sizeof(term_ast));
-	if (type == NULL){
-		printf("here\n"); //TODO remove
-	}
 	assert(type != NULL);
 	term->type = type;
 	term->expression = pool_request(walk->parse->mem, sizeof(expr_ast));
@@ -7448,7 +7446,7 @@ function_to_structure_recursive(walker* const walk, type_ast* const type){
 		type->data.structure = pool_request(walk->parse->mem, sizeof(structure_ast));
 		structure_ast* s = type->data.structure;
 		s->tag = STRUCT_STRUCT;
-		s->data.structure.packed = 1;
+		s->data.structure.packed = CLOSURE_PACKED;
 		s->data.structure.names = pool_request(walk->parse->mem, sizeof(token)*member_count);
 		s->data.structure.members = pool_request(walk->parse->mem, sizeof(type_ast)*member_count);
 		s->data.structure.count = member_count;
@@ -7536,6 +7534,9 @@ structure_function_to_closure_ptr_recursive(walker* const walk, structure_ast* c
 	switch (s->tag){
 	case STRUCT_STRUCT:
 		for (uint64_t i = 0;i<s->data.structure.count;++i){
+			if ((s->data.structure.packed == CLOSURE_PACKED) && (cstring_compare(&s->data.structure.names[i].data.name, "func") == 0)){
+				continue;
+			}
 			function_to_closure_ptr_recursive(walk, &s->data.structure.members[i]);
 		}
 		return;
@@ -10202,7 +10203,7 @@ void
 write_structure_type(genc* const generator, FILE* fd, structure_ast* const s, token* const structname){
 	switch (s->tag){
 	case STRUCT_STRUCT:
-		if (s->data.structure.packed == 1){
+		if (s->data.structure.packed != NOT_PACKED){
 			fprintf(fd, "struct __attribute__((packed, aligned(1)))");
 		}
 		else{
@@ -10564,8 +10565,14 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 				write_name(generator, fd, newname);
 				fprintf(fd,"=");
 			}
-			if (expr->data.constructor.members[i].type != NULL && (expr->data.constructor.members[i].type->tag == FUNCTION_TYPE)){
-				write_expression(generator, fd, &expr->data.constructor.members[i], 0, 0);
+			if (expr->data.constructor.members[i].type != NULL){
+				type_ast* fun_reduced = reduce_alias_and_type(generator->parse, expr->data.constructor.members[i].type);
+			   	if (fun_reduced->tag == FUNCTION_TYPE){
+					write_expression(generator, fd, &expr->data.constructor.members[i], 0, 0);
+				}
+				else{
+					write_expression(generator, fd, &expr->data.constructor.members[i], 0, 1);
+				}
 			}
 			else{
 				write_expression(generator, fd, &expr->data.constructor.members[i], 0, 1);
@@ -10768,8 +10775,9 @@ generate_main(genc* const generator, FILE* fd){
  * 			}
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		polyfunc should check if types are aliased or typedefs
- * 		test closures : copy
+ * 		test closures : copy: function packs are having their function pointer closure converted
  * 		coersion to u8^ ?
+ * 		test generic list or hashmap
  */
 
 int

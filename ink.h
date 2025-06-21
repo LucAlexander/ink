@@ -184,7 +184,11 @@ typedef struct structure_ast {
 			token* names;
 			type_ast* members;
 			uint64_t count;
-			uint8_t packed;
+			enum {
+				NOT_PACKED=0,
+				USER_PACKED,
+				CLOSURE_PACKED
+			} packed;
 		} structure, union_structure;
 		struct {
 			token* names;

@@ -9769,6 +9769,12 @@ generate_c(parser* const parse, const char* input, const char* output){
 			return;
 		}
 		fprintf(hfd, "#ifndef _INK_HEADER_\n#define _INK_HEADER_\n#include <inttypes.h>\n");
+		for (uint64_t i = 0;i<parse->alias_list.count;++i){
+			find_func_types(&generator, parse->alias_list.buffer[i].type);
+		}
+		for (uint64_t i = 0;i<parse->type_list.count;++i){
+			find_func_types(&generator, parse->type_list.buffer[i].type);
+		}
 		//function typedefs
 		for (uint64_t i = 0;i<generator.func_types.count;++i){
 			write_func_typedef(&generator, hfd, &generator.func_types.buffer[i]);
@@ -10034,6 +10040,67 @@ write_func_typedef(genc* const generator, FILE* hfd, typedef_ast* const def){
 		walk = walk->data.function.right;
 	}
 	fprintf(hfd, ");\n");
+}
+
+void
+find_func_types(genc* const generator, type_ast* const type){
+	switch (type->tag){
+	case DEPENDENCY_TYPE:
+		find_func_types(generator, type->data.dependency.type);
+		return;
+	case FUNCTION_TYPE:
+		string stringified = string_init(generator->mem, "!");
+		stringify_type(generator->parse, generator->parse->mem, &stringified, type);
+		token* funcname = token_map_access(generator->func_names, stringified);
+		if (funcname == NULL){
+			token newname = {
+				.content_tag = STRING_TOKEN_TYPE,
+				.tag = IDENTIFIER_TOKEN,
+				.index = 0,
+				.data.name = ink_prefix(generator, &generator->next_func_name)
+			};
+			generate_new_func_name(generator);
+			token_map_insert(generator->func_names, stringified, newname);
+			typedef_ast newdef = {
+				.name = newname,
+				.params = NULL,
+				.param_count = 0,
+				.type = type
+			};
+			typedef_ast_buffer_insert(&generator->func_types, newdef);
+		}
+		return;
+	case LIT_TYPE:
+		return;
+	case PTR_TYPE:
+		find_func_types(generator, type->data.ptr);
+		return;
+	case FAT_PTR_TYPE:
+		find_func_types(generator, type->data.fat_ptr.ptr);
+		return;
+	case STRUCT_TYPE:
+		find_func_types_struct(generator, type->data.structure);
+	case NAMED_TYPE:
+		return;
+	}
+}
+
+void
+find_func_types_struct(genc* const generator, structure_ast* const s){
+	switch(s->tag){
+	case STRUCT_STRUCT:
+		for (uint64_t i = 0;i<s->data.structure.count;++i){
+			find_func_types(generator, &s->data.structure.members[i]);
+		}
+		return;
+	case UNION_STRUCT:
+		for (uint64_t i = 0;i<s->data.union_structure.count;++i){
+			find_func_types(generator, &s->data.union_structure.members[i]);
+		}
+		return;
+	case ENUM_STRUCT:
+		return;
+	}
 }
 
 void
@@ -10775,7 +10842,7 @@ generate_main(genc* const generator, FILE* fd){
  * 			}
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		polyfunc should check if types are aliased or typedefs
- * 		test closures : copy: function packs are having their function pointer closure converted
+ * 		test closures : copy: if we dont fully apply a function, its internal func type doesnt get generated, and is only generated in the header
  * 		coersion to u8^ ?
  * 		test generic list or hashmap
  */

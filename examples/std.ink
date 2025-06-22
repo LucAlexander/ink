@@ -7,7 +7,6 @@ external {
 	u8^ -> u8^ -> u64 -> u8 memcpy;
 	u8^ -> u8 -> u64 -> u8 memset;
 	u64 -> u8^ -> u64 -> u64 write;
-	u8^ -> u64 -> u64 -> u64 -> u64 -> u64 -> u8^ mmap;
 	u64 -> u8^ malloc;
 }
 
@@ -39,10 +38,8 @@ print = \msg:
 	write 1 ((msg.ptr) as (u8^)) (msg.len);
 
 u64 -> u8^
-alloc = \size:{
-	return malloc size;
-	//return mmap (null as u8^) size (1 ^| 2) (2 ^| 32) 0 0;
-};
+alloc = \size:
+	malloc size;
 
 type Maybe T = struct {
 	enum {Just, Nothing} tag;
@@ -124,3 +121,38 @@ copy = \pool closure:{
 		moved.val.len
 	];
 };
+
+typeclass Stackable S {
+	S T -> T -> S T push;
+	S T -> T pop;
+}
+
+type buffer T  = struct {
+	arena^ mem;
+	[T var] data;
+	u64 var count;
+};
+
+buffer implements Stackable {
+	buffer T -> T -> buffer T
+	push = \list elem:{
+		u64 var new_capacity = list.data.len;
+		if list.data.len == (list.count) {
+			new_capacity = list.data.len * 2;
+		};
+		[T var] new_buffer = [
+			list.data.ptr,
+			new_capacity
+		] =:>> (list.mem).val;
+		memcpy (new_buffer.ptr) (list.data.ptr) (list.data.len * sizeof T);
+		new_buffer.ptr[list.count] = elem;
+		return {list.mem, new_buffer, list.count + 1};
+	};
+	
+	buffer T -> T
+	pop = \list: {
+		list.count = list.count - 1;
+		return list.data.ptr[list.count];
+	};
+}
+

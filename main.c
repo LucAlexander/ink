@@ -3094,8 +3094,8 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 							expr->data.access.right = field_expr;
 							pop_binding(walk->local_scope, scope_pos);
 							token_stack_pop(walk->term_stack, token_pos);
-							expr->type = obj->data.fat_ptr.ptr;
-							return obj->data.fat_ptr.ptr;
+							expr->type = mk_ptr(walk->parse->mem, obj->data.fat_ptr.ptr);
+							return expr->type;
 						}
 						if (cstring_compare(&expr->data.appl.right->data.binding.data.name, "len") == 0){
 							type_ast* lenlit = pool_request(walk->parse->mem, sizeof(type_ast));
@@ -4724,7 +4724,9 @@ deep_copy_type_replace(pool* const mem, clash_relation* crelation, type_ast* con
 			.relation = &empty_relation,
 			.pointer_only = &empty_pointer
 		};
-		return deep_copy_type_replace(mem, &rel, replacement);
+		type_ast* replace_copy = deep_copy_type_replace(mem, &rel, replacement);
+		replace_copy->variable = source->variable;
+		return replace_copy;
 	}
 	return NULL;
 }
@@ -4942,8 +4944,10 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* po
 			}
 		}
 		else if (left->tag == FUNCTION_TYPE){
-			if (right->data.fat_ptr.ptr->tag == LIT_TYPE && right->data.fat_ptr.ptr->data.lit == U8_TYPE){
-				return 1;
+			if (right->tag == FAT_PTR_TYPE){
+				if (right->data.fat_ptr.ptr->tag == LIT_TYPE && right->data.fat_ptr.ptr->data.lit == U8_TYPE){
+					return 1;
+				}
 			}
 		}
 		if (left->tag != NAMED_TYPE){
@@ -5150,8 +5154,10 @@ clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* p
 			}
 		}
 		else if (left->tag == FUNCTION_TYPE){
-			if (right->data.fat_ptr.ptr->tag == LIT_TYPE && right->data.fat_ptr.ptr->data.lit == U8_TYPE){
-				return;
+			if (right->tag == FAT_PTR_TYPE){
+				if (right->data.fat_ptr.ptr->tag == LIT_TYPE && right->data.fat_ptr.ptr->data.lit == U8_TYPE){
+					return;
+				}
 			}
 		}
 		if (left->tag != NAMED_TYPE){
@@ -6268,8 +6274,10 @@ clash_types_equiv_worker(walker* const walk, type_ast_map* const relation, type_
 		}
 	}
 	else if (left->tag == FUNCTION_TYPE){
-		if (right->data.fat_ptr.ptr->tag == LIT_TYPE && right->data.fat_ptr.ptr->data.lit == U8_TYPE){
-			return 1;
+		if (right->tag == FAT_PTR_TYPE){
+			if (right->data.fat_ptr.ptr->tag == LIT_TYPE && right->data.fat_ptr.ptr->data.lit == U8_TYPE){
+				return 1;
+			}
 		}
 	}
 	if (left->tag != right->tag){
@@ -10864,11 +10872,11 @@ generate_main(genc* const generator, FILE* fd){
  * 			for ; ; {
  *				will require a whole rework
  * 			}
+ * 		only include called functions?
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		polyfunc should check if types are aliased or typedefs
- * 		coersion to u8^ ?
- * 		int to type coersion
  * 		test generic list or hashmap
+ * 		list literal must be set beforehand
  */
 
 int

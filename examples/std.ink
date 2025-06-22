@@ -104,3 +104,23 @@ arena implements Allocator {
 		return null as u8^;
 	};
 }
+
+arena^ -> [T] -> [T]
+copy = \pool closure:{
+	u64 size_point = (closure.ptr as u64) + (closure.len) - (sizeof u64);
+	u64 offset = 0;
+	memcpy ((&offset) as u8^)
+	       (size_point as u8^)
+	       (sizeof u64);
+	u64 closure_start = size_point - (offset + sizeof u8^);
+	Maybe ([T] var) moved = [
+		(closure_start as T^),
+		offset + (2 * sizeof u8^)
+	] =:>> pool;
+	u64 original = (closure.ptr as u64) - closure_start;
+	u64 new_pos = (moved.val.ptr as u64) + original;
+	return [
+		(new_pos as T^),
+		moved.val.len
+	];
+};

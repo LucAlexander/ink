@@ -3223,6 +3223,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				expr->type = real_type;
 				return real_type;
 			}
+			coerce_integral(generic_applied_type, right);
 			pop_binding(walk->local_scope, scope_pos);
 			token_stack_pop(walk->term_stack, token_pos);
 			expr->type = generic_applied_type;
@@ -3303,6 +3304,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			expr->type = real_type;
 			return real_type;
 		}
+		coerce_integral(generic_applied_type, right);
 		pop_binding(walk->local_scope, scope_pos);
 		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = generic_applied_type;
@@ -3489,7 +3491,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				type_ast* first = walk_expr(walk, &expr->data.list.lines[0], NULL, outer_type, 0);
 				walk_assert_prop();
 				walk_assert(first != NULL, nearest_token(expr), "List element not able to resolve to type");
-				type_ast* integer = mk_lit(walk->parse->mem, INT_ANY);
+				type_ast* integer = mk_lit(walk->parse->mem, U64_TYPE);
 				uint64_t save = walk->parse->token_index;
 				walk_expr(walk, &expr->data.list.lines[1], integer, outer_type, 0);
 				if (walk->parse->err.len != 0){
@@ -3956,6 +3958,23 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		return expr->type;
 	}
 	return NULL;
+}
+
+void
+coerce_integral(type_ast* const reduced_generic, type_ast* const right_type){
+	if (right_type->tag != LIT_TYPE){
+		return;
+	}
+	type_ast* walker = reduced_generic;
+	while (walker->tag == FUNCTION_TYPE){
+		walker = walker->data.function.right;
+	}
+	if (walker->tag != LIT_TYPE){
+		return;
+	}
+	if (walker->data.lit == INT_ANY){
+		walker->data.lit = right_type->data.lit;
+	}
 }
 
 void
@@ -10847,8 +10866,8 @@ generate_main(genc* const generator, FILE* fd){
  * 			}
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		polyfunc should check if types are aliased or typedefs
- * 		test closures : copy: if we dont fully apply a function, its internal func type doesnt get generated, and is only generated in the header
  * 		coersion to u8^ ?
+ * 		int to type coersion
  * 		test generic list or hashmap
  */
 

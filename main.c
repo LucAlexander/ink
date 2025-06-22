@@ -3142,12 +3142,12 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 				}
 			}
 		}
-		push_expr_stack(walk);
-		type_ast* right = walk_expr(walk, expr->data.appl.right, NULL, outer_type, 0);
-		pop_expr_stack(walk);
-		walk_assert_prop();
-		walk_assert(right != NULL, nearest_token(expr->data.appl.right), "Could not discern type");
 		if (expected_type != NULL){
+			push_expr_stack(walk);
+			type_ast* right = walk_expr(walk, expr->data.appl.right, NULL, outer_type, 0);
+			pop_expr_stack(walk);
+			walk_assert_prop();
+			walk_assert(right != NULL, nearest_token(expr->data.appl.right), "Could not discern type");
 			push_expr(walk->outer_exprs, expr->data.appl.right);
 			type_ast* expanded_type;
 			if (right->tag == DEPENDENCY_TYPE){
@@ -3228,6 +3228,11 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			expr->type = generic_applied_type;
 			return generic_applied_type;
 		}
+		push_expr_stack(walk);
+		type_ast* right = walk_expr(walk, expr->data.appl.right, NULL, outer_type, 0);
+		pop_expr_stack(walk);
+		walk_assert_prop();
+		walk_assert(right != NULL, nearest_token(expr->data.appl.right), "Could not discern type");
 		push_expr(walk->outer_exprs, expr->data.appl.right);
 		type_ast* left = walk_expr(walk, expr->data.appl.left, NULL, outer_type, 0);
 		pop_expr(walk->outer_exprs, expr_count);
@@ -7092,7 +7097,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 			cons->data.constructor.members[1].tag = LIT_EXPR;
 			cons->data.constructor.members[1].data.literal.tag = UINT_LITERAL;
 			uint64_t packed_size = 0;
-			for (uint64_t i = 0;i<full_type_copy->data.ptr->data.structure->data.structure.count;++i){
+			for (uint64_t i = 0;i<full_type_copy->data.ptr->data.structure->data.structure.count-2;++i){
 				packed_size += sizeof_type(walk->parse, &full_type_copy->data.ptr->data.structure->data.structure.members[i]);
 			}
 			cons->data.constructor.members[1].data.literal.data.u = packed_size;

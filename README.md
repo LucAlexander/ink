@@ -7,6 +7,11 @@ Ink is a heavily WIP language project. I am writing this entirely from my own he
 
 # Current tasks
 * C code generation pass
+*   for loops dont exist
+*   we include more functions in the binary than are necessarily called
+*   polymorphic functions dont successfully type check on literals
+*   dependency resolution is missing for structure declaration order
+*   list literals dont generate correctly 
 * Better error reporting system
 
 # Working Examples
@@ -60,17 +65,19 @@ typeclass Allocator A {
 }
 
 arena implements Allocator {
-	T -> arena -> Maybe (T^)
+	T -> arena^ -> Maybe (T^)
 	=:> = \val a:{
 		if a.ptr + (sizeof T) < (a.size) {
 			u64 pos = a.ptr;
 			a.ptr = a.ptr + (sizeof T);
+			T^ source = &val;
+			memcpy (&(a.buffer[pos])) (source as u8^) (sizeof T);
 			return {Just, &(a.buffer[pos])};
 		};
 		return {Nothing};
 	};
 
-	[T] -> arena -> Maybe [T]
+	[T] -> arena^ -> Maybe [T]
 	=:>> = \val a:{
 		[T] pooled = [
 			(a # ((sizeof T) * (val.len))) as (T^),
@@ -80,7 +87,7 @@ arena implements Allocator {
 		return {Just, pooled};
 	};
 
-	arena -> u64 -> u8^
+	arena^ -> u64 -> u8^
 	# = \a size:{
 		if a.ptr + size < (a.size) {
 			u64 pos = a.ptr;
@@ -88,6 +95,70 @@ arena implements Allocator {
 			return &(a.buffer[pos]);
 		};
 		return null as u8^;
+	};
+}
+
+```
+
+Copying closures
+```
+
+arena^ -> [T] -> [T]
+copy = \pool closure:{
+	u64 size_point = (closure.ptr as u64) + (closure.len) - (sizeof u64);
+	u64 offset = 0;
+	memcpy ((&offset) as u8^)
+	       (size_point as u8^)
+	       (sizeof u64);
+	u64 closure_start = size_point - (offset + sizeof u8^);
+	Maybe ([T] var) moved = [
+		(closure_start as T^),
+		offset + (2 * sizeof u8^)
+	] =:>> pool;
+	u64 original = (closure.ptr as u64) - closure_start;
+	u64 new_pos = (moved.val.ptr as u64) + original;
+	return [
+		(new_pos as T^),
+		moved.val.len
+	];
+};
+
+```
+
+Simple stack buffer
+```
+
+typeclass Stackable S {
+	S T -> T -> S T push;
+	S T -> T pop;
+}
+
+type buffer T  = struct {
+	arena^ mem;
+	[T var] data;
+	u64 var count;
+};
+
+buffer implements Stackable {
+	buffer T -> T -> buffer T
+	push = \list elem:{
+		u64 var new_capacity = list.data.len;
+		if list.data.len == (list.count) {
+			new_capacity = list.data.len * 2;
+		};
+		[T var] new_buffer = [
+			list.data.ptr,
+			new_capacity
+		] =:>> (list.mem).val;
+		memcpy (new_buffer.ptr) (list.data.ptr) (list.data.len * sizeof T);
+		new_buffer.ptr[list.count] = elem;
+		return {list.mem, new_buffer, list.count + 1};
+	};
+	
+	buffer T -> T
+	pop = \list: {
+		list.count = list.count - 1;
+		return list.data.ptr[list.count];
 	};
 }
 

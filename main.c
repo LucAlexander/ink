@@ -10875,7 +10875,6 @@ generate_main(genc* const generator, FILE* fd){
  * 		only include called functions?
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		polyfunc should check if types are aliased or typedefs
- * 		test generic list or hashmap
  * 		list literal must be set beforehand
  */
 

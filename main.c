@@ -310,7 +310,7 @@ lex_string(parser* const parse){
 			parse->text_index += 1;
 			if (c == '\\'){
 				t->data.name.len += 1;
-			c = parse->text.str[parse->text_index];
+				c = parse->text.str[parse->text_index];
 				parse->text_index += 1;
 				switch (c){
 				case 'a': c = '\a'; break;
@@ -2498,6 +2498,11 @@ parse_expr(parser* const parse, TOKEN end){
 				expr->data.literal.tag = INT_LITERAL;
 			}
 			break;
+		case CHAR_TOKEN:
+			expr->tag = LIT_EXPR;
+			expr->data.literal.tag = INT_LITERAL;
+			expr->data.literal.data.i = t->data.pos;
+			break;
 		case FLOAT_TOKEN:
 			expr->tag = LIT_EXPR;
 			expr->data.literal.data.d = t->data.flt;
@@ -2579,6 +2584,7 @@ parse_term(parser* const parse){
 	term->type = parse_type(parse, 1, EQUAL_TOKEN);
 	assert_prop(NULL);
 	token* t = &parse->tokens[parse->token_index];
+	assert_local(t->tag == IDENTIFIER_TOKEN || t->tag == SYMBOL_TOKEN, NULL, "Expected term name");
 	term->name = *t;
 	parse->token_index += 2;
 	term->expression = parse_expr(parse, SEMI_TOKEN);
@@ -5454,7 +5460,7 @@ check_program(parser* const parse){
 				outer->data.dependency.dependency_typenames[0] = generic;
 				class->members[t].type = outer;
 			}
-			realias_type_term(&realias, &class->members[i]);
+			realias_type_term(&realias, &class->members[t]);
 		}
 		pop_map_stack(&realias);
 	}
@@ -10953,7 +10959,8 @@ generate_main(genc* const generator, FILE* fd){
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		polyfunc should check if types are aliased or typedefs
  * 		list literals
- * 		foreign imports
+ * 		$ just doesnt work
+ * 		the bugs in format uword
  */
 
 int

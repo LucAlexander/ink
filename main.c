@@ -7220,9 +7220,45 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		pop_binding(walk->local_scope, for_scope_pos-1);
 		return expr;
 	case WHILE_EXPR:
+		line_relay_node* prev_list = newlines->last;
+		uint64_t prev_len = newlines->len;
 		expr->data.while_statement.pred = transform_expr(walk, expr->data.while_statement.pred, 0, newlines, 1);
+		uint64_t diff_len = newlines->len - prev_len;
 		walk_assert_prop();
 		expr->data.while_statement.cons = transform_expr(walk, expr->data.while_statement.cons, 0, NULL, 1);
+		assert(expr->data.while_statement.cons->tag == BLOCK_EXPR);
+		if (diff_len > 0){
+			uint64_t newsize = diff_len + expr->data.while_statement.cons->data.block.line_count;
+			expr_ast* expanded = pool_request(walk->parse->mem, newsize*sizeof(expr_ast));
+			uint64_t i = 0;
+			for (;i<expr->data.while_statement.cons->data.block.line_count;++i){
+				expanded[i] = expr->data.while_statement.cons->data.block.lines[i];
+			}
+			line_relay_node* first_repred;
+			if (prev_list == NULL){
+				first_repred = newlines->first;
+			}
+			else{
+				first_repred = prev_list->next;
+			}
+			while (first_repred != NULL){
+				expr_ast* statement = first_repred->line;
+				if (statement->tag == TERM_EXPR){
+					expr_ast* remut = mk_mutation(walk->parse->mem,
+						mk_binding(walk->parse->mem, &statement->data.term->name),
+						statement->data.term->expression
+					);
+					expanded[i] = *remut;
+				}
+				else{
+					expanded[i] = *statement;
+				}
+				i += 1;
+				first_repred = first_repred->next;
+			}
+			expr->data.while_statement.cons->data.block.line_count = newsize;
+			expr->data.while_statement.cons->data.block.lines = expanded;
+		}
 		return expr;
 	case MATCH_EXPR:
 		for (uint64_t i = 0;i<expr->data.match.count;++i){
@@ -10876,6 +10912,15 @@ generate_main(genc* const generator, FILE* fd){
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		polyfunc should check if types are aliased or typedefs
  * 		list literal must be set beforehand
+ * 		while loops need the last evaluation statement to be the immediate previous one
+ * 		while i < 10 
+ *			i = i + 1
+ * 		turns to
+ * 		q = i < 10
+ * 		while q
+ * 			x = i + 1
+ * 			i = x
+ * 			q = i < 10 // add this
  */
 
 int

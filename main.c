@@ -149,7 +149,10 @@ compile_file(char* input, const char* output){
 		.extern_term_list = term_ast_buffer_init(&mem),
 		.extern_type_list = typedef_ast_buffer_init(&mem),
 		.symbol_to_name = &symbol_to_name,
-		.next_symbol_name = string_init(&mem, "?A")
+		.next_symbol_name = string_init(&mem, "?A"),
+		.foreign_import = pool_request(&mem, sizeof(token)*2),
+		.foreign_import_count=0,
+		.foreign_import_capacity = 2
 	};
 	parse.tokens = pool_request(parse.token_mem, sizeof(token));
 	lex_string(&parse);
@@ -1438,10 +1441,31 @@ parse_external_symbols(parser* const parse){
 	while (parse->token_index < parse->token_count){
 		t = &parse->tokens[parse->token_index];
 		switch (t->tag){
+		case IMPORT_TOKEN:
+			parse->token_index += 1;
+			t = &parse->tokens[parse->token_index];
+			assert_local(t->tag == STRING_TOKEN || t->tag == IDENTIFIER_TOKEN, , "expected string path or relative c import");
+			if (parse->foreign_import_count == parse->foreign_import_capacity){
+				parse->foreign_import_capacity *= 2;
+				token* imports = pool_request(parse->mem, sizeof(token)*parse->foreign_import_capacity);
+				for (uint64_t i = 0;i<parse->foreign_import_count;++i){
+					imports[i] = parse->foreign_import[i];
+				}
+				parse->foreign_import = imports;
+			}
+			parse->foreign_import[parse->foreign_import_count] = *t;
+			parse->foreign_import_count += 1;
+			parse->token_index += 1;
+			t = &parse->tokens[parse->token_index];
+			if (t->tag == BRACE_CLOSE_TOKEN){
+				parse->token_index += 1;
+				return;
+			}
+			continue;
 		case TYPE_TOKEN:
 			typedef_ast* type = parse_typedef(parse);
 			if (parse->err.len == 0){
-				assert_local(type->param_count == 0, , "External symbol types cannot be parametric");
+				assert_local(type->param_count == 0, , "External symbol types maynot be parametric");
 				parse->token_index += 1;
 				typedef_ast_buffer_insert(&parse->extern_type_list, *type);
 				uint8_t dup = typedef_ptr_map_insert(parse->extern_types, type->name.data.name, typedef_ast_buffer_top(&parse->extern_type_list));
@@ -9837,6 +9861,7 @@ generate_c(parser* const parse, const char* input, const char* output){
 			return;
 		}
 		fprintf(hfd, "#ifndef _INK_HEADER_\n#define _INK_HEADER_\n#include <inttypes.h>\n");
+		include_foreign(&generator, hfd);
 		for (uint64_t i = 0;i<parse->alias_list.count;++i){
 			find_func_types(&generator, parse->alias_list.buffer[i].type);
 		}
@@ -9894,6 +9919,22 @@ generate_c(parser* const parse, const char* input, const char* output){
 	}
 	else{
 		wait(NULL);
+	}
+}
+
+void
+include_foreign(genc* const generator, FILE* fd){
+	for (uint64_t i = 0;i<generator->parse->foreign_import_count;++i){
+		token import = generator->parse->foreign_import[i];
+		fprintf(fd, "#include ");
+		if (import.tag == IDENTIFIER_TOKEN){
+			fprintf(fd, "<");
+			write_name(generator, fd, import);
+			fprintf(fd, ".h>\n");
+			continue;
+		}
+		write_name(generator, fd, import);
+		fprintf(fd, "\n");
 	}
 }
 
@@ -10911,16 +10952,8 @@ generate_main(genc* const generator, FILE* fd){
  * 		only include called functions?
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		polyfunc should check if types are aliased or typedefs
- * 		list literal must be set beforehand
- * 		while loops need the last evaluation statement to be the immediate previous one
- * 		while i < 10 
- *			i = i + 1
- * 		turns to
- * 		q = i < 10
- * 		while q
- * 			x = i + 1
- * 			i = x
- * 			q = i < 10 // add this
+ * 		list literals
+ * 		foreign imports
  */
 
 int

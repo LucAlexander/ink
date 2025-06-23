@@ -513,6 +513,9 @@ typedef struct parser {
 	typedef_ast_buffer extern_type_list;
 	string_map* symbol_to_name;
 	string next_symbol_name;
+	token* foreign_import;
+	uint64_t foreign_import_count;
+	uint64_t foreign_import_capacity;
 } parser;
 
 void generate_new_symbol_name(parser* const parse);
@@ -798,5 +801,6 @@ void write_call(genc* const generator, FILE* fd, expr_ast* const expr, expr_ast*
 void replace_with_poly_binding(genc* const generator, token* const bind, type_ast* const expected_type);
 void find_func_types(genc* const generator, type_ast* const type);
 void find_func_types_struct(genc* const generator, structure_ast* const s);
+void include_foreign(genc* const generator, FILE* fd);
 
 #endif

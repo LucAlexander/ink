@@ -2586,7 +2586,10 @@ parse_term(parser* const parse){
 	token* t = &parse->tokens[parse->token_index];
 	assert_local(t->tag == IDENTIFIER_TOKEN || t->tag == SYMBOL_TOKEN, NULL, "Expected term name");
 	term->name = *t;
-	parse->token_index += 2;
+	parse->token_index += 1;
+	t = &parse->tokens[parse->token_index];
+	assert_local(t->tag == EQUAL_TOKEN, NULL, "Expected = to set term expression");
+	parse->token_index += 1;
 	term->expression = parse_expr(parse, SEMI_TOKEN);
 	return term;
 }

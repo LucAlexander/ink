@@ -156,3 +156,31 @@ buffer implements Stackable {
 	};
 }
 
+typeclass Formattable F {
+	arena^ -> F -> string format;
+}
+
+alias uword = u64;
+alias word = i64;
+alias ubyte = u8;
+alias byte = i8;
+
+uword implements Formattable {
+	arena^ -> uword -> string
+	format = \pool value:{
+		u64 var walk = value;
+		walk = value;
+		i8 var^ result = (pool # 0) as i8^;
+		u64 var index = 0;
+		while walk > 0 {
+			pool # 1;
+			u64 digit = walk % 10;
+			i8 zero = '0';
+			result[index] = digit + zero;
+			index = index + 1;
+			walk = walk / 10;
+		};
+		string converted = [result, index + 1];
+		return converted;
+	};
+}

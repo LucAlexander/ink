@@ -2290,7 +2290,7 @@ parse_expr(parser* const parse, TOKEN end){
 			expr_ast* rside = parse_expr(parse, end);
 			assert_prop(NULL);
 			*expr = *rside;
-			break;
+			return outer;
 		case PAREN_OPEN_TOKEN:
 			expr_ast* temp = parse_expr(parse, PAREN_CLOSE_TOKEN);
 			assert_prop(NULL);
@@ -10963,7 +10963,6 @@ generate_main(genc* const generator, FILE* fd){
  * 		polyfunc should check if types are aliased or typedefs
  * 		list literals
  * 		$ just doesnt work
- * 		the bugs in format uword
  */
 
 int

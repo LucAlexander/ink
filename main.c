@@ -4497,6 +4497,16 @@ type_equal_worker(parser* const parse, token_map* const generics, type_ast* left
 				}
 			}
 		}
+		if (right->tag == STRUCT_TYPE && right->data.structure->tag == ENUM_STRUCT){
+			if (left->tag == LIT_TYPE && left->data.lit <= INT_ANY){
+				return 1;
+			}
+		}
+		else if (left->tag == STRUCT_TYPE && left->data.structure->tag == ENUM_STRUCT){
+			if (right->tag == LIT_TYPE && right->data.lit <= INT_ANY){
+				return 1;
+			}
+		}
 		return 0;
 	}
 	switch (left->tag){
@@ -4983,6 +4993,16 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* po
 				}
 			}
 		}
+		if (right->tag == STRUCT_TYPE && right->data.structure->tag == ENUM_STRUCT){
+			if (left->tag == LIT_TYPE && left->data.lit <= INT_ANY){
+				return 1;
+			}
+		}
+		else if (left->tag == STRUCT_TYPE && left->data.structure->tag == ENUM_STRUCT){
+			if (right->tag == LIT_TYPE && right->data.lit <= INT_ANY){
+				return 1;
+			}
+		}
 		if (left->tag != NAMED_TYPE){
 			return 0;
 		}
@@ -5191,6 +5211,16 @@ clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* p
 				if (right->data.fat_ptr.ptr->tag == LIT_TYPE && right->data.fat_ptr.ptr->data.lit == U8_TYPE){
 					return;
 				}
+			}
+		}
+		if (right->tag == STRUCT_TYPE && right->data.structure->tag == ENUM_STRUCT){
+			if (left->tag == LIT_TYPE && left->data.lit <= INT_ANY){
+				return;
+			}
+		}
+		else if (left->tag == STRUCT_TYPE && left->data.structure->tag == ENUM_STRUCT){
+			if (right->tag == LIT_TYPE && right->data.lit <= INT_ANY){
+				return;
 			}
 		}
 		if (left->tag != NAMED_TYPE){
@@ -6320,6 +6350,16 @@ clash_types_equiv_worker(walker* const walk, type_ast_map* const relation, type_
 			}
 		}
 		return 0;
+	}
+	if (right->tag == STRUCT_TYPE && right->data.structure->tag == ENUM_STRUCT){
+		if (left->tag == LIT_TYPE && left->data.lit <= INT_ANY){
+			return 1;
+		}
+	}
+	else if (left->tag == STRUCT_TYPE && left->data.structure->tag == ENUM_STRUCT){
+		if (right->tag == LIT_TYPE && right->data.lit <= INT_ANY){
+			return 1;
+		}
 	}
 	switch (left->tag){
 	case DEPENDENCY_TYPE:
@@ -10962,7 +11002,8 @@ generate_main(genc* const generator, FILE* fd){
  * 		may need to do dependency resolution for the order the header file is generated in
  * 		polyfunc should check if types are aliased or typedefs
  * 		list literals
- * 		$ just doesnt work
+ * 		pass remaining args to gcc so we can link with C libraries
+ * 		recursive stringification oh no
  */
 
 int

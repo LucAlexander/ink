@@ -11123,7 +11123,7 @@ main(int argc, char** argv){
 		return 0;
 	}
 	if (strncmp(argv[1], "-o", ERROR_STRING_MAX) == 0){
-		compile_file(argv[3], argv[2], &argv[4], argc);
+		compile_file(argv[3], argv[2], &argv[4], argc-3);
 		return 0;
 	}
 	if (strncmp(argv[2], "-o", ERROR_STRING_MAX) != 0){

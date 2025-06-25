@@ -2601,16 +2601,16 @@ parse_import(parser* const parse){
 	t = &parse->tokens[parse->token_index];
 	assert_local(t->tag == STRING_TOKEN, , "expected string path for import source");
 	parse->token_index += 1;
-	uint64_t* imported = uint64_t_map_access(parse->imported, t->data.name);
-	if (imported != NULL){
-		return;
-	}
 	char* cstr_file = pool_request(parse->mem, t->data.name.len);
 	strncpy(cstr_file, t->data.name.str+1, t->data.name.len-2);
 	string offset_entry = {
 		.str = cstr_file,
 		.len = t->data.name.len-2
 	};
+	uint64_t* imported = uint64_t_map_access(parse->imported, offset_entry);
+	if (imported != NULL){
+		return;
+	}
 	uint64_t_map_insert(parse->imported, offset_entry, parse->token_count);
 	if (parse->file_offset_count == parse->file_offset_capacity){
 		parse->file_offset_capacity *= 2;
@@ -3736,6 +3736,9 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			}
 			else{
 				uint8_t bind_equal = type_equiv(walk, prev_actual, expected_type);
+				if (bind_equal == 0){
+					printf("here\n"); // TODO remove
+				}
 				walk_assert(bind_equal == 1, nearest_token(expr), "Binding was not the expected type");
 			}
 		}

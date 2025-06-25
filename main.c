@@ -5619,7 +5619,7 @@ check_program(parser* const parse, const char* input, const char* output){
 	}
 	for (uint64_t i = 0;i<parse->alias_list.count;++i){
 		function_to_structure_recursive(&walk, parse->alias_list.buffer[i].type);
-		assert_local(type_recursive(parse, parse->alias_list.buffer[i].name, parse->alias_list.buffer[i].type) == 0, , "Detected recursive alias definition");
+		assert_local(type_recursive_alias(parse, parse->alias_list.buffer[i].name, parse->alias_list.buffer[i].type) == 0, , "Detected recursive alias definition");
 	}
 	for (uint64_t i = 0;i<parse->type_list.count;++i){
 		if (parse->type_list.buffer[i].param_count > 0){
@@ -7771,6 +7771,35 @@ sizeof_struct(parser* const parse, structure_ast* const s){
 }
 
 uint8_t
+type_recursive_alias(parser* const parse, token name, type_ast* const type){
+	switch (type->tag){
+	case DEPENDENCY_TYPE:
+		return type_recursive_alias(parse, name, type->data.dependency.type);
+	case FUNCTION_TYPE:
+		return type_recursive_alias(parse, name, type->data.function.left)
+		     | type_recursive_alias(parse, name, type->data.function.right);
+	case LIT_TYPE:
+		return 0;
+	case PTR_TYPE:
+		return type_recursive_alias(parse, name, type->data.ptr);
+	case FAT_PTR_TYPE:
+		return type_recursive_alias(parse, name, type->data.fat_ptr.ptr);
+	case STRUCT_TYPE:
+		return type_recursive_struct_alias(parse, name, type->data.structure);
+	case NAMED_TYPE:
+		if (string_compare(&name.data.name, &type->data.named.name.data.name) == 0){
+			return 1;
+		}
+		type_ast* reduced = reduce_alias(parse, type);
+		if (reduced == type){
+			return 0;
+		}
+		return type_recursive_alias(parse, name, reduced);
+	}
+	return 0;
+}
+
+uint8_t
 type_recursive(parser* const parse, token name, type_ast* const type){
 	switch (type->tag){
 	case DEPENDENCY_TYPE:
@@ -7788,6 +7817,29 @@ type_recursive(parser* const parse, token name, type_ast* const type){
 		}
 		type_ast* reduced = reduce_alias_and_type(parse, type);
 		return type_recursive(parse, name, reduced);
+	}
+	return 0;
+}
+
+uint8_t
+type_recursive_struct_alias(parser* const parse, token name, structure_ast* const s){
+	switch (s->tag){
+	case STRUCT_STRUCT:
+		for (uint64_t i = 0;i<s->data.structure.count;++i){
+			if (type_recursive_alias(parse, name, &s->data.structure.members[i]) == 1){
+				return 1;
+			}
+		}
+		return 0;
+	case UNION_STRUCT:
+		for (uint64_t i = 0;i<s->data.union_structure.count;++i){
+			if (type_recursive_alias(parse, name, &s->data.union_structure.members[i]) == 1){
+				return 1;
+			}
+		}
+		return 0;
+	case ENUM_STRUCT:
+		return 0;
 	}
 	return 0;
 }
@@ -11034,10 +11086,6 @@ generate_main(genc* const generator, FILE* fd){
  * 		polyfunc should check if types are aliased or typedefs
  * 		list literals
  * 		pass remaining args to gcc so we can link with C libraries
- * 		recursive stringification oh no
- * 			move function stringification and type defining to transform
- * 			mono structs instead of expanding names
- * 		aliases cannot be pointer recursive, add check
  * 		do typedefs for non structures even work? did I forget about them entirely?
  */
 

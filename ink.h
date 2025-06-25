@@ -705,7 +705,9 @@ void line_relay_append(line_relay* const lines, expr_ast* const line);
 void line_relay_concat(line_relay* const left, line_relay* const right);
 
 uint8_t type_recursive(parser* const parse, token name, type_ast* const type);
+uint8_t type_recursive_alias(parser* const parse, token name, type_ast* const type);
 uint8_t type_recursive_struct(parser* const parse, token name, structure_ast* const s);
+uint8_t type_recursive_struct_alias(parser* const parse, token name, structure_ast* const s);
 uint64_t sizeof_type(parser* const parse, type_ast* const type);
 uint64_t sizeof_struct(parser* const parse, structure_ast* const s);
 expr_ast* new_term(walker* const walk, type_ast* const type, expr_ast* const expression);

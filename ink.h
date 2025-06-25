@@ -9,7 +9,7 @@
 #define TEMP_ARENA_SIZE 0x50000000
 #define ERROR_STRING_MAX 0x100
 
-#define DEBUG
+//#define DEBUG
 
 typedef enum TOKEN {
 	PAREN_OPEN_TOKEN='(',
@@ -682,7 +682,7 @@ uint8_t const_complex(walker* const walk, expr_ast* const expr);
 type_ast* walk_const(walker* const walk, const_ast* const c);
 type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected_type, uint8_t is_outer);
 type_ast* walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* const expected_type);
-void check_program(parser* const parse);
+void check_program(parser* const parse, const char* input, const char* output);
 
 void coerce_integral(type_ast* const reduced_generic, type_ast* const expected_type);
 void promote_pointer_arg(walker* const walk, expr_ast* const expr);
@@ -761,8 +761,8 @@ void replace_return_with_setter(walker* const walk, expr_ast* const expr, token 
 void try_structure_monomorph(walker* const walk, type_ast* const type);
 void try_fat_monomorph(walker* const walk, type_ast* const type);
 string generate_mono_struct_name(walker* const walk, type_ast* const type);
-void stringify_type(parser* const parse, pool* const mem, string* const acc, type_ast* const x);
-void stringify_struct(parser* const parse, pool* const mem, string* const acc, structure_ast* const x);
+void stringify_type(walker* const walk, parser* const parse, pool* const mem, string* const acc, type_ast* const x, uint8_t first);
+void stringify_struct(walker* const walk, parser* const parse, pool* const mem, string* const acc, structure_ast* const x, uint8_t first);
 
 uint8_t pattern_equal(pattern_ast* const left, pattern_ast* const right);
 expr_ast* destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* const target_type, expr_ast* const target_walk, expr_ast** const inner);
@@ -777,9 +777,10 @@ typedef struct genc {
 	typedef_ast_buffer func_types;
 	string next_func_name;
 	parser* parse;
+	walker* walk;
 } genc;
 
-void generate_c(parser* const parse, const char* input, const char* output);
+void generate_c(walker* const walk, parser* const parse, const char* input, const char* output);
 void write_alias_forward(genc* const generator, FILE* hfd, alias_ast* const def);
 void write_typedef_forward(genc* const generator, FILE* hfd, typedef_ast* const def);
 void write_func_typedef(genc* const generator, FILE* hfd, typedef_ast* const def);

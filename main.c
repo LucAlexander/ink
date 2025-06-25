@@ -175,7 +175,7 @@ compile_file(char* input, const char* output){
 #ifdef DEBUG
 	printf("----------------Parsed------------------\n");
 #endif
-	check_program(&parse);
+	check_program(&parse, input, output);
 	if (parse.err.len != 0){
 		printf("\033[1m[!] Failed semantic checks, \033[0m");
 		show_error(&parse);
@@ -184,7 +184,6 @@ compile_file(char* input, const char* output){
 #ifdef DEBUG
 	printf("----------------Checked-----------------\n");
 #endif
-	generate_c(&parse, input, output);
 }
 
 void
@@ -5358,7 +5357,7 @@ clash_structure_priority(walker* const walk, type_ast_map* relation, type_ast_ma
 }
 
 void
-check_program(parser* const parse){
+check_program(parser* const parse, const char* input, const char* output){
 	term_ast** main_term = term_ptr_map_access(parse->terms, string_init(parse->temp_mem, "main"));
    	assert_local(main_term != NULL, , "Missing entrypoint");
 	assert_local((*main_term)->type->tag == LIT_TYPE, , "Main must be integer type");
@@ -5650,6 +5649,7 @@ check_program(parser* const parse){
 		printf("\n");
 	}
 #endif
+	generate_c(&walk, parse, input, output);
 }
 
 type_ast*
@@ -9086,61 +9086,85 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 			return;
 		}
 		if (type->data.named.arg_count == 0){
+			type_ast* reduced_alias = reduce_alias(walk->parse, type);
+			if (reduced_alias != type){
+				if (reduced_alias->tag == NAMED_TYPE){
+					*type = *reduced_alias;
+				}
+			}
 			return;
 		}
 		reduced = reduce_alias_and_type(walk->parse, type);
 		break;
 	}
-	structure_ast* nested = reduced->data.structure;
-	switch (nested->tag){
-	case STRUCT_STRUCT:
-		for (uint64_t i = 0;i<nested->data.structure.count;++i){
-			try_structure_monomorph(walk, &nested->data.structure.members[i]);
-		}
-		break;
-	case UNION_STRUCT:
-		for (uint64_t i = 0;i<nested->data.union_structure.count;++i){
-			try_structure_monomorph(walk, &nested->data.union_structure.members[i]);
-		}
-		break;
-	case ENUM_STRUCT:
-		break;
+	if (reduced->tag == FAT_PTR_TYPE){
+		try_fat_monomorph(walk, reduced); // TODO probably doesnt work / do anything
 	}
-	token newname = {
-		.content_tag = STRING_TOKEN_TYPE,
-		.tag = IDENTIFIER_TOKEN,
-		.index = 0,
-		.data.name = generate_mono_struct_name(walk, type)
-	};
-	typedef_ast** olddef = typedef_ptr_map_access(walk->parse->types, newname.data.name);
-	if (olddef != NULL){
+	else if (reduced->tag == STRUCT_TYPE){
+		structure_ast* nested = reduced->data.structure;
+		switch (nested->tag){
+		case STRUCT_STRUCT:
+			for (uint64_t i = 0;i<nested->data.structure.count;++i){
+				try_structure_monomorph(walk, &nested->data.structure.members[i]);
+			}
+			break;
+		case UNION_STRUCT:
+			for (uint64_t i = 0;i<nested->data.union_structure.count;++i){
+				try_structure_monomorph(walk, &nested->data.union_structure.members[i]);
+			}
+			break;
+		case ENUM_STRUCT:
+			break;
+		}
+		token newname = {
+			.content_tag = STRING_TOKEN_TYPE,
+			.tag = IDENTIFIER_TOKEN,
+			.index = 0,
+			.data.name = generate_mono_struct_name(walk, type)
+		};
+		typedef_ast** olddef = typedef_ptr_map_access(walk->parse->types, newname.data.name);
+		if (olddef != NULL){
+			type->tag = NAMED_TYPE;
+			type->data.named.name = newname;
+			type->data.named.args = NULL;
+			type->data.named.arg_count = 0;
+			return;
+		}
+		typedef_ast newdef = {
+			.name = newname,
+			.params = NULL,
+			.param_count = 0,
+			.type = deep_copy_type(walk, reduced)
+		};
+		typedef_ast_buffer_insert(&walk->parse->type_list, newdef);
+		typedef_ptr_map_insert(walk->parse->types, newdef.name.data.name, typedef_ast_buffer_top(&walk->parse->type_list));
 		type->tag = NAMED_TYPE;
 		type->data.named.name = newname;
 		type->data.named.args = NULL;
 		type->data.named.arg_count = 0;
-		return;
 	}
-	typedef_ast newdef = {
-		.name = newname,
-		.params = NULL,
-		.param_count = 0,
-		.type = deep_copy_type(walk, reduced)
-	};
-	typedef_ast_buffer_insert(&walk->parse->type_list, newdef);
-	typedef_ptr_map_insert(walk->parse->types, newdef.name.data.name, typedef_ast_buffer_top(&walk->parse->type_list));
-	type->tag = NAMED_TYPE;
-	type->data.named.name = newname;
-	type->data.named.args = NULL;
-	type->data.named.arg_count = 0;
 }
-
 void
 try_fat_monomorph(walker* const walk, type_ast* const type){
+	string name_token = string_init(walk->parse->mem, "[");
+	stringify_type(walk, walk->parse, walk->parse->mem, &name_token, type->data.fat_ptr.ptr, 0);
+	string val = string_init(walk->parse->mem, "]");
+	string_cat(walk->parse->mem, &name_token, &val);
+	string* memname = string_map_access(walk->struct_mono_names, name_token);
+	string setname;
+	if (memname != NULL){
+		setname = *memname;
+	}
+	else{
+		setname = walk->next_lambda;
+		generate_new_lambda(walk);
+		string_map_insert(walk->struct_mono_names, name_token, setname);
+	}
 	token newname = {
 		.content_tag = STRING_TOKEN_TYPE,
 		.tag = IDENTIFIER_TOKEN,
 		.index = 0,
-		.data.name = generate_mono_struct_name(walk, type)
+		.data.name = setname
 	};
 	typedef_ast** olddef = typedef_ptr_map_access(walk->parse->types, newname.data.name);
 	if (olddef != NULL){
@@ -9168,7 +9192,7 @@ string
 generate_mono_struct_name(walker* const walk, type_ast* const type){
 	string val = string_init(walk->parse->mem, "!");
 	type_ast* reduced = reduce_alias_and_type(walk->parse, type);
-	stringify_type(walk->parse, walk->parse->mem, &val, reduced);
+	stringify_type(walk, walk->parse, walk->parse->mem, &val, reduced, 1);
 	string* memname = string_map_access(walk->struct_mono_names, val);
 	if (memname != NULL){
 		return *memname;
@@ -9180,7 +9204,7 @@ generate_mono_struct_name(walker* const walk, type_ast* const type){
 }
 
 void
-stringify_type(parser* const parse, pool* const mem, string* const acc, type_ast* const x){
+stringify_type(walker* const walk, parser* const parse, pool* const mem, string* const acc, type_ast* const x, uint8_t first){
 	string lval = string_init(mem, " ");
 	switch (x->tag){
 	case DEPENDENCY_TYPE:
@@ -9198,15 +9222,15 @@ stringify_type(parser* const parse, pool* const mem, string* const acc, type_ast
 			string_set(mem, &lval, ")=>");
 			string_cat(mem, acc, &lval);
 		}
-		stringify_type(parse, mem, acc, x->data.dependency.type);
+		stringify_type(walk, parse, mem, acc, x->data.dependency.type, 0);
 		return;
 	case FUNCTION_TYPE:
 		string_set(mem, &lval, "(");
 		string_cat(mem, acc, &lval);
-		stringify_type(parse, mem, acc, x->data.function.left);
+		stringify_type(walk, parse, mem, acc, x->data.function.left, 0);
 		string_set(mem, &lval, ":");
 		string_cat(mem, acc, &lval);
-		stringify_type(parse, mem, acc, x->data.function.right);
+		stringify_type(walk, parse, mem, acc, x->data.function.right, 0);
 		string_set(mem, &lval, ")");
 		string_cat(mem, acc, &lval);
 		return;
@@ -9225,36 +9249,42 @@ stringify_type(parser* const parse, pool* const mem, string* const acc, type_ast
 		string_cat(mem, acc, &lval);
 		return;
 	case PTR_TYPE:
-		stringify_type(parse, mem, acc, x->data.ptr);
+		stringify_type(walk, parse, mem, acc, x->data.ptr, 0);
 		string_set(mem, &lval, "^");
 		string_cat(mem, acc, &lval);
 		return;
 	case FAT_PTR_TYPE:
-		string_set(mem, &lval, "[");
-		string_cat(mem, acc, &lval);
-		stringify_type(parse, mem, acc, x->data.fat_ptr.ptr);
-		string_set(mem, &lval, "]");
-		string_cat(mem, acc, &lval);
+		try_structure_monomorph(walk, x);
+		string_cat(mem, acc, &x->data.named.name.data.name);
 		return;
 	case STRUCT_TYPE:
-		stringify_struct(parse, mem, acc, x->data.structure);
+		if (first == 1){
+			stringify_struct(walk, parse, mem, acc, x->data.structure, 0);
+			return;
+		}
+		try_structure_monomorph(walk, x);
+		string_cat(mem, acc, &x->data.named.name.data.name);
 		return;
 	case NAMED_TYPE:
-		type_ast* unwrapped = reduce_alias_and_type(parse, x);
-		stringify_type(parse, mem, acc, unwrapped);
+		try_structure_monomorph(walk, x);
+		string_cat(mem, acc, &x->data.named.name.data.name);
+		//type_ast* unwrapped = reduce_alias_and_type(parse, x);
+		//try_structure_monomorph(walk, unwrapped);
+		//string_cat(mem, acc, &unwrapped->data.named.name.data.name);
+		//stringify_type(parse, mem, acc, unwrapped, 0);
 		return;
 	}
 }
 
 void
-stringify_struct(parser* const parse, pool* const mem, string* const acc, structure_ast* const x){
+stringify_struct(walker* const walk, parser* const parse, pool* const mem, string* const acc, structure_ast* const x, uint8_t first){
 	string lval = string_init(mem, " ");
 	switch (x->tag){
 	case STRUCT_STRUCT:
 		string_set(mem, &lval, "struct{");
 		string_cat(mem, acc, &lval);
 		for (uint64_t i = 0;i<x->data.structure.count;++i){
-			stringify_type(parse, mem, acc, &x->data.structure.members[i]);
+			stringify_type(walk, parse, mem, acc, &x->data.structure.members[i], 0);
 			string_set(mem, &lval, " ");
 			string_cat(mem, acc, &lval);
 			string_cat(mem, acc, &x->data.structure.names[i].data.name);
@@ -9268,7 +9298,7 @@ stringify_struct(parser* const parse, pool* const mem, string* const acc, struct
 		string_set(mem, &lval, "union{");
 		string_cat(mem, acc, &lval);
 		for (uint64_t i = 0;i<x->data.union_structure.count;++i){
-			stringify_type(parse, mem, acc, &x->data.union_structure.members[i]);
+			stringify_type(walk, parse, mem, acc, &x->data.union_structure.members[i], 0);
 			string_set(mem, &lval, " ");
 			string_cat(mem, acc, &lval);
 			string_cat(mem, acc, &x->data.union_structure.names[i].data.name);
@@ -9856,7 +9886,7 @@ pattern_equal(pattern_ast* const left, pattern_ast* const right){
 }
 
 void
-generate_c(parser* const parse, const char* input, const char* output){
+generate_c(walker* const walk, parser* const parse, const char* input, const char* output){
 	token_map translated_names = token_map_init(parse->temp_mem);
 	token_map func_names = token_map_init(parse->temp_mem);
 	genc generator = {
@@ -9865,7 +9895,8 @@ generate_c(parser* const parse, const char* input, const char* output){
 		.func_names = &func_names,
 		.func_types = typedef_ast_buffer_init(parse->temp_mem),
 		.next_func_name = string_init(parse->temp_mem, "$A"),
-		.parse = parse
+		.parse = parse,
+		.walk = walk
 	};
 	char* cfile = pool_request(parse->mem, ERROR_STRING_MAX+3);
 	strncpy(cfile, input, ERROR_STRING_MAX);
@@ -10208,7 +10239,7 @@ find_func_types(genc* const generator, type_ast* const type){
 		return;
 	case FUNCTION_TYPE:
 		string stringified = string_init(generator->mem, "!");
-		stringify_type(generator->parse, generator->parse->mem, &stringified, type);
+		stringify_type(generator->walk, generator->parse, generator->parse->mem, &stringified, type, 1);
 		token* funcname = token_map_access(generator->func_names, stringified);
 		if (funcname == NULL){
 			token newname = {
@@ -10319,7 +10350,7 @@ write_type(genc* const generator, FILE* fd, type_ast* const type, token* const s
 		return;
 	case FUNCTION_TYPE:
 		string stringified = string_init(generator->mem, "!");
-		stringify_type(generator->parse, generator->parse->mem, &stringified, type);
+		stringify_type(generator->walk, generator->parse, generator->parse->mem, &stringified, type, 1);
 		token* funcname = token_map_access(generator->func_names, stringified);
 		if (funcname != NULL){
 			write_name(generator, fd, *funcname);
@@ -11004,6 +11035,10 @@ generate_main(genc* const generator, FILE* fd){
  * 		list literals
  * 		pass remaining args to gcc so we can link with C libraries
  * 		recursive stringification oh no
+ * 			move function stringification and type defining to transform
+ * 			mono structs instead of expanding names
+ * 		aliases cannot be pointer recursive, add check
+ * 		do typedefs for non structures even work? did I forget about them entirely?
  */
 
 int

@@ -3736,9 +3736,6 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			}
 			else{
 				uint8_t bind_equal = type_equiv(walk, prev_actual, expected_type);
-				if (bind_equal == 0){
-					printf("here\n"); // TODO remove
-				}
 				walk_assert(bind_equal == 1, nearest_token(expr), "Binding was not the expected type");
 			}
 		}

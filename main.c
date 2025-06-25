@@ -223,6 +223,7 @@ keymap_fill(TOKEN_map* const map){
 	TOKEN_map_insert(map, string_init(map->mem, "~>"), EFFECT_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "external"), EXTERNAL_TOKEN);
 	TOKEN_map_insert(map, string_init(map->mem, "pack"), PACKED_TOKEN);
+	TOKEN_map_insert(map, string_init(map->mem, "global"), GLOBAL_TOKEN);
 }
 
 uint8_t
@@ -1443,16 +1444,23 @@ parse_external_symbols(parser* const parse){
 		case IMPORT_TOKEN:
 			parse->token_index += 1;
 			t = &parse->tokens[parse->token_index];
-			assert_local(t->tag == STRING_TOKEN || t->tag == IDENTIFIER_TOKEN, , "expected string path or relative c import");
+			foreign_lib lib = {.global = 0};
+			if (t->tag == GLOBAL_TOKEN){
+				parse->token_index += 1;
+				lib.global = 1;
+			}
+			t = &parse->tokens[parse->token_index];
+			assert_local(t->tag == STRING_TOKEN, , "expected string path or relative c import");
 			if (parse->foreign_import_count == parse->foreign_import_capacity){
 				parse->foreign_import_capacity *= 2;
-				token* imports = pool_request(parse->mem, sizeof(token)*parse->foreign_import_capacity);
+				foreign_lib* imports = pool_request(parse->mem, sizeof(token)*parse->foreign_import_capacity);
 				for (uint64_t i = 0;i<parse->foreign_import_count;++i){
 					imports[i] = parse->foreign_import[i];
 				}
 				parse->foreign_import = imports;
 			}
-			parse->foreign_import[parse->foreign_import_count] = *t;
+			lib.name = *t;
+			parse->foreign_import[parse->foreign_import_count] = lib;
 			parse->foreign_import_count += 1;
 			parse->token_index += 1;
 			t = &parse->tokens[parse->token_index];
@@ -10057,15 +10065,16 @@ generate_c(walker* const walk, parser* const parse, const char* input, const cha
 void
 include_foreign(genc* const generator, FILE* fd){
 	for (uint64_t i = 0;i<generator->parse->foreign_import_count;++i){
-		token import = generator->parse->foreign_import[i];
+		foreign_lib import = generator->parse->foreign_import[i];
 		fprintf(fd, "#include ");
-		if (import.tag == IDENTIFIER_TOKEN){
-			fprintf(fd, "<");
-			write_name(generator, fd, import);
-			fprintf(fd, ".h>\n");
+		if (import.global == 1){
+			char save = import.name.data.name.str[import.name.data.name.len-1];
+			import.name.data.name.str[import.name.data.name.len-1] = '\0';
+			fprintf(fd, "<%s>\n", import.name.data.name.str+1);
+			import.name.data.name.str[import.name.data.name.len-1] = save;
 			continue;
 		}
-		write_name(generator, fd, import);
+		write_name(generator, fd, import.name);
 		fprintf(fd, "\n");
 	}
 }
@@ -11087,6 +11096,7 @@ generate_main(genc* const generator, FILE* fd){
  * 		list literals
  * 		pass remaining args to gcc so we can link with C libraries
  * 		do typedefs for non structures even work? did I forget about them entirely?
+ * 		change the way imports work to allow for global extern improts that are more than a single token
  */
 
 int

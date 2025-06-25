@@ -72,6 +72,7 @@ typedef enum TOKEN {
 	EFFECT_TOKEN,
 	EXTERNAL_TOKEN,
 	PACKED_TOKEN,
+	GLOBAL_TOKEN,
 	TOKEN_COUNT
 } TOKEN;
 
@@ -476,6 +477,11 @@ GROWABLE_BUFFER_DECL(expr_ast);
 
 MAP_DECL(term_ptr_buffer);
 
+typedef struct foreign_lib {
+	token name;
+	uint8_t global;
+} foreign_lib;
+
 typedef struct parser {
 	pool* mem;
 	pool* temp_mem;
@@ -513,7 +519,7 @@ typedef struct parser {
 	typedef_ast_buffer extern_type_list;
 	string_map* symbol_to_name;
 	string next_symbol_name;
-	token* foreign_import;
+	foreign_lib* foreign_import;
 	uint64_t foreign_import_count;
 	uint64_t foreign_import_capacity;
 } parser;

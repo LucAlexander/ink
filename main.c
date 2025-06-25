@@ -67,7 +67,7 @@ GROWABLE_BUFFER_IMPL(binding);
 	}
 
 void
-compile_file(char* input, const char* output){
+compile_file(char* input, char* output, char** pass_args, uint64_t pass_count){
 	FILE* fd = fopen(input, "r");
 	if (fd == NULL){
 		fprintf(stderr, "File '%s' could not be opened\n", input);
@@ -175,7 +175,7 @@ compile_file(char* input, const char* output){
 #ifdef DEBUG
 	printf("----------------Parsed------------------\n");
 #endif
-	check_program(&parse, input, output);
+	check_program(&parse, input, output, pass_args, pass_count);
 	if (parse.err.len != 0){
 		printf("\033[1m[!] Failed semantic checks, \033[0m");
 		show_error(&parse);
@@ -5365,7 +5365,7 @@ clash_structure_priority(walker* const walk, type_ast_map* relation, type_ast_ma
 }
 
 void
-check_program(parser* const parse, const char* input, const char* output){
+check_program(parser* const parse, char* input, char* output, char** pass_args, uint64_t pass_count){
 	term_ast** main_term = term_ptr_map_access(parse->terms, string_init(parse->temp_mem, "main"));
    	assert_local(main_term != NULL, , "Missing entrypoint");
 	assert_local((*main_term)->type->tag == LIT_TYPE, , "Main must be integer type");
@@ -5657,7 +5657,7 @@ check_program(parser* const parse, const char* input, const char* output){
 		printf("\n");
 	}
 #endif
-	generate_c(&walk, parse, input, output);
+	generate_c(&walk, parse, input, output, pass_args, pass_count);
 }
 
 type_ast*
@@ -9946,7 +9946,7 @@ pattern_equal(pattern_ast* const left, pattern_ast* const right){
 }
 
 void
-generate_c(walker* const walk, parser* const parse, const char* input, const char* output){
+generate_c(walker* const walk, parser* const parse, char* input, char* output, char** pass_args, uint64_t pass_count){
 	token_map translated_names = token_map_init(parse->temp_mem);
 	token_map func_names = token_map_init(parse->temp_mem);
 	genc generator = {
@@ -10053,7 +10053,16 @@ generate_c(walker* const walk, parser* const parse, const char* input, const cha
 	}
 	pid_t pid = fork();
 	if (pid == 0){
-		execlp("gcc", "gcc", cfile, "-g", "-w", "-o", output, NULL);
+		char** args = pool_request(walk->parse->mem, sizeof(char*)*pass_count+6);
+		char* initial[] = {"gcc", cfile, "-w", "-o", output};
+		for (uint64_t i = 0;i<5;++i){
+			args[i] = initial[i];
+		}
+		for (uint64_t i = 0;i<pass_count;++i){
+			args[5+i] = pass_args[i];
+		}
+		args[pass_count+5] = NULL;
+		execvp("gcc", args);
 		fprintf(stderr, "code gen failed\n");
 		_exit(1);
 	}
@@ -11114,13 +11123,13 @@ main(int argc, char** argv){
 		return 0;
 	}
 	if (strncmp(argv[1], "-o", ERROR_STRING_MAX) == 0){
-		compile_file(argv[3], argv[2]);
+		compile_file(argv[3], argv[2], &argv[4], argc);
 		return 0;
 	}
 	if (strncmp(argv[2], "-o", ERROR_STRING_MAX) != 0){
 		printf("Expected -o to specify output file");
 		return 0;
 	}
-	compile_file(argv[1], argv[3]);
+	compile_file(argv[1], argv[3], &argv[4], argc-3);
 	return 0;
 }

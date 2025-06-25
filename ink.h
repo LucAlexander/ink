@@ -111,7 +111,7 @@ typedef struct term_ast term_ast;
 typedef struct parser parser;
 
 void keymap_fill(TOKEN_map* const map);
-void compile_file(char* input, const char* output);
+void compile_file(char* input, char* output, char** pass_args, uint64_t pass_count);
 void compile_str(string input);
 uint8_t issymbol(char c);
 void lex_string(parser* const parse);
@@ -688,7 +688,7 @@ uint8_t const_complex(walker* const walk, expr_ast* const expr);
 type_ast* walk_const(walker* const walk, const_ast* const c);
 type_ast* walk_term(walker* const walk, term_ast* const term, type_ast* expected_type, uint8_t is_outer);
 type_ast* walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* const expected_type);
-void check_program(parser* const parse, const char* input, const char* output);
+void check_program(parser* const parse, char* input, char* output, char** pass_args, uint64_t pass_count);
 
 void coerce_integral(type_ast* const reduced_generic, type_ast* const expected_type);
 void promote_pointer_arg(walker* const walk, expr_ast* const expr);
@@ -788,7 +788,7 @@ typedef struct genc {
 	walker* walk;
 } genc;
 
-void generate_c(walker* const walk, parser* const parse, const char* input, const char* output);
+void generate_c(walker* const walk, parser* const parse, char* input, char* output, char** pass_args, uint64_t pass_count);
 void write_alias_forward(genc* const generator, FILE* hfd, alias_ast* const def);
 void write_typedef_forward(genc* const generator, FILE* hfd, typedef_ast* const def);
 void write_func_typedef(genc* const generator, FILE* hfd, typedef_ast* const def);

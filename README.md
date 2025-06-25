@@ -14,152 +14,193 @@ Ink is a heavily WIP language project. I am writing this entirely from my own he
 *   list literals dont generate correctly 
 * Better error reporting system
 
-# Working Examples
+# Hello world
 
 ```haskell
 
-import "std.ink"
+import "io.ink"
 
 u64 main = print "Hello world\n";
 
 ```
 
-Simple arena type
+# More contrived example: formatted printing
+
+
+test.ink:
 ```haskell
+import "io.ink"
 
-type arena = struct {
-	u8 var^ buffer;
-	u64 var size;
-	u64 var ptr;
-};
-
-u64 -> arena
-arena_init = \size:{
-	arena a = {
-		buffer = alloc size,
-		size = size,
-		ptr = 0
-	};
-	return a;
+u64 main = {
+    Arena pool = arena_init 512 ARENA_STATIC;
+    String left = string_init (&pool) "first ";
+    String right = string_init (&pool) " second";
+    u64 numeric = 5;
+    return printf $ left +% numeric ++ right;
 };
 
 ```
 
-Parametric types
+io.ink:
 ```haskell
 
-type Maybe T = struct {
-	enum {Just, Nothing} tag;
-	T val;
-};
+import "string.ink"
 
-```
+String -> u64
+printf = \msg:
+	write 1 ((msg.data.ptr) as (u8^)) (msg.data.len);
 
-Type classes
-```haskell
+[i8] -> u64
+print = \msg:
+	write 1 ((msg.ptr) as (u8^)) (msg.len);
 
-typeclass Allocator A {
-	T -> A -> Maybe (T^) =:>;
-	[T] -> A -> Maybe [T] =:>>;
-	A -> u64 -> u8^ #;
+typeclass Formattable F {
+	String -> F -> String +%;
 }
 
-arena implements Allocator {
-	T -> arena^ -> Maybe (T^)
-	=:> = \val a:{
-		if a.ptr + (sizeof T) < (a.size) {
-			u64 pos = a.ptr;
-			a.ptr = a.ptr + (sizeof T);
-			T^ source = &val;
-			memcpy (&(a.buffer[pos])) (source as u8^) (sizeof T);
-			return {Just, &(a.buffer[pos])};
+uword implements Formattable {
+	String -> uword -> String
+	+% = \left value:{
+		u64 var walk = value;
+		i8 var^ result = (left.mem ## 0) as i8^;
+		u64 var index = 0;
+		while walk > 0 {
+			(left.mem) ## 1;
+			u64 digit = walk % 10;
+			i8 zero = '0';
+			result[index] = digit + zero;
+			index = index + 1;
+			walk = walk / 10;
 		};
-		return {Nothing};
+		String converted = string_init (left.mem) [result, index + 1];
+		return left ++ converted;
+	};
+}
+
+```
+
+string.ink:
+```haskell
+
+import "allocators.ink"
+
+type String = struct {
+	Arena^ mem;
+	[i8] data;
+};
+
+Arena^ -> [i8] -> String
+string_init = \pool data: {pool, data =:>> pool};
+
+typeclass MonoidAlloc M {
+	(Allocator A) => T -> A^ -> M zero;
+	M -> M -> M ++;
+}
+
+String implements MonoidAlloc {
+	[i8] -> Arena^ -> String
+	zero = \data pool: string_init pool data;
+
+	String -> String -> String
+	++ = \left right:{
+		u64 new_size = left.data.len + (right.data.len);
+		i8^ new = (left.mem ## new_size) as i8^;
+		[i8] data = [new, new_size];
+		u64 offset = (new as u64) + (left.data.len);
+		memcpy (data.ptr as u8^) (left.data.ptr as u8^) (left.data.len);
+		memcpy (offset as u8^) (right.data.ptr as u8^) (right.data.len);
+		return zero data (left.mem);
+	};
+}
+
+```
+
+allocators.ink:
+```haskell
+
+import "builtin.ink"
+
+u64 -> u8^
+alloc = \size: malloc size;
+
+typeclass Allocator A {
+	T -> A^ -> T^ =:>;
+	A^ -> T -> T^ <:=;
+	T -> A^ -> [T] =::;
+	A^ -> T -> [T] ::=;
+	A^ -> u64 -> u8^ ##;
+	[T] -> A^ -> [T] =:>>;
+	A^ -> [T] -> [T] <<:=;
+}
+
+alias ARENA_TAG = enum {
+	ARENA_STATIC, ARENA_DYNAMIC
+};
+
+type Arena = struct {
+	Arena^ next;
+	u8^ buffer;
+	u64 var ptr;
+	u64 capacity;
+	ARENA_TAG tag;
+};
+
+u64 -> ARENA_TAG -> Arena
+arena_init = \size tag: {(null as Arena^), alloc size, 0, size, tag};
+
+Arena implements Allocator {
+	T -> Arena^ -> T^
+	=:> = \val pool: {
+		if pool.ptr + (sizeof T) >= (pool.capacity){
+			return null as T^;
+		};
+		u64 pos = pool.ptr;
+		pool.ptr = pool.ptr + (sizeof T);
+		T^ source = &val;
+		memcpy (&(pool.buffer[pos])) (source as u8^) (sizeof T);
+		return &(pool.buffer[pos]);
 	};
 
-	[T] -> arena^ -> Maybe [T]
-	=:>> = \val a:{
+	T -> Arena^ -> [T]
+	=:: = \val pool: {
+		if pool.ptr + (sizeof T) >= (pool.capacity){
+			return [(null as T^), 0];
+		};
+		u64 pos = pool.ptr;
+		pool.ptr = pool.ptr + (sizeof T);
+		T^ source = &val;
+		memcpy (&(pool.buffer[pos])) (source as u8^) (sizeof T);
+		return [&(pool.buffer[pos]), 1];
+	};
+
+	Arena^ -> u64 -> u8^
+	## = \pool size:{
+		if pool.ptr + size >= (pool.capacity) {
+			return null as u8^;
+		};
+		u64 pos = pool.ptr;
+		pool.ptr = pool.ptr + size;
+		return &(pool.buffer[pos]);
+	};
+
+	[T] -> Arena^ -> [T]
+	=:>> = \val pool: {
 		[T] pooled = [
-			(a # ((sizeof T) * (val.len))) as (T^),
+			(pool ## ((sizeof T) * (val.len))) as (T^),
 			val.len
 		];
 		memcpy (pooled.ptr as u8^) (val.ptr as u8^) (pooled.len * (sizeof T));
-		return {Just, pooled};
+		return pooled;
 	};
 
-	arena^ -> u64 -> u8^
-	# = \a size:{
-		if a.ptr + size < (a.size) {
-			u64 pos = a.ptr;
-			a.ptr = a.ptr + size;
-			return &(a.buffer[pos]);
-		};
-		return null as u8^;
-	};
-}
+	Arena^ -> T -> T^
+	<:= = \pool val: val =:> pool;
 
-```
+	Arena^ -> T -> [T]
+	::= = \pool val: val =:: pool;
 
-Copying closures
-```
-
-arena^ -> [T] -> [T]
-copy = \pool closure:{
-	u64 size_point = (closure.ptr as u64) + (closure.len) - (sizeof u64);
-	u64 offset = 0;
-	memcpy ((&offset) as u8^)
-	       (size_point as u8^)
-	       (sizeof u64);
-	u64 closure_start = size_point - (offset + sizeof u8^);
-	Maybe ([T] var) moved = [
-		(closure_start as T^),
-		offset + (2 * sizeof u8^)
-	] =:>> pool;
-	u64 original = (closure.ptr as u64) - closure_start;
-	u64 new_pos = (moved.val.ptr as u64) + original;
-	return [
-		(new_pos as T^),
-		moved.val.len
-	];
-};
-
-```
-
-Simple stack buffer
-```
-
-typeclass Stackable S {
-	S T -> T -> S T push;
-	S T -> T pop;
-}
-
-type buffer T  = struct {
-	arena^ mem;
-	[T var] data;
-	u64 var count;
-};
-
-buffer implements Stackable {
-	buffer T -> T -> buffer T
-	push = \list elem:{
-		u64 var new_capacity = list.data.len;
-		if list.data.len == (list.count) {
-			new_capacity = list.data.len * 2;
-		};
-		[T var] new_buffer = [
-			list.data.ptr,
-			new_capacity
-		] =:>> (list.mem).val;
-		memcpy (new_buffer.ptr) (list.data.ptr) (list.data.len * sizeof T);
-		new_buffer.ptr[list.count] = elem;
-		return {list.mem, new_buffer, list.count + 1};
-	};
-	
-	buffer T -> T
-	pop = \list: {
-		list.count = list.count - 1;
-		return list.data.ptr[list.count];
-	};
+	Arena^ -> [T] -> [T]
+	<<:= = \pool val: val =:>> pool;
 }
 
 ```

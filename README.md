@@ -7,11 +7,10 @@ Ink is a heavily WIP language project. I am writing this entirely from my own he
 
 # Current tasks
 * C code generation pass
-*   for loops dont exist
+*   for loops parse, but dont generate
 *   we include more functions in the binary than are necessarily called
-*   polymorphic functions dont successfully type check on literals
+*   polymorphic functions dont fully type check on literals
 *   dependency resolution is missing for structure declaration order
-*   list literals dont generate correctly 
 * Better error reporting system
 
 # Hello world

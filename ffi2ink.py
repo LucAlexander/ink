@@ -12,14 +12,23 @@ def write(filename, content):
         [outfile.write(f'\t{item}\n') for item in content if item != '']
         outfile.write('}\n')
 
+enum_count = 0
+
 def process(data):
 
     def convert_unit_type(type_map):
+        global enum_count
         match type_map["tag"]:
             case ":pointer":
-                return f"({convert_unit_type(type_map['type'])})^"
+                lval = convert_unit_type(type_map['type'])
+                if lval == '':
+                    return ''
+                return f"({lval})^"
             case ":array":
-                return f"({convert_unit_type(type_map['type'])})^"
+                lval = convert_unit_type(type_map['type'])
+                if lval == '':
+                    return ''
+                return f"({lval})^"
             case ":void":
                 return "u8"
             case ":char":
@@ -64,6 +73,8 @@ def process(data):
                 return "[u8]"
             case "struct":
                 definition = "struct {"
+                if len(type_map['fields']) == 0:
+                    definition += "u8^ empty;"
                 for field in type_map['fields']:
                     lval = convert_unit_type(field['type'])
                     if lval == '':
@@ -73,6 +84,8 @@ def process(data):
                 return definition
             case "union":
                 definition = "union {"
+                if len(type_map['fields']) == 0:
+                    definition += "u8^ empty;"
                 for field in type_map['fields']:
                     lval = convert_unit_type(field['type'])
                     if lval == '':
@@ -82,6 +95,9 @@ def process(data):
                 return definition
             case "enum":
                 definition = "enum {"
+                if len(type_map['fields']) == 0:
+                    defintion += f"INK_EMPTY_EXTERN{enum_count}"
+                    enum_count += 1
                 for i, num in enumerate(type_map['fields']):
                     if i != 0:
                         defintion += ", "
@@ -89,11 +105,15 @@ def process(data):
                 definition += "}"
                 return definition
             case ":struct":
-                return ''
+                return 'struct {u8^ empty;}'
             case ":union":
-                return ''
+                return 'union {u8^ empty;}'
             case ":enum":
-                return ''
+                count = f"INK_ENUM_EXTERN{enum_count}"
+                enum_count += 1
+                return 'enum {'+count+'}'
+            case '__builtin_va_list':
+                return 'u8^'
             case other:
                 if other[0] == ':':
                     return "UNHANDLED"
@@ -101,7 +121,12 @@ def process(data):
                     return ''
                 return other
 
+    functions = {}
+    types = {}
+
     def convert_function(item):
+        if item['name'] in functions:
+            return ''
         if item["variadic"] == True or item["storage-class"] == "static":
             return ''
         args = item["parameters"]
@@ -114,13 +139,17 @@ def process(data):
             if (converted_arg == ''):
                 return ''
             arg_type = f"{arg_type}{converted_arg} -> "
+        functions[item['name']] = True
         return f"{arg_type}{return_type} {item['name']};"
 
     def convert_type(item):
+        if item['name'] in types:
+            return ''
         rval = convert_unit_type(item['type'])
         if rval == '':
             return ''
-        return f"type {item['name']} = {rval};"
+        types[item['name']] = True
+        return f"alias {item['name']} = {rval};"
             
     convert = {
         'function': convert_function,

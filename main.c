@@ -10567,6 +10567,18 @@ write_type(genc* const generator, FILE* fd, type_ast* const type, token* const s
 		write_structure_type(generator, fd, type->data.structure, structname);
 		return;
 	case NAMED_TYPE:
+		if (term_ptr_map_access(generator->parse->extern_terms, type->data.named.name.data.name) != NULL){
+			write_name(generator, fd, type->data.named.name);
+			return;
+		}
+		if (typedef_ptr_map_access(generator->parse->extern_types, type->data.named.name.data.name) != NULL){
+			write_name(generator, fd, type->data.named.name);
+			return;
+		}
+		if (alias_ptr_map_access(generator->parse->extern_aliases, type->data.named.name.data.name) != NULL){
+			write_name(generator, fd, type->data.named.name);
+			return;
+		}
 		token* memoized = token_map_access(generator->translated_names, type->data.named.name.data.name);
 		if (memoized != NULL){
 			write_name(generator, fd, *memoized);
@@ -10586,6 +10598,7 @@ write_type(genc* const generator, FILE* fd, type_ast* const type, token* const s
 
 string
 ink_prefix(genc* const generator, string* const name){
+
 	string new;
 	if (name->str[0] == '#'){
 		new = string_init(generator->mem, "lam_ink_");
@@ -11010,6 +11023,10 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 			write_name(generator, fd, expr->data.binding);
 			return;
 		}
+		if (alias_ptr_map_access(generator->parse->extern_aliases, expr->data.binding.data.name) != NULL){
+			write_name(generator, fd, expr->data.binding);
+			return;
+		}
 		token* memoized = token_map_access(generator->translated_names, expr->data.binding.data.name);
 		if (memoized != NULL){
 			write_name(generator, fd, *memoized);
@@ -11194,7 +11211,8 @@ generate_main(genc* const generator, FILE* fd){
 * 	polyfunc should check if types are aliased or typedefs
  * -GENERATION BUGS-----------------------------------------
 * 	list literals
-* 	foreign aliases
+* 	dont prefix externs
+* 	dont set non set functions
  * -RESEARCH PAPER------------------------------------------
  *  rough draft
  */

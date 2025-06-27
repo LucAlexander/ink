@@ -149,6 +149,19 @@ def process(data):
         if rval == '':
             return ''
         types[item['name']] = True
+        match item['type']['tag']:
+            case "struct":
+                return f"type {item['name']} = {rval};"
+            case ":struct":
+                return f"type {item['name']} = {rval};"
+            case "union":
+                return f"type {item['name']} = {rval};"
+            case ":union":
+                return f"type {item['name']} = {rval};"
+            case "enum":
+                return f"type {item['name']} = {rval};"
+            case ":enum":
+                return f"type {item['name']} = {rval};"
         return f"alias {item['name']} = {rval};"
             
     convert = {

@@ -110,6 +110,7 @@ compile_file(char* input, char* output, char** pass_args, uint64_t pass_count){
 	term_ptr_buffer_map impl_terms = term_ptr_buffer_map_init(&mem);
 	term_ptr_map extern_terms = term_ptr_map_init(&mem);
 	typedef_ptr_map extern_types = typedef_ptr_map_init(&mem);
+	alias_ptr_map extern_aliases = alias_ptr_map_init(&mem);
 	string_map symbol_to_name = string_map_init(&mem);
 	parser parse = {
 		.mem = &mem,
@@ -145,8 +146,10 @@ compile_file(char* input, char* output, char** pass_args, uint64_t pass_count){
 		.enumerated_values = &enum_vals,
 		.implemented_terms = &impl_terms,
 		.extern_terms = &extern_terms,
+		.extern_aliases = &extern_aliases,
 		.extern_types = &extern_types,
 		.extern_term_list = term_ast_buffer_init(&mem),
+		.extern_alias_list = alias_ast_buffer_init(&mem),
 		.extern_type_list = typedef_ast_buffer_init(&mem),
 		.symbol_to_name = &symbol_to_name,
 		.next_symbol_name = string_init(&mem, "?A"),
@@ -277,7 +280,17 @@ lex_string(parser* const parse){
 		case BACKTICK_TOKEN:
 		case COMPOSE_TOKEN:
 		case SHIFT_TOKEN:
+			t->data.name.len += 1;
+			t->tag = c;
+			t->content_tag = STRING_TOKEN_TYPE;
+			pool_request(parse->token_mem, sizeof(token));
+			parse->token_count += 1;
+			t = &parse->tokens[parse->token_count];
+			continue;
 		case HOLE_TOKEN:
+			if (isalnum(parse->text.str[parse->text_index]) || parse->text.str[parse->text_index] == HOLE_TOKEN){
+				break;
+			}
 			t->data.name.len += 1;
 			t->tag = c;
 			t->content_tag = STRING_TOKEN_TYPE;
@@ -367,7 +380,7 @@ lex_string(parser* const parse){
 				continue;
 			}
 		}
-		if (isalpha(c)){
+		if (isalpha(c) || c == '_'){
 			t->data.name.len += 1;
 			t->tag = IDENTIFIER_TOKEN;
 			t->content_tag = STRING_TOKEN_TYPE;
@@ -1469,6 +1482,25 @@ parse_external_symbols(parser* const parse){
 				return;
 			}
 			continue;
+		case ALIAS_TOKEN:
+			alias_ast* alias = parse_alias(parse);
+			if (parse->err.len == 0){
+				parse->token_index += 1;
+				alias_ast_buffer_insert(&parse->extern_alias_list, *alias);
+				uint8_t dup = alias_ptr_map_insert(parse->extern_aliases, alias->name.data.name, alias_ast_buffer_top(&parse->extern_alias_list));
+				assert_local(dup == 0, , "Duplicate external alias definition");
+#ifdef DEBUG
+				printf("extern ");
+				show_alias(alias);
+				printf("\n");
+#endif
+				t = &parse->tokens[parse->token_index];
+				if (t->tag == BRACE_CLOSE_TOKEN){
+					parse->token_index += 1;
+					return;
+				}
+			}
+			break;
 		case TYPE_TOKEN:
 			typedef_ast* type = parse_typedef(parse);
 			if (parse->err.len == 0){
@@ -2757,7 +2789,12 @@ lex_err(parser* const parse, uint64_t goal, string filename){
 		case BACKTICK_TOKEN:
 		case COMPOSE_TOKEN:
 		case SHIFT_TOKEN:
+			index += 1;
+			continue;
 		case HOLE_TOKEN:
+			if (isalnum(str.str[text_index]) || str.str[text_index] == HOLE_TOKEN){
+				break;
+			}
 			index += 1;
 			continue;
 		case '"':
@@ -2846,7 +2883,7 @@ lex_err(parser* const parse, uint64_t goal, string filename){
 				continue;
 			}
 		}
-		if (isalpha(c)){
+		if (isalpha(c) || c == '_'){
 			c = str.str[text_index];
 			text_index += 1;
 			while ((text_index < str.len) && (isalpha(c) || c == '_' || isdigit(c))){
@@ -4263,7 +4300,10 @@ reduce_alias(parser* const parse, type_ast* start_type){
 	while (start_type->tag == NAMED_TYPE){
 		alias_ast** alias = alias_ptr_map_access(parse->aliases, start_type->data.named.name.data.name);
 		if (alias == NULL){
-			return start_type;
+			alias = alias_ptr_map_access(parse->extern_aliases, start_type->data.named.name.data.name);
+			if (alias == NULL){
+				return start_type;
+			}
 		}
 		start_type = (*alias)->type;
 	}
@@ -4284,6 +4324,11 @@ reduce_alias_and_type(parser* const parse, type_ast* start_type){
 	}
 	while (start_type->tag == NAMED_TYPE){
 		alias_ast** alias = alias_ptr_map_access(parse->aliases, start_type->data.named.name.data.name);
+		if (alias != NULL){
+			start_type = (*alias)->type;
+			continue;
+		}
+		alias = alias_ptr_map_access(parse->extern_aliases, start_type->data.named.name.data.name);
 		if (alias != NULL){
 			start_type = (*alias)->type;
 			continue;
@@ -4311,6 +4356,7 @@ reduce_alias_and_type(parser* const parse, type_ast* start_type){
 		if (type != NULL){
 			assert_local(start_type->data.named.arg_count == 0, NULL, "External type symbols must be nonparametric");
 			start_type = (*type)->type;
+			continue;
 		}
 		if (outer_type != NULL){
 			outer_type->data.dependency.type = start_type;
@@ -4575,6 +4621,7 @@ type_equal_worker(parser* const parse, token_map* const generics, type_ast* left
 			}
 			else {
 				alias_ast** isalias = alias_ptr_map_access(parse->aliases, left->data.named.name.data.name);
+				alias_ast** isexternalias = alias_ptr_map_access(parse->extern_aliases, left->data.named.name.data.name);
 				if (isalias != NULL){
 					alias_ast** isrightalias = alias_ptr_map_access(parse->aliases, right->data.named.name.data.name);
 					if (isrightalias == NULL){
@@ -4584,11 +4631,21 @@ type_equal_worker(parser* const parse, token_map* const generics, type_ast* left
 						return 0;
 					}
 				}
+				else if (isexternalias != NULL){
+					alias_ast** isrightalias = alias_ptr_map_access(parse->extern_aliases, right->data.named.name.data.name);
+					if (isrightalias == NULL){
+						return 0;
+					}
+					if ((*isexternalias) != (*isrightalias)){
+						return 0;
+					}
+				}
 				else {
 					typedef_ast** righttypedef = typedef_ptr_map_access(parse->types, right->data.named.name.data.name);
 					typedef_ast** right_extern = typedef_ptr_map_access(parse->extern_types, right->data.named.name.data.name);
 					alias_ast** rightalias = alias_ptr_map_access(parse->aliases, right->data.named.name.data.name);
-					if (rightalias != NULL || righttypedef != NULL || right_extern != NULL){
+					alias_ast** right_alias_extern = alias_ptr_map_access(parse->extern_aliases, right->data.named.name.data.name);
+					if (rightalias != NULL || righttypedef != NULL || right_extern != NULL || right_alias_extern != NULL){
 						return 0;
 					}
 					token_map_insert(generics, left->data.named.name.data.name, right->data.named.name);
@@ -4980,7 +5037,8 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* po
 				typedef_ast** istypedef = typedef_ptr_map_access(parse->types, left->data.fat_ptr.ptr->data.named.name.data.name);
 				typedef_ast** isextern = typedef_ptr_map_access(parse->extern_types, left->data.fat_ptr.ptr->data.named.name.data.name);
 				alias_ast** isalias = alias_ptr_map_access(parse->aliases, left->data.fat_ptr.ptr->data.named.name.data.name);
-				if (istypedef != NULL || isalias != NULL || isextern != NULL){
+				alias_ast** isexternalias = alias_ptr_map_access(parse->extern_aliases, left->data.fat_ptr.ptr->data.named.name.data.name);
+				if (istypedef != NULL || isalias != NULL || isextern != NULL || isexternalias != NULL){
 					return 0;
 				}
 				type_ast* u8_hold = mk_lit(parse->mem, U8_TYPE);
@@ -5016,7 +5074,8 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* po
 		typedef_ast** istypedef = typedef_ptr_map_access(parse->types, left->data.named.name.data.name);
 		typedef_ast** isextern = typedef_ptr_map_access(parse->extern_types, left->data.named.name.data.name);
 		alias_ast** isalias = alias_ptr_map_access(parse->aliases, left->data.named.name.data.name);
-		if (istypedef != NULL || isalias != NULL || isextern != NULL){
+		alias_ast** isexternalias = alias_ptr_map_access(parse->extern_aliases, left->data.named.name.data.name);
+		if (istypedef != NULL || isalias != NULL || isextern != NULL || isexternalias != NULL){
 			type_ast* aliased_left = reduce_alias(parse, left);
 			return clash_types_worker(parse, relation, pointer_only, aliased_left, right);
 		}
@@ -5088,7 +5147,7 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* po
 				}
 			}
 			else if (isextern != NULL){
-				typedef_ast** isrighttypedef = typedef_ptr_map_access(parse->types, right->data.named.name.data.name);
+				typedef_ast** isrighttypedef = typedef_ptr_map_access(parse->extern_types, right->data.named.name.data.name);
 				if (isrighttypedef == NULL){
 					return 0;
 				}
@@ -5098,12 +5157,22 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* po
 			}
 			else {
 				alias_ast** isalias = alias_ptr_map_access(parse->aliases, left->data.named.name.data.name);
+				alias_ast** isexternalias = alias_ptr_map_access(parse->extern_aliases, left->data.named.name.data.name);
 				if (isalias != NULL){
 					alias_ast** isrightalias = alias_ptr_map_access(parse->aliases, right->data.named.name.data.name);
 					if (isrightalias == NULL){
 						return 0;
 					}
 					if ((*isalias) != (*isrightalias)){
+						return 0;
+					}
+				}
+				else if (isexternalias != NULL){
+					alias_ast** isrightalias = alias_ptr_map_access(parse->extern_aliases, right->data.named.name.data.name);
+					if (isrightalias == NULL){
+						return 0;
+					}
+					if ((*isexternalias) != (*isrightalias)){
 						return 0;
 					}
 				}
@@ -5200,7 +5269,8 @@ clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* p
 				typedef_ast** istypedef = typedef_ptr_map_access(walk->parse->types, left->data.fat_ptr.ptr->data.named.name.data.name);
 				typedef_ast** isextern = typedef_ptr_map_access(walk->parse->extern_types, left->data.fat_ptr.ptr->data.named.name.data.name);
 				alias_ast** isalias = alias_ptr_map_access(walk->parse->aliases, left->data.fat_ptr.ptr->data.named.name.data.name);
-				if (istypedef != NULL || isalias != NULL || isextern != NULL){
+				alias_ast** isexternalias = alias_ptr_map_access(walk->parse->extern_aliases, left->data.fat_ptr.ptr->data.named.name.data.name);
+				if (istypedef != NULL || isalias != NULL || isextern != NULL || isexternalias != NULL){
 					return;
 				}
 				type_ast* u8_hold = mk_lit(walk->parse->mem, U8_TYPE);
@@ -5239,7 +5309,8 @@ clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* p
 		typedef_ast** istypedef = typedef_ptr_map_access(walk->parse->types, left->data.named.name.data.name);
 		typedef_ast** isextern = typedef_ptr_map_access(walk->parse->extern_types, left->data.named.name.data.name);
 		alias_ast** isalias = alias_ptr_map_access(walk->parse->aliases, left->data.named.name.data.name);
-		if (istypedef != NULL || isalias != NULL || isextern != NULL){
+		alias_ast** isexternalias = alias_ptr_map_access(walk->parse->extern_aliases, left->data.named.name.data.name);
+		if (istypedef != NULL || isalias != NULL || isextern != NULL || isexternalias != NULL){
 			return;
 		}
 		type_ast* confirm = type_ast_map_access(relation, left->data.named.name.data.name);
@@ -5310,7 +5381,7 @@ clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* p
 				}
 			}
 			else if (isextern != NULL){
-				typedef_ast** isrighttypedef = typedef_ptr_map_access(walk->parse->types, right->data.named.name.data.name);
+				typedef_ast** isrighttypedef = typedef_ptr_map_access(walk->parse->extern_types, right->data.named.name.data.name);
 				if (isrighttypedef == NULL){
 					return;
 				}
@@ -5320,12 +5391,22 @@ clash_types_priority(walker* const walk, type_ast_map* relation, type_ast_map* p
 			}
 			else {
 				alias_ast** isalias = alias_ptr_map_access(walk->parse->aliases, left->data.named.name.data.name);
+				alias_ast** isexternalias = alias_ptr_map_access(walk->parse->extern_aliases, left->data.named.name.data.name);
 				if (isalias != NULL){
 					alias_ast** isrightalias = alias_ptr_map_access(walk->parse->aliases, right->data.named.name.data.name);
 					if (isrightalias == NULL){
 						return;
 					}
 					if ((*isalias) != (*isrightalias)){
+						return;
+					}
+				}
+				else if (isexternalias != NULL){
+					alias_ast** isrightalias = alias_ptr_map_access(walk->parse->extern_aliases, right->data.named.name.data.name);
+					if (isrightalias == NULL){
+						return;
+					}
+					if ((*isexternalias) != (*isrightalias)){
 						return;
 					}
 				}
@@ -5798,8 +5879,11 @@ type_valid(parser* const parse, type_ast* const type){
 			if (alias == NULL){
 				typedef_ast** ext = typedef_ptr_map_access(parse->extern_types, type->data.named.name.data.name);
 				if (ext == NULL){
-					return 0; // this means generics are not valid normal form types
-			   }
+					alias_ast** isextalias = alias_ptr_map_access(parse->extern_aliases, type->data.named.name.data.name);
+					if (isextalias == NULL){
+						return 0; // this means generics are not valid normal form types
+					}
+				}
 			}
 		}
 		for (uint64_t i = 0;i<type->data.named.arg_count;++i){
@@ -6079,23 +6163,26 @@ realias_type(realias_walker* const walk, type_ast* const type){
 			if (alias == NULL){
 				typedef_ast** isext = typedef_ptr_map_access(walk->parse->extern_types, type->data.named.name.data.name);
 				if (isext == NULL){
-					map_stack* relation = walk->relations;
-					uint8_t found = 0;
-					while (relation != NULL){
-						token* exists = token_map_access(&relation->map, type->data.named.name.data.name);
-						if (exists != NULL){
-							type->data.named.name = *exists;
-							found = 1;
-							break;
+					alias_ast** isextalias = alias_ptr_map_access(walk->parse->extern_aliases, type->data.named.name.data.name);
+					if (isextalias == NULL){
+						map_stack* relation = walk->relations;
+						uint8_t found = 0;
+						while (relation != NULL){
+							token* exists = token_map_access(&relation->map, type->data.named.name.data.name);
+							if (exists != NULL){
+								type->data.named.name = *exists;
+								found = 1;
+								break;
+							}
+							relation = relation->prev;
 						}
-						relation = relation->prev;
-					}
-					if (found == 0){
-						token new_token = type->data.named.name;
-						new_token.data.name = walk->next_generic;
-						token_map_insert(&walk->relations->map, type->data.named.name.data.name, new_token);
-						type->data.named.name = new_token;
-						generate_new_generic(walk);
+						if (found == 0){
+							token new_token = type->data.named.name;
+							new_token.data.name = walk->next_generic;
+							token_map_insert(&walk->relations->map, type->data.named.name.data.name, new_token);
+							type->data.named.name = new_token;
+							generate_new_generic(walk);
+						}
 					}
 				}
 			}
@@ -6223,7 +6310,10 @@ collect_dependencies(realias_walker* const walk, type_ast* const type){
 			if (alias == NULL){
 				typedef_ast** isext = typedef_ptr_map_access(walk->parse->extern_types, type->data.named.name.data.name);
 				if (isext == NULL){
-					token_buffer_insert(&walk->generic_collection_buffer, type->data.named.name);
+					alias_ast** isextalias = alias_ptr_map_access(walk->parse->extern_aliases, type->data.named.name.data.name);
+					if (isextalias == NULL){
+						token_buffer_insert(&walk->generic_collection_buffer, type->data.named.name);
+					}
 				}
 			}
 		}
@@ -11094,18 +11184,19 @@ generate_main(genc* const generator, FILE* fd){
  * error reporting as logging rather than single report
 		 nearest type token function?
  * -CODE GENERATION-----------------------------------------
- * c code generation pass
- * 		I dont know what to do with for
- * 			for ; ; {
- *				will require a whole rework
- * 			}
- * 		only include called functions?
- * 		may need to do dependency resolution for the order the header file is generated in
- * 		polyfunc should check if types are aliased or typedefs
- * 		list literals
- * 		pass remaining args to gcc so we can link with C libraries
- * 		do typedefs for non structures even work? did I forget about them entirely?
- * 		change the way imports work to allow for global extern improts that are more than a single token
+ * 	I dont know what to do with for
+ * 		for ; ; {
+ *			will require a whole rework
+ * 		}
+ * 	only include called functions?
+ * 	may need to do dependency resolution for the order the header file is generated in
+* 	do typedefs for non structures even work? did I forget about them entirely?
+* 	polyfunc should check if types are aliased or typedefs
+ * -GENERATION BUGS-----------------------------------------
+* 	list literals
+* 	foreign aliases
+ * -RESEARCH PAPER------------------------------------------
+ *  rough draft
  */
 
 int

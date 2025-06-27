@@ -515,7 +515,9 @@ typedef struct parser {
 	term_ptr_buffer_map* implemented_terms;
 	term_ptr_map* extern_terms;
 	typedef_ptr_map* extern_types;
+	alias_ptr_map* extern_aliases;
 	term_ast_buffer extern_term_list;
+	alias_ast_buffer extern_alias_list;
 	typedef_ast_buffer extern_type_list;
 	string_map* symbol_to_name;
 	string next_symbol_name;

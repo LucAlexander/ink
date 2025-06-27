@@ -11246,12 +11246,11 @@ generate_main(genc* const generator, FILE* fd){
  * 	may need to do dependency resolution for the order the header file is generated in
 * 	do typedefs for non structures even work? did I forget about them entirely?
 * 	polyfunc should check if types are aliased or typedefs
- * -GENERATION BUGS-----------------------------------------
-* 	fat pointer list literal expansion to given size
-* 		single element padding
  * -RESEARCH PAPER------------------------------------------
  *  rough draft
  */
+
+//maybe get emscripten working?
 
 int
 main(int argc, char** argv){

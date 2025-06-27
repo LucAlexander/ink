@@ -103,7 +103,7 @@ typedef enum MAP_BUCKET_TAG {
 			return type##_map_bucket_insert(map, bucket->left, key, hash, value);\
 		}\
 		else if (string_compare(key, &bucket->key) > 0){\
-			return type##_map_bucket_insert(map, bucket->left, key, hash, value);\
+			return type##_map_bucket_insert(map, bucket->right, key, hash, value);\
 		}\
 		bucket->data = value;\
 		return 1;\

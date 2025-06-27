@@ -6844,14 +6844,14 @@ token_stack_top(token_stack* const stack){
 //NOTE Blocks should. in the general case, be entered with newlines set to NULL, unless they are in the middle of an expression
 //NOTE This function generates uninitialized expressions in the form T f;
 expr_ast*
-transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_relay* const newlines, uint8_t top_level_lambda){
+transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_relay* const newlines, uint8_t top_level_lambda, uint8_t value_stored){
 	try_structure_monomorph(walk, expr->type);
 	switch (expr->tag){
 	case APPL_EXPR:
 		expr_ast* root = expr;
 		uint64_t arg_count = 0;
 		while (root->tag == APPL_EXPR){
-			root->data.appl.right = transform_expr(walk, root->data.appl.right, 0, newlines, 1);
+			root->data.appl.right = transform_expr(walk, root->data.appl.right, 0, newlines, 1, 1);
 			walk_assert_prop();
 			arg_count += 1;
 			root = root->data.appl.left;
@@ -6885,9 +6885,12 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 					if (convert_args == arg_count){
 						type_ast* receptor_type = deep_copy_type(walk, expr->type);
 						function_to_closure_ptr_recursive(walk, receptor_type);
-						expr_ast* call_wrapper = new_term(walk, receptor_type, expr);
-						line_relay_append(newlines, call_wrapper);
-						return term_name(walk, call_wrapper->data.term);
+						if (value_stored == 1){
+							expr_ast* call_wrapper = new_term(walk, receptor_type, expr);
+							line_relay_append(newlines, call_wrapper);
+							return term_name(walk, call_wrapper->data.term);
+						}
+						return expr;
 					}
 				}
 				type_ast* full_type_copy = deep_copy_type(walk, info.term->type);
@@ -7079,25 +7082,31 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		if (arg_count < farg_count){
 			type_ast* receptor_type = deep_copy_type(walk, last_reference->type);
 			function_to_closure_ptr_recursive(walk, receptor_type);
-			expr_ast* call_wrapper = new_term(walk, receptor_type, last_reference);
-			line_relay_append(newlines, call_wrapper);
-			return term_name(walk, call_wrapper->data.term);
+			if (value_stored == 1){
+				expr_ast* call_wrapper = new_term(walk, receptor_type, last_reference);
+				line_relay_append(newlines, call_wrapper);
+				return term_name(walk, call_wrapper->data.term);
+			}
+			return last_reference;
 		}
 		type_ast* converted_root = deep_copy_type(walk, refind_root->type);
 		function_to_structure_recursive(walk, converted_root);
 		expr_ast* closure_call_expr = closure_call(walk, last_reference, newlines, &converted_root->data.ptr->data.structure->data.structure.members[converted_root->data.ptr->data.structure->data.structure.count-2]);
 		type_ast* receptor_type = deep_copy_type(walk, closure_call_expr->type);
 		function_to_closure_ptr_recursive(walk, receptor_type);
-		expr_ast* call_wrapper = new_term(walk, receptor_type, closure_call_expr);
-		line_relay_append(newlines, call_wrapper);
-		return term_name(walk, call_wrapper->data.term);
+		if (value_stored == 1){
+			expr_ast* call_wrapper = new_term(walk, receptor_type, closure_call_expr);
+			line_relay_append(newlines, call_wrapper);
+			return term_name(walk, call_wrapper->data.term);
+		}
+		return closure_call_expr;
 	case STRUCT_ACCESS_EXPR:
-		expr->data.access.left = transform_expr(walk, expr->data.access.left, 0, newlines, 1);
+		expr->data.access.left = transform_expr(walk, expr->data.access.left, 0, newlines, 1, 1);
 		return expr;
 	case ARRAY_ACCESS_EXPR:
-		expr->data.access.left = transform_expr(walk, expr->data.access.left, 0, newlines, 1);
+		expr->data.access.left = transform_expr(walk, expr->data.access.left, 0, newlines, 1, 1);
 		walk_assert_prop();
-		expr->data.access.right->data.list.lines[0] = *transform_expr(walk, &expr->data.access.right->data.list.lines[0], 0, newlines, 1);
+		expr->data.access.right->data.list.lines[0] = *transform_expr(walk, &expr->data.access.right->data.list.lines[0], 0, newlines, 1, 1);
 		return expr;
 	case LAMBDA_EXPR:
 		if (expr->data.lambda.expression->tag != BLOCK_EXPR){
@@ -7119,11 +7128,11 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		for (uint64_t i = 0;i<expr->data.lambda.arg_count;++i){
 			transform_pattern(walk, &expr->data.lambda.args[i], NULL);
 		}
-		transform_expr(walk, expr->data.lambda.expression, 0, NULL, 1);
+		transform_expr(walk, expr->data.lambda.expression, 0, NULL, 1, 1);
 		walk_assert_prop();
 		pop_binding(walk->local_scope, scope_pos);
 		if (expr->data.lambda.alt != NULL){
-			transform_expr(walk, expr->data.lambda.alt, 0, NULL, 0);
+			transform_expr(walk, expr->data.lambda.alt, 0, NULL, 0, 1);
 		}
 		if (top_level_lambda == 1){
 			destructure_lambda_patterns(walk, expr);
@@ -7137,12 +7146,12 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				if (expr->data.block.lines[i].tag == BLOCK_EXPR
 				 || expr->data.block.lines[i].tag == IF_EXPR
 				 || expr->data.block.lines[i].tag == MATCH_EXPR){
-					expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, NULL, 1);
+					expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, NULL, 1, 0);
 					walk_assert_prop();
 					line_relay_append(&outer_lines, line);
 					continue;
 				}
-				expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, &linelines, 1);
+				expr_ast* line = transform_expr(walk, &expr->data.block.lines[i], 0, &linelines, 1, 0);
 				walk_assert_prop();
 				line_relay_append(&linelines, line);
 				line_relay_concat(&outer_lines, &linelines);
@@ -7169,15 +7178,15 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		expr_ast* outer_setter = mk_term(walk->parse->mem, expr->type, &setter_name, NULL);
 		line_relay_append(newlines, outer_setter);
 		replace_return_with_setter(walk, expr, setter_name);
-		expr_ast* walked = transform_expr(walk, expr, 0, NULL, 1);
+		expr_ast* walked = transform_expr(walk, expr, 0, NULL, 1, 1);
 		walk_assert_prop();
 		line_relay_append(newlines, walked);
 		expr_ast* setter_binding = mk_binding(walk->parse->mem, &setter_name);
 		return setter_binding;
 	case FAT_PTR_EXPR:
-		expr->data.fat_ptr.left = transform_expr(walk, expr->data.fat_ptr.left, 0, newlines, 1);
+		expr->data.fat_ptr.left = transform_expr(walk, expr->data.fat_ptr.left, 0, newlines, 1, 1);
 		walk_assert_prop();
-		expr->data.fat_ptr.right = transform_expr(walk, expr->data.fat_ptr.right, 0, newlines, 1);
+		expr->data.fat_ptr.right = transform_expr(walk, expr->data.fat_ptr.right, 0, newlines, 1, 1);
 		expr_ast* fat_wrapper = new_term(walk, expr->type, expr);
 		line_relay_append(newlines, fat_wrapper);
 		return term_name(walk, fat_wrapper->data.term);
@@ -7197,12 +7206,12 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		if (expr->data.term->type->tag != expr->data.term->expression->type->tag){
 			expr_ast* cast = mk_cast(walk->parse->mem, expr->data.term->expression, expr->data.term->type);
 			cast->type = expr->data.term->type;
-			expr->data.term->expression = transform_expr(walk, cast, 0, newlines, 1);
+			expr->data.term->expression = transform_expr(walk, cast, 0, newlines, 1, 1);
 			walk_assert_prop();
 			pop_binding(walk->local_scope, pos);
 			return expr;
 		}
-		expr->data.term->expression = transform_expr(walk, expr->data.term->expression, 0, newlines, 1);
+		expr->data.term->expression = transform_expr(walk, expr->data.term->expression, 0, newlines, 1, 1);
 		walk_assert_prop();
 		pop_binding(walk->local_scope, pos);
 		return expr;
@@ -7223,13 +7232,13 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		return stringbinding;
 	case LIST_EXPR:
 		for (uint64_t i = 0;i<expr->data.list.line_count;++i){
-			expr->data.list.lines[i] = *transform_expr(walk, &expr->data.list.lines[i], 0, newlines, 1);
+			expr->data.list.lines[i] = *transform_expr(walk, &expr->data.list.lines[i], 0, newlines, 1, 1);
 			walk_assert_prop();
 		}
 		return expr;
 	case STRUCT_EXPR: // optimization possible for term = {}, can remain the same, theres also one where a mutation decomposes to a.x = ...; a.y = ....; etc
 		for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
-			expr->data.constructor.members[i] = *transform_expr(walk, &expr->data.constructor.members[i], 0, newlines, 1);
+			expr->data.constructor.members[i] = *transform_expr(walk, &expr->data.constructor.members[i], 0, newlines, 1, 1);
 			walk_assert_prop();
 		}
 		expr_ast* struct_wrapper = new_term(walk, expr->type, expr);
@@ -7313,40 +7322,40 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		}
 		return expr;
 	case MUTATION_EXPR:
-		expr->data.mutation.left = transform_expr(walk, expr->data.mutation.left, 0, newlines, 1);
+		expr->data.mutation.left = transform_expr(walk, expr->data.mutation.left, 0, newlines, 1, 1);
 		walk_assert_prop();
 		if (expr->data.mutation.left->type != NULL && (expr->data.mutation.left->type->tag != expr->data.mutation.right->type->tag)){
 			expr_ast* cast = mk_cast(walk->parse->mem, expr->data.mutation.right, expr->data.mutation.left->type);
 			cast->type = expr->data.mutation.left->type;
-			expr->data.mutation.right = transform_expr(walk, cast, 0, newlines, 1);
+			expr->data.mutation.right = transform_expr(walk, cast, 0, newlines, 1, 1);
 			return expr;
 		}
-		expr->data.mutation.right = transform_expr(walk, expr->data.mutation.right, 0, newlines, 1);
+		expr->data.mutation.right = transform_expr(walk, expr->data.mutation.right, 0, newlines, 1, 1);
 		return expr;
 	case RETURN_EXPR:
-		expr->data.ret = transform_expr(walk, expr->data.ret, 0, newlines, 1);
+		expr->data.ret = transform_expr(walk, expr->data.ret, 0, newlines, 1, 1);
 		return expr;
 	case SIZEOF_EXPR:
 		try_structure_monomorph(walk, expr->data.size_type);
 		walk_assert(type_valid(walk->parse, expr->data.size_type) == 1, nearest_token(expr), "Type invalid in sizeof expression");
 		return expr;
 	case REF_EXPR:
-		expr->data.ref = transform_expr(walk, expr->data.ref, 0, newlines, 1);
+		expr->data.ref = transform_expr(walk, expr->data.ref, 0, newlines, 1, 1);
 		expr_ast* ref_wrapper = new_term(walk, expr->type, expr);
 		line_relay_append(newlines, ref_wrapper);
 		return term_name(walk, ref_wrapper->data.term);
 	case DEREF_EXPR:
-		expr->data.deref = transform_expr(walk, expr->data.deref, 0, newlines, 1);
+		expr->data.deref = transform_expr(walk, expr->data.deref, 0, newlines, 1, 1);
 		return expr;
 	case IF_EXPR:
 		if (newlines == NULL){
 			line_relay outer_lines = line_relay_init(walk->parse->temp_mem);
-			expr->data.if_statement.pred = transform_expr(walk, expr->data.if_statement.pred, 0, &outer_lines, 1);
+			expr->data.if_statement.pred = transform_expr(walk, expr->data.if_statement.pred, 0, &outer_lines, 1, 1);
 			walk_assert_prop();
-			expr->data.if_statement.cons = transform_expr(walk, expr->data.if_statement.cons, 0, NULL, 1);
+			expr->data.if_statement.cons = transform_expr(walk, expr->data.if_statement.cons, 0, NULL, 1, 1);
 			walk_assert_prop();
 			if (expr->data.if_statement.alt != NULL){
-				expr->data.if_statement.alt = transform_expr(walk, expr->data.if_statement.alt, 0, NULL, 1);
+				expr->data.if_statement.alt = transform_expr(walk, expr->data.if_statement.alt, 0, NULL, 1, 1);
 			}
 			if (outer_lines.len > 0){
 				expr_ast* block = pool_request(walk->parse->mem, sizeof(expr_ast));
@@ -7375,28 +7384,28 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		expr_ast* if_outer_setter = mk_term(walk->parse->mem, expr->type, &if_setter_name, NULL);
 		line_relay_append(newlines, if_outer_setter);
 		replace_return_with_setter(walk, expr, if_setter_name);
-		expr_ast* if_walked = transform_expr(walk, expr, 0, NULL, 1);
+		expr_ast* if_walked = transform_expr(walk, expr, 0, NULL, 1, 1);
 		walk_assert_prop();
 		line_relay_append(newlines, if_walked);
 		expr_ast* if_setter_binding = mk_binding(walk->parse->mem, &if_setter_name);
 		return if_setter_binding;
 	case FOR_EXPR:
-		expr->data.for_statement.initial = transform_expr(walk, expr->data.for_statement.initial, 0, newlines, 1);
+		expr->data.for_statement.initial = transform_expr(walk, expr->data.for_statement.initial, 0, newlines, 1, 1);
 		walk_assert_prop();
 		uint64_t for_scope_pos = push_binding(walk, walk->local_scope, &expr->data.for_statement.initial->data.binding, expr->data.for_statement.initial->type);
-		expr->data.for_statement.limit = transform_expr(walk, expr->data.for_statement.limit, 0, newlines, 1);
+		expr->data.for_statement.limit = transform_expr(walk, expr->data.for_statement.limit, 0, newlines, 1, 1);
 		walk_assert_prop();
-		expr->data.for_statement.cons = transform_expr(walk, expr->data.for_statement.cons, 0, NULL, 1);
+		expr->data.for_statement.cons = transform_expr(walk, expr->data.for_statement.cons, 0, NULL, 1, 1);
 		walk_assert_prop();
 		pop_binding(walk->local_scope, for_scope_pos-1);
 		return expr;
 	case WHILE_EXPR:
 		line_relay_node* prev_list = newlines->last;
 		uint64_t prev_len = newlines->len;
-		expr->data.while_statement.pred = transform_expr(walk, expr->data.while_statement.pred, 0, newlines, 1);
+		expr->data.while_statement.pred = transform_expr(walk, expr->data.while_statement.pred, 0, newlines, 1, 1);
 		uint64_t diff_len = newlines->len - prev_len;
 		walk_assert_prop();
-		expr->data.while_statement.cons = transform_expr(walk, expr->data.while_statement.cons, 0, NULL, 1);
+		expr->data.while_statement.cons = transform_expr(walk, expr->data.while_statement.cons, 0, NULL, 1, 1);
 		assert(expr->data.while_statement.cons->tag == BLOCK_EXPR);
 		if (diff_len > 0){
 			uint64_t newsize = diff_len + expr->data.while_statement.cons->data.block.line_count;
@@ -7454,12 +7463,12 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		}
 		if (newlines == NULL){
 			line_relay outer_lines = line_relay_init(walk->parse->temp_mem);
-			expr->data.match.pred = transform_expr(walk, expr->data.match.pred, 0, &outer_lines, 1);
+			expr->data.match.pred = transform_expr(walk, expr->data.match.pred, 0, &outer_lines, 1, 1);
 			walk_assert_prop();
 			for (uint64_t i = 0;i<expr->data.match.count;++i){
 				uint64_t match_scope_pos = walk->local_scope->binding_count;
 				transform_pattern(walk, &expr->data.match.patterns[i], NULL);
-				expr->data.match.cases[i] = *transform_expr(walk, &expr->data.match.cases[i], 0, NULL, 1);
+				expr->data.match.cases[i] = *transform_expr(walk, &expr->data.match.cases[i], 0, NULL, 1, 1);
 				walk_assert_prop();
 				pop_binding(walk->local_scope, match_scope_pos);
 			}
@@ -7491,7 +7500,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		expr_ast* match_outer_setter = mk_term(walk->parse->mem, expr->type, &match_setter_name, NULL);
 		line_relay_append(newlines, match_outer_setter);
 		replace_return_with_setter(walk, expr, match_setter_name);
-		expr_ast* match_walked = transform_expr(walk, expr, 0, NULL, 1);
+		expr_ast* match_walked = transform_expr(walk, expr, 0, NULL, 1, 1);
 		walk_assert_prop();
 		line_relay_append(newlines, match_walked);
 		expr_ast* match_setter_binding = mk_binding(walk->parse->mem, &match_setter_name);
@@ -7521,7 +7530,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				expr->data.cast.source = swrapper;
 			}
 		}
-		expr->data.cast.source = transform_expr(walk, expr->data.cast.source, 0, newlines, 1);
+		expr->data.cast.source = transform_expr(walk, expr->data.cast.source, 0, newlines, 1, 1);
 		walk_assert_prop();
 		token termname = {
 			.content_tag = STRING_TOKEN_TYPE,
@@ -7548,7 +7557,7 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 					cast_memcpy_binding,
 					mk_ref(walk->parse->mem, termbinding)
 				),
-				transform_expr(walk, cast_source, 0, newlines, 0)
+				transform_expr(walk, cast_source, 0, newlines, 0, 1)
 			),
 			mk_sizeof(walk->parse->mem, expr->data.cast.target)
 		);
@@ -7576,7 +7585,7 @@ transform_term(walker* const walk, term_ast* const term, uint8_t is_outer){
 		block->data.block.lines = mk_return(walk->parse->mem, term->expression);
 		term->expression = block;
 	}
-	transform_expr(walk, term->expression, is_outer, NULL, 1);
+	transform_expr(walk, term->expression, is_outer, NULL, 1, 1);
 	pop_binding(walk->local_scope, scope_pos);
 }
 
@@ -11211,8 +11220,6 @@ generate_main(genc* const generator, FILE* fd){
 * 	polyfunc should check if types are aliased or typedefs
  * -GENERATION BUGS-----------------------------------------
 * 	list literals
-* 	dont prefix externs
-* 	dont set non set functions
  * -RESEARCH PAPER------------------------------------------
  *  rough draft
  */

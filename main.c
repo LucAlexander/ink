@@ -7184,6 +7184,34 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		expr_ast* setter_binding = mk_binding(walk->parse->mem, &setter_name);
 		return setter_binding;
 	case FAT_PTR_EXPR:
+		if (expr->data.fat_ptr.left->tag == LIST_EXPR){
+			if (expr->data.fat_ptr.left->data.list.lines[0].tag == LIT_EXPR){
+				if (expr->data.fat_ptr.right->tag == LIT_EXPR){
+					expr_ast* list_literal = expr->data.fat_ptr.left;
+					uint64_t desired_length = expr->data.fat_ptr.right->data.literal.data.u;
+					walk_assert(list_literal->data.list.line_count <= desired_length, nearest_token(expr), " more elements in stack list literal than given as fat pointer length");
+					if (list_literal->data.list.line_count == 1){
+						if (desired_length == 1){
+							desired_length += 1;
+						}
+					}
+					if (list_literal->data.list.line_count < desired_length){
+						expr_ast* elems = pool_request(walk->parse->mem, sizeof(expr_ast)*desired_length);
+						for (uint64_t i = 0;i<list_literal->data.list.line_count;++i){
+							elems[i] = list_literal->data.list.lines[i];
+						}
+						for (uint64_t i = list_literal->data.list.line_count;i<desired_length;++i){
+							elems[i].type = list_literal->data.list.lines[0].type;
+							elems[i].tag = LIT_EXPR;
+							elems[i].data.literal.tag = UINT_LITERAL;
+							elems[i].data.literal.data.u = 0;
+						}
+						list_literal->data.list.lines = elems;
+						list_literal->data.list.line_count = desired_length;
+					}
+				}
+			}
+		}
 		expr->data.fat_ptr.left = transform_expr(walk, expr->data.fat_ptr.left, 0, newlines, 1, 1);
 		walk_assert_prop();
 		expr->data.fat_ptr.right = transform_expr(walk, expr->data.fat_ptr.right, 0, newlines, 1, 1);
@@ -11219,7 +11247,8 @@ generate_main(genc* const generator, FILE* fd){
 * 	do typedefs for non structures even work? did I forget about them entirely?
 * 	polyfunc should check if types are aliased or typedefs
  * -GENERATION BUGS-----------------------------------------
-* 	list literals
+* 	fat pointer list literal expansion to given size
+* 		single element padding
  * -RESEARCH PAPER------------------------------------------
  *  rough draft
  */

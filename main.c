@@ -5071,13 +5071,16 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* po
 		if (left->tag != NAMED_TYPE){
 			return 0;
 		}
-		typedef_ast** istypedef = typedef_ptr_map_access(parse->types, left->data.named.name.data.name);
-		typedef_ast** isextern = typedef_ptr_map_access(parse->extern_types, left->data.named.name.data.name);
 		alias_ast** isalias = alias_ptr_map_access(parse->aliases, left->data.named.name.data.name);
 		alias_ast** isexternalias = alias_ptr_map_access(parse->extern_aliases, left->data.named.name.data.name);
-		if (istypedef != NULL || isalias != NULL || isextern != NULL || isexternalias != NULL){
+		if (isalias != NULL || isexternalias != NULL){
 			type_ast* aliased_left = reduce_alias(parse, left);
 			return clash_types_worker(parse, relation, pointer_only, aliased_left, right);
+		}
+		typedef_ast** istypedef = typedef_ptr_map_access(parse->types, left->data.named.name.data.name);
+		typedef_ast** isextern = typedef_ptr_map_access(parse->extern_types, left->data.named.name.data.name);
+		if (istypedef != NULL || isextern != NULL){
+			return 0;
 		}
 		type_ast* confirm = type_ast_map_access(relation, left->data.named.name.data.name);
 		if (confirm != NULL){
@@ -11249,8 +11252,6 @@ generate_main(genc* const generator, FILE* fd){
  * -RESEARCH PAPER------------------------------------------
  *  rough draft
  */
-
-//maybe get emscripten working?
 
 int
 main(int argc, char** argv){

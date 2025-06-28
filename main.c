@@ -3902,11 +3902,13 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		walk_assert_prop();
 		if (expr->data.if_statement.alt != NULL){
 			type_ast* alt_type = walk_expr(walk, expr->data.if_statement.alt, NULL, outer_type, 0);
-			if (type_equal(walk->parse, cons_type, alt_type) == 1){
-				pop_binding(walk->local_scope, scope_pos);
-				token_stack_pop(walk->term_stack, token_pos);
-				expr->type = cons_type;
-				return cons_type;
+			if (cons_type != NULL && alt_type != NULL){
+				if (type_equal(walk->parse, cons_type, alt_type) == 1){
+					pop_binding(walk->local_scope, scope_pos);
+					token_stack_pop(walk->term_stack, token_pos);
+					expr->type = cons_type;
+					return cons_type;
+				}
 			}
 			pop_binding(walk->local_scope, scope_pos);
 			token_stack_pop(walk->term_stack, token_pos);
@@ -4005,7 +4007,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			expr->type = expr->data.cast.target;
 			return expr->data.cast.target;
 		}
-		walk_assert(type_equal(walk->parse, expected_type, expr->data.cast.target), nearest_token(expr), "Expected type did not match target type of cast");
+		walk_assert(type_equiv(walk, expected_type, reduce_alias_and_type(walk->parse, expr->data.cast.target)), nearest_token(expr), "Expected type did not match target type of cast");
 		pop_binding(walk->local_scope, scope_pos);
 		token_stack_pop(walk->term_stack, token_pos);
 		expr->type = expr->data.cast.target;
@@ -7269,7 +7271,9 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		return expr;
 	case STRUCT_EXPR: // optimization possible for term = {}, can remain the same, theres also one where a mutation decomposes to a.x = ...; a.y = ....; etc
 		for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
-			expr->data.constructor.members[i] = *transform_expr(walk, &expr->data.constructor.members[i], 0, newlines, 1, 1);
+			expr_ast* newmember = transform_expr(walk, &expr->data.constructor.members[i], 0, newlines, 1, 1);
+			walk_assert(newmember != NULL, nearest_token(&expr->data.constructor.members[i]), "Member did not resolve to type");
+			expr->data.constructor.members[i] = *newmember;
 			walk_assert_prop();
 		}
 		expr_ast* struct_wrapper = new_term(walk, expr->type, expr);
@@ -11249,6 +11253,8 @@ generate_main(genc* const generator, FILE* fd){
  * 	may need to do dependency resolution for the order the header file is generated in
 * 	do typedefs for non structures even work? did I forget about them entirely?
 * 	polyfunc should check if types are aliased or typedefs
+* 	return match server {} (Just s) : ...; (Nothing) : ...;
+* 		generates incorrectly
  * -RESEARCH PAPER------------------------------------------
  *  rough draft
  */

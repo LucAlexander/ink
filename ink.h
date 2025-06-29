@@ -805,7 +805,7 @@ void write_name(genc* const generator, FILE* hfd, token name);
 string ink_prefix(genc* const generator, string* const name);
 void ink_indent(FILE* fd, uint64_t indent);
 void write_term_impl(genc* const generator, FILE* fd, term_ast* const term);
-void write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t indent, uint8_t free);
+void write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t indent, uint8_t free, uint8_t access);
 void generate_main(genc* const generator, FILE* fd);
 void generate_new_func_name(genc* const generator);
 void write_call(genc* const generator, FILE* fd, expr_ast* const expr, expr_ast* const first);
@@ -813,5 +813,27 @@ void replace_with_poly_binding(genc* const generator, token* const bind, type_as
 void find_func_types(genc* const generator, type_ast* const type);
 void find_func_types_struct(genc* const generator, structure_ast* const s);
 void include_foreign(genc* const generator, FILE* fd);
+
+typedef struct dep_graph_node dep_graph_node;
+typedef struct dep_graph_node {
+	enum {ALIAS_DEP, TYPE_DEP} tag;
+	union {
+		alias_ast* alias;
+		typedef_ast* type;
+	} data;
+	dep_graph_node** input_index;
+	dep_graph_node** output_index;
+	uint64_t inputs;
+	uint64_t in_capacity;
+	uint64_t outputs;
+	uint64_t out_capacity;
+} dep_graph_node;
+
+typedef dep_graph_node* dep_ptr;
+
+MAP_DECL(dep_ptr);
+GROWABLE_BUFFER_DECL(dep_ptr);
+
+void fill_dependencies(parser* const parse, dep_ptr_map* const deps, dep_graph_node** const nodes, uint64_t dep_count, dep_graph_node* const node);
 
 #endif

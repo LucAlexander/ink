@@ -11304,7 +11304,6 @@ generate_main(genc* const generator, FILE* fd){
 	fprintf(fd, "int main(){\n\treturn usr_ink_main();\n}\n");
 }
 
-//TODO this function needs to be recursive on nested structures
 void
 fill_dependencies(parser* const parse, dep_ptr_map* const deps, dep_graph_node** const nodes, uint64_t dep_count, dep_graph_node* const node){
 	type_ast* reduced;
@@ -11322,12 +11321,20 @@ fill_dependencies(parser* const parse, dep_ptr_map* const deps, dep_graph_node**
 		}
 		break;
 	}
+	fill_dep_from_structure(parse, deps, node, reduced);
+}
+
+void
+fill_dep_from_structure(parser* const parse, dep_ptr_map* const deps, dep_graph_node* const node, type_ast* const reduced){
 	structure_ast* inner = reduced->data.structure;
 	switch (inner->tag){
 	case STRUCT_STRUCT:
 		for (uint64_t i = 0;i<inner->data.structure.count;++i){
 			type_ast* member = &inner->data.structure.members[i];
 			if (member->tag != NAMED_TYPE){
+				if (member->tag == STRUCT_TYPE){
+					fill_dep_from_structure(parse, deps, node, member);
+				}
 				continue;
 			}
 			dep_graph_node** find = dep_ptr_map_access(deps, member->data.named.name.data.name);
@@ -11361,6 +11368,9 @@ fill_dependencies(parser* const parse, dep_ptr_map* const deps, dep_graph_node**
 		for (uint64_t i = 0;i<inner->data.union_structure.count;++i){
 			type_ast* member = &inner->data.union_structure.members[i];
 			if (member->tag != NAMED_TYPE){
+				if (member->tag == STRUCT_TYPE){
+					fill_dep_from_structure(parse, deps, node, member);
+				}
 				continue;
 			}
 			dep_graph_node** find = dep_ptr_map_access(deps, member->data.named.name.data.name);
@@ -11406,8 +11416,9 @@ fill_dependencies(parser* const parse, dep_ptr_map* const deps, dep_graph_node**
  * 		}
  * 	only include called functions?
 * 	do typedefs for non structures even work? did I forget about them entirely?
+* 	extern struct binding and access is difficult, bindings need matched ink structures
 * 	polyfunc should check if types are aliased or typedefs
-* 	return match server {} (Just s) : ...; (Nothing) : ...;
+* 	return match server { (Just s) : ...; (Nothing) : ...; };
 * 		generates incorrectly
  * -RESEARCH PAPER------------------------------------------
  *  rough draft

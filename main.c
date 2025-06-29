@@ -10102,7 +10102,7 @@ generate_c(walker* const walk, parser* const parse, char* input, char* output, c
 	char* hfile = pool_request(parse->mem, ERROR_STRING_MAX+3);
 	strncpy(hfile, input, ERROR_STRING_MAX);
 	strncat(hfile, ".h", 3);
-	{
+	{ // source file
 		FILE* cfd = fopen(cfile, "w");
 		if (cfd == NULL){
 			fprintf(stderr, "File '%s' could not be opened for writing\n", cfile);
@@ -10114,6 +10114,10 @@ generate_c(walker* const walk, parser* const parse, char* input, char* output, c
 			write_constant(&generator, cfd, &parse->const_list.buffer[i]);
 		}
 		//function implementations
+		token_map called_symbols = token_map_init(parse->temp_mem);
+		term_ast* main_term = *term_ptr_map_access(parse->terms, string_init(parse->temp_mem, "main"));
+		scrape_globals(&generator, main_term->expression, &called_symbols);
+		//TODO scrape through main, log all global function references in map, do recursively
 		for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 			implementation_ast* impl = &parse->implementation_list.buffer[i];
 			for (uint64_t t = 0;t<impl->member_count;++t){
@@ -10132,7 +10136,7 @@ generate_c(walker* const walk, parser* const parse, char* input, char* output, c
 		generate_main(&generator, cfd);
 		fclose(cfd);
 	}
-	{
+	{ // header file
 		FILE* hfd = fopen(hfile, "w");
 		if (hfd == NULL){
 			fprintf(stderr, "File '%s' could not be opened for writing\n", hfile);
@@ -11405,9 +11409,120 @@ fill_dep_from_structure(parser* const parse, dep_ptr_map* const deps, dep_graph_
 	}
 }
 
+void
+scrape_globals(genc* const generator, expr_ast* const expr, token_map* const called){
+	if (expr == NULL){
+		return;
+	}
+	switch (expr->tag){
+	case APPL_EXPR:
+		scrape_globals(generator, expr->data.appl.left, called);
+		scrape_globals(generator, expr->data.appl.right, called);
+		return;
+	case LAMBDA_EXPR:
+		scrape_globals(generator, expr->data.lambda.expression, called);
+		if (expr->data.lambda.alt != NULL){
+			scrape_globals(generator, expr->data.lambda.alt, called);
+		}
+		return;
+	case BLOCK_EXPR:
+		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
+			scrape_globals(generator, &expr->data.block.lines[i], called);
+		}
+		return;
+	case LIT_EXPR:
+		return;
+	case TERM_EXPR:
+		if (expr->data.term->type->tag == FUNCTION_TYPE){
+			return;
+		}
+		scrape_globals(generator, expr->data.term->expression, called);
+		return;
+	case STRING_EXPR:
+		return;
+	case LIST_EXPR:
+		for (uint64_t i = 0;i<expr->data.list.line_count;++i){
+			scrape_globals(generator, &expr->data.list.lines[i], called);
+		}
+		return;
+	case STRUCT_EXPR:
+		for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
+			scrape_globals(generator, &expr->data.constructor.members[i], called);
+		}
+		return;
+	case BINDING_EXPR:
+		scope_info top_level = in_scope_transform(generator->walk, &expr->data.binding, expr->type);
+		if (top_level.top_level == 0){
+			return;
+		}
+		token_map_insert(called, expr->data.binding.data.name, expr->data.binding);
+		if (top_level.term == NULL){
+			return;
+		}
+		scrape_globals(generator, top_level.term->expression, called);
+		return;
+	case MUTATION_EXPR:
+		scrape_globals(generator, expr->data.mutation.left, called);
+		scrape_globals(generator, expr->data.mutation.right, called);
+		return;
+	case RETURN_EXPR:
+		scrape_globals(generator, expr->data.ret, called);
+		return;
+	case SIZEOF_EXPR:
+		return;
+	case REF_EXPR:
+		scrape_globals(generator, expr->data.ref, called);
+		return;
+	case DEREF_EXPR:
+		scrape_globals(generator, expr->data.deref, called);
+		return;
+	case IF_EXPR:
+		scrape_globals(generator, expr->data.if_statement.pred, called);
+		scrape_globals(generator, expr->data.if_statement.cons, called);
+		if (expr->data.if_statement.alt != NULL){
+			scrape_globals(generator, expr->data.if_statement.alt, called);
+		}
+		return;
+	case FOR_EXPR:
+		//TODO
+		return;
+	case WHILE_EXPR:
+		scrape_globals(generator, expr->data.while_statement.pred, called);
+		scrape_globals(generator, expr->data.while_statement.cons, called);
+		return;
+	case MATCH_EXPR:
+		scrape_globals(generator, expr->data.match.pred, called);
+		for (uint64_t i = 0;i<expr->data.match.count;++i){
+			scrape_globals(generator, &expr->data.match.cases[i], called);
+		}
+		return;
+	case CAST_EXPR:
+		scrape_globals(generator, expr->data.cast.source, called);
+		return;
+	case BREAK_EXPR:
+		return;
+	case CONTINUE_EXPR:
+		return;
+	case NOP_EXPR:
+		return;
+	case STRUCT_ACCESS_EXPR:
+		scrape_globals(generator, expr->data.access.left, called);
+		scrape_globals(generator, expr->data.access.right, called);
+		return;
+	case ARRAY_ACCESS_EXPR:
+		scrape_globals(generator, expr->data.access.left, called);
+		scrape_globals(generator, expr->data.access.right, called);
+		return;
+	case FAT_PTR_EXPR:
+		scrape_globals(generator, expr->data.fat_ptr.left, called);
+		scrape_globals(generator, expr->data.fat_ptr.right, called);
+		return;
+	}
+}
+
 /* TODO
  * -ERROR REPORTING-----------------------------------------
- * error reporting as logging rather than single report
+ *  error reporting as logging rather than single report
 		 nearest type token function?
  * -CODE GENERATION-----------------------------------------
  * 	I dont know what to do with for
@@ -11415,11 +11530,12 @@ fill_dep_from_structure(parser* const parse, dep_ptr_map* const deps, dep_graph_
  *			will require a whole rework
  * 		}
  * 	only include called functions?
-* 	do typedefs for non structures even work? did I forget about them entirely?
-* 	extern struct binding and access is difficult, bindings need matched ink structures
-* 	polyfunc should check if types are aliased or typedefs
-* 	return match server { (Just s) : ...; (Nothing) : ...; };
-* 		generates incorrectly
+ * -BUGS----------------------------------------------------
+ * 	do typedefs for non structures even work? did I forget about them entirely?
+ * 	extern struct binding and access is difficult, bindings need matched ink structures
+ * 	polyfunc should check if types are aliased or typedefs
+ * 	return match server { (Just s) : ...; (Nothing) : ...; };
+ * 		generates incorrectly
  * -RESEARCH PAPER------------------------------------------
  *  rough draft
  */

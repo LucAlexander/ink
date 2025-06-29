@@ -836,5 +836,6 @@ GROWABLE_BUFFER_DECL(dep_ptr);
 
 void fill_dependencies(parser* const parse, dep_ptr_map* const deps, dep_graph_node** const nodes, uint64_t dep_count, dep_graph_node* const node);
 void fill_dep_from_structure(parser* const parse, dep_ptr_map* const deps, dep_graph_node* const node, type_ast* const reduced);
+void scrape_globals(genc* const generator, expr_ast* const expr, token_map* const called);
 
 #endif

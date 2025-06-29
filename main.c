@@ -7375,7 +7375,9 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 	case SIZEOF_EXPR:
 		try_structure_monomorph(walk, expr->data.size_type);
 		walk_assert(type_valid(walk->parse, expr->data.size_type) == 1, nearest_token(expr), "Type invalid in sizeof expression");
-		return expr;
+		expr_ast* size_wrapper = new_term(walk, expr->type, expr);
+		line_relay_append(newlines, size_wrapper);
+		return term_name(walk, size_wrapper->data.term);
 	case REF_EXPR:
 		expr->data.ref = transform_expr(walk, expr->data.ref, 0, newlines, 1, 1);
 		expr_ast* ref_wrapper = new_term(walk, expr->type, expr);
@@ -11403,7 +11405,6 @@ fill_dependencies(parser* const parse, dep_ptr_map* const deps, dep_graph_node**
  *			will require a whole rework
  * 		}
  * 	only include called functions?
-	 CURRENT TASK BEFORE INK SERVER PROGRAM CAN RUN: * 	may need to do dependency resolution for the order the header file is generated in
 * 	do typedefs for non structures even work? did I forget about them entirely?
 * 	polyfunc should check if types are aliased or typedefs
 * 	return match server {} (Just s) : ...; (Nothing) : ...;

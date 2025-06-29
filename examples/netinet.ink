@@ -204,5 +204,18 @@ external {
 	uint16_t -> uint16_t htons;
 	i32 -> (u8)^ -> i32 bindresvport;
 	i32 -> (u8)^ -> i32 bindresvport6;
-	type sockaddr_in = struct {u8^ empty;};
+	type sockaddr_in = struct {
+		sa_family_t var sin_family;
+		in_port_t var sin_port;
+		struct {in_addr_t var s_addr;} var sin_addr;
+		u64 var sin_zero;
+	};
 }
+
+type sockaddr_in_ink = struct {
+	sa_family_t var sin_family;
+	in_port_t var sin_port;
+	struct {in_addr_t var s_addr;} var sin_addr;
+	u64 var sin_zero;
+};
+

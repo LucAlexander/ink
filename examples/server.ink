@@ -13,55 +13,55 @@ type Server = struct {
 	sockaddr_in^ address; 
 };
 
-type Maybe T = struct {
-	enum {Just, Nothing} tag;
-	T val;
-};
-
-i32 -> u16 -> i32 -> i32 -> i32 -> u32 -> Maybe Server
+i32 -> u16 -> i32 -> i32 -> i32 -> u32 -> u64
 server_init = \domain port service protocol backlog interface : {
-	sockaddr_in address = {
+	sockaddr_in_ink address = {
 		sin_family = domain,
-		sin_addr = { // NOTE these must be in this exact order since its an extern structure
-			s_addr = htonl interface
-		},
+		sin_addr = {s_addr = htonl interface},
 		sin_port = htons port
-	} as sockaddr_in;
+	};
 	Server server = {
 		domain, port, service, protocol, backlog,
 		socket domain service protocol,
-		(&address)
+		(&(address as sockaddr_in))
 	};
 	if server.socket < 0 {
 		print "Failed to initialize / connect to socket\n";
-		return {Nothing};
+		return 0;
 	};
 	i32 bound = bind (server.socket) (server.address as u8^) ((sizeof sockaddr_in) as u32);
 	if bound < 0 {
 		print "Failed to bind socket\n";
-		return {Nothing};
+		return 0;
 	};
 	i32 listening = listen (server.socket) (server.backlog);
 	if listening < 0 {
 		print "Failed to listen\n";
-		return {Nothing};
+		return 0;
 	};
-	return {Just, server};
+	return launch_server &server;
 };
 
 Server^ -> u64
 launch_server = \server:{
 	Arena arena = arena_init (BUFFER_SIZE*2) ARENA_STATIC;
 	u8^ buffer_region = (&arena) ## BUFFER_SIZE;
-	[i8] buffer = [(buffer_region as i8^), BUFFER_SIZE];
+	[i8] buffer = [
+		(buffer_region as i8^),
+		BUFFER_SIZE
+	];
 	while 1 {
 		print "Waiting for connection ...\n";
 		u64 addrlen = sizeof sockaddr_in;
+		sockaddr_in client_addr = {empty=0} as sockaddr_in;
 		i32 new_socket =
 			accept
 				(server.socket)
-				(server.address as u8^)
-				(addrlen as socklen_t^);
+				((&client_addr) as u8^)
+				((&addrlen)     as socklen_t^);
+		if new_socket < 0 {
+			print "Error accepting connection\n";
+		};
 		u64 bytes_read =
 			read
 				new_socket
@@ -85,15 +85,11 @@ launch_server = \server:{
 };
 
 u64 main = {
-	Maybe Server server =
+	return
 		server_init
 			AF_INET
-			3000
+			8080
 			SOCK_STREAM
 			0 10
 			INADDR_ANY;
-	if server.tag == Just {
-		return launch_server (&(server.val));
-	};
-	return print "Error initializing server\n";
 };

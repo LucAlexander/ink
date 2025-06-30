@@ -17,7 +17,7 @@ Ink is a heavily WIP language project. I am writing this entirely from my own he
 
 ```haskell
 
-import "io.ink"
+import "std/io.ink"
 
 u64 main = print "Hello world\n";
 
@@ -28,7 +28,7 @@ u64 main = print "Hello world\n";
 
 test.ink:
 ```haskell
-import "io.ink"
+import "std/io.ink"
 
 u64 main = {
     Arena pool = arena_init 512 ARENA_STATIC;

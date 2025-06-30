@@ -1,4 +1,5 @@
 import json
+import sys
 
 def load(filename):
     with open(f'{filename}.json', 'r') as infile:
@@ -8,7 +9,6 @@ def load(filename):
 def write(filename, content):
     with open(f'{filename}.ink', 'w') as outfile:
         outfile.write('external {\n')
-        outfile.write('\timport global "SDL2/SDL.h"\n')
         [outfile.write(f'\t{item}\n') for item in content if item != '']
         outfile.write('}\n')
 
@@ -176,4 +176,6 @@ def process(data):
     ]
 
 if __name__=='__main__':
-    write('sdl2', process(load('sdl2')))
+    assert len(sys.argc) == 2, "provide json ffi stub name\n"
+    stub = sys.argv[1]
+    write(stub, process(load(stub)))

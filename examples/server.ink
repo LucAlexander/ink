@@ -1,5 +1,5 @@
-import "netinet.ink"
-import "io.ink"
+import "std/netinet.ink"
+import "std/io.ink"
 
 constant BUFFER_SIZE = 16000;
 

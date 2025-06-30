@@ -1,4 +1,5 @@
-import "io.ink"
+import "std/io.ink"
+import "std/ffi.ink"
 
 u64 main = {
 	Arena pool = arena_init 512 ARENA_STATIC;
@@ -13,6 +14,6 @@ u64 main = {
 	
 	u64 numeric = 5;
 
-	print $ left +% numeric ++ right;
+	printf $ left +% numeric ++ right;
 	return 0;
 };

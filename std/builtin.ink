@@ -23,6 +23,12 @@ T -> T ^~ = \x: 0;
 compose = \f g x:
 	f (g x);
 
+A -> (A -> B) -> B
+|> = \a f: f a;
+
+(A -> B) -> A -> B
+<| = \f a: f a;
+
 alias uword = u64;
 alias word = i64;
 alias ubyte = u8;

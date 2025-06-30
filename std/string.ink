@@ -1,4 +1,4 @@
-import "allocators.ink"
+import "std/allocators.ink"
 
 type String = struct {
 	Arena^ mem;

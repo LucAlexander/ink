@@ -1,4 +1,4 @@
-import "string.ink"
+import "std/string.ink"
 
 String -> u64
 print = \msg:

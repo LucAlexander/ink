@@ -1,4 +1,4 @@
-import "builtin.ink"
+import "std/builtin.ink"
 
 u64 -> u8^
 alloc = \size: malloc size;

@@ -495,7 +495,7 @@ u64 main = {
 
 io.ink:
 ```haskell
-import "string.ink"
+import "std/string.ink"
 
 String -> u64
 print = \msg:
@@ -527,7 +527,7 @@ uword implements Formattable {
 
 string.ink:
 ```haskell
-import "allocators.ink"
+import "std/allocators.ink"
 
 type String = struct {
 	Arena^ mem;
@@ -561,7 +561,7 @@ String implements MonoidAlloc {
 
 allocators.ink:
 ```haskell
-import "builtin.ink"
+import "std/builtin.ink"
 
 u64 -> u8^
 alloc = \size: malloc size;
@@ -800,7 +800,7 @@ u64 main = {
 
 # Example, SDL2
 ```haskell
-import "sdl2.ink"
+import "std/sdl2.ink"
 
 u64 main = {
 	SDL_Init SDL_INIT_VIDEO;
@@ -821,9 +821,9 @@ u64 main = {
 
 # Example, Web Assembly
 ```haskell
-import "sdl2.ink"
-import "emscripten.ink"
-import "builtin.ink"
+import "std/sdl2.ink"
+import "std/emscripten.ink"
+import "std/builtin.ink"
 
 u8^ -> u8 emscripten_frame = \args: {
 	Graphics^ g = (args as Graphics^);

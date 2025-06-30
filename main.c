@@ -10116,18 +10116,22 @@ generate_c(walker* const walk, parser* const parse, char* input, char* output, c
 		//function implementations
 		token_map called_symbols = token_map_init(parse->temp_mem);
 		term_ast* main_term = *term_ptr_map_access(parse->terms, string_init(parse->temp_mem, "main"));
+		token_map_insert(&called_symbols, string_init(parse->temp_mem, "main"), (token){0});
 		scrape_globals(&generator, main_term->expression, &called_symbols);
-		//TODO scrape through main, log all global function references in map, do recursively
 		for (uint64_t i = 0;i<parse->implementation_list.count;++i){
 			implementation_ast* impl = &parse->implementation_list.buffer[i];
 			for (uint64_t t = 0;t<impl->member_count;++t){
 				if (is_generic(parse, impl->members[t].type) == 1){
 					continue;
 				}
+				scrape_globals(&generator, impl->members[t].expression, &called_symbols);
 				write_term_impl(&generator, cfd, &impl->members[t]);
 			}
 		}
 		for (uint64_t i = 0;i<parse->term_list.count;++i){
+			if (token_map_access(&called_symbols, parse->term_list.buffer[i].name.data.name) == NULL){
+				continue;
+			}
 			if (is_generic(parse, parse->term_list.buffer[i].type) == 1){
 				continue;
 			}

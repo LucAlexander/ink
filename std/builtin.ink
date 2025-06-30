@@ -33,4 +33,5 @@ alias uword = u64;
 alias word = i64;
 alias ubyte = u8;
 alias byte = i8;
+alias cstr = i8^;
 

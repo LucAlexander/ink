@@ -1,8 +1,12 @@
 import "std/string.ink"
 
 String -> u64
-print = \msg:
+printf = \msg:
 	write 1 ((msg.data.ptr) as (u8^)) (msg.data.len);
+
+[i8] -> u64
+print = \msg:
+	write 1 ((msg.ptr) as u8^) (msg.len);
 
 typeclass Formattable F {
 	String -> F -> String +%;

@@ -11532,8 +11532,7 @@ scrape_globals(genc* const generator, expr_ast* const expr, token_map* const cal
  * 	I dont know what to do with for
  * 		for ; ; {
  *			will require a whole rework
- * 		}
- * 	only include called functions?
+ * 		} but it doesnt have a way to generate efficient code the way it currently is, oops
  * -BUGS----------------------------------------------------
  * 	do typedefs for non structures even work? did I forget about them entirely?
  * 	extern struct binding and access is difficult, bindings need matched ink structures

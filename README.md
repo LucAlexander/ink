@@ -296,6 +296,7 @@ While is just repeated if, you cannot use it as an expression and it doesn't get
 
 ```haskell
 import "std/io.ink"
+import "std/ffi.ink"
 
 u64 main = {
 	u64 var i = 0;
@@ -305,6 +306,21 @@ u64 main = {
 	return i;
 };
 
+```
+
+##### for
+For is a structured while loop, it takes an initial clause, a condition to check, and a mutation clause that runs at the end of each iteration.
+
+```haskell
+import "std/io.ink"
+import "std/ffi.ink"
+
+u64 main = {
+    for i32 var i = 0; i<10 ; i=i+1 {
+        print "hi\n";
+    };
+    return 0;
+};
 ```
 
 ##### match

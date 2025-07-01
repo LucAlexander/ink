@@ -11575,10 +11575,6 @@ scrape_globals(genc* const generator, expr_ast* const expr, token_map* const cal
  * -ERROR REPORTING-----------------------------------------
  *  error reporting as logging rather than single report
 		 nearest type token function?
- * -CODE GENERATION-----------------------------------------
- * for
- * 	inline initial closure
- * 	loop handling in transform like while loop
  * -BUGS----------------------------------------------------
  * 	do typedefs for non structures even work? did I forget about them entirely?
  * 	extern struct binding and access is difficult, bindings need matched ink structures

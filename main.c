@@ -2468,8 +2468,19 @@ parse_expr(parser* const parse, TOKEN end){
 			break;
 		case FOR_TOKEN:
 			expr->tag = FOR_EXPR;
-			expr->data.for_statement.initial = parse_expr(parse, SEMI_TOKEN);
-			assert_prop(NULL);
+			term_ast* closure = parse_term(parse);
+			uint64_t for_save = parse->token_index;
+			if (parse->err.len == 0){
+				expr->data.for_statement.initial = pool_request(parse->mem, sizeof(expr_ast));
+				expr->data.for_statement.initial->tag = TERM_EXPR;
+				expr->data.for_statement.initial->data.term = closure;
+			}
+			else{
+				parse->err.len = 0;
+				parse->token_index = for_save-1;
+				expr->data.for_statement.initial = parse_expr(parse, SEMI_TOKEN);
+				assert_prop(NULL);
+			}
 			expr->data.for_statement.limit = parse_expr(parse, SEMI_TOKEN);
 			assert_prop(NULL);
 			expr->data.for_statement.change = parse_expr(parse, BRACE_OPEN_TOKEN);
@@ -7427,6 +7438,11 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 	case FOR_EXPR:
 		expr->data.for_statement.initial = transform_expr(walk, expr->data.for_statement.initial, 0, newlines, 1, 1);
 		walk_assert_prop();
+		if (expr->data.for_statement.initial->tag == TERM_EXPR){
+			line_relay_append(newlines, expr->data.for_statement.initial);
+			expr->data.for_statement.initial = pool_request(walk->parse->mem, sizeof(expr_ast));
+			expr->data.for_statement.initial->tag = NOP_EXPR;
+		}
 		line_relay_node* for_prev_list = newlines->last;
 		uint64_t for_prev_len = newlines->len;
 		expr->data.for_statement.limit = transform_expr(walk, expr->data.for_statement.limit, 0, newlines, 1, 1);

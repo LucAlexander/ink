@@ -16,13 +16,6 @@ Ink is a heavily WIP language project. I am writing this entirely from my own he
 
 This guide is not specifically targeted toward new programmers. You may be expected to know a thing or two, but I do my best at explaining things in a way a new programmer could understand it. Good luck.
 
-DOCUMENTATION TODO:
-* typeclasses
-* ffi
-* if, while, match
-* patterns
-* alternate branches for lambdas
-
 # Brief Tour
 ## Basics
 
@@ -282,6 +275,63 @@ u64 main = {
 
 ```
 
+#### Conditionals
+##### if / else
+If/else cna ben used as both a statement and an expression, if used as an expression it must have an else and the resulting types between the two branches must match, otherwise they can have any type and dont have to return. If used as a statement, returning will return from the outer block.
+
+```haskell
+
+u64 main = {
+	u64 x = if 1 { return 8; } else { return 9; };
+	if x {
+		return 1;
+	};
+	return 0;
+};
+
+```
+
+##### while
+While is just repeated if, you cannot use it as an expression and it doesn't get an else.
+
+```haskell
+import "std/io.ink"
+
+u64 main = {
+	u64 var i = 0;
+	while i < 10 {
+		print "Hello\n";
+	};
+	return i;
+};
+
+```
+
+##### match
+This is a pattern matching statement.
+```haskell
+
+type Maybe = struct {
+	enum {Just, Nothing} tag;
+	i32 val;
+};
+
+Maybe -> u8 f = \m:
+	match m {
+		(Just 1): 0;
+		(Just x): x as u8;
+		result@(Nothing): result.val;
+		_: 1;
+	};
+
+```
+
+Patterns follow the following composable rules:
+* `binding@inner_pattern` names a pattern and continues to match against it
+* `[fat_ptr_ptr fat_ptr_len]`
+* `_` matches anything
+* `(x 6 5)` matches a structure with the first member bound to x for the resulting expression, and the next two members checked against 6 and 5
+
 #### Lambdas
 All functions in Ink are values, the canonical value of a term with a function type, is a lambda expression. Lambdas have arguments and a resulting expression.
 ```haskell
@@ -295,6 +345,16 @@ greater = \left right: {
 	u64 x = left > right;
 	return left > right;
 };
+
+```
+
+Lambda args are patterns, and will be matched before the function starts.
+You may consequently have alternate matching cases for lambda args:
+```haskell
+
+Maybe -> u8 f = \(Just x): x as u8;
+              | \(Nothing): 0;
+              | \_: 0;
 
 ```
 
@@ -466,8 +526,91 @@ u64 main = {
 ```
 
 ## Typeclasses
+Typeclasses are sometimes called interfaces, or protocols, or traits, but I was first introduced to them while programming Haskell, so to me they are typeclasses. I don't know what the original literature for this feature has to say about its naming.
+
+Typeclasses need a name and a member parameter which represents a generic instance of that typeclass in subsequent member term definitions.
+```haskell
+
+typeclass Functor F {
+	(A -> B) -> F A -> F B map;
+}
+
+```
+
+Implementations then replace this generic term with the type implementing the typeclass. It should be noted that only named types can have typeclass instantiations. 
+```haskell
+
+type buffer T = [T];
+
+byte_list implements Functor {
+	(A -> B) -> buffer A -> buffer B
+	map = \f data: {
+		u64 var i = 0;
+		buffer (B var) result = [ [0], data.len ];
+		while i < data.len {
+			result.ptr[i] = f (data.ptr[i]);
+			i = i + 1;
+		};
+		return result;
+	};
+}
+
+```
+
+Generic types in any term may have a typeclass dependency. 
+``` haskell
+
+(Allocator A) => A -> T -> T^ mk_ptr = \alloc data: ...;
+
+```
+
+Typeclass members have the typeclass parameter distributed over them as a dependency.
+``` haskell
+typeclass Orderable O {
+	O -> O -> i8 compare;
+}
+
+//is converted internally to
+
+typeclass Orderable O {
+	(Orderable O) => O -> O -> i8 compare;
+}
+
+```
 
 ## FFI
+Ink has the ability to completely interface with C, there may be friction in some places, but you can run arbitrary C from Ink and arbitrary Ink from C.
+
+To define external terms, aliases, or types, declare them in an `external` block.
+```haskell
+external {
+	u8^ -> u8^ -> u64 -> u8 memcpy;
+	u8^ -> u8 -> u64 -> u8 memset;
+	u64 -> u8^ -> u64 -> u64 write;
+	u64 -> u8^ malloc;
+}
+
+```
+
+Note that `typedef struct name {} name` in C translates approximately to `type name = struct {}` in Ink, but any other non structure typedef is equivalent to an alias in Ink, not a type definition. 
+
+To import local C files, you may import normally.
+```haskell
+external {
+	import "emscripten_wrapper.h"
+}
+```
+
+To import C standard library files, you may import globally.
+```haskell
+external {
+	import global "SDL2/SDL.h"
+}
+```
+
+Some FFI interfaces have already been generated for SDL2, netinet/in, and emscripten.
+
+Enumerators and constants are not handled well by the FFI generator, so some of them have been defined manually as constants in Ink.
 
 # Example, print formatting
 ```haskell
@@ -495,15 +638,11 @@ u64 main = {
 
 io.ink:
 ```haskell
-import "std/string.ink"
+import "string.ink"
 
 String -> u64
-printf = \msg:
-	write 1 ((msg.data.ptr) as (u8^)) (msg.data.len);
-
-[i8] -> u64
 print = \msg:
-	write 1 ((msg.ptr) as u8^) (msg.len);
+	write 1 ((msg.data.ptr) as (u8^)) (msg.data.len);
 
 typeclass Formattable F {
 	String -> F -> String +%;
@@ -531,7 +670,7 @@ uword implements Formattable {
 
 string.ink:
 ```haskell
-import "std/allocators.ink"
+import "allocators.ink"
 
 type String = struct {
 	Arena^ mem;
@@ -565,7 +704,7 @@ String implements MonoidAlloc {
 
 allocators.ink:
 ```haskell
-import "std/builtin.ink"
+import "builtin.ink"
 
 u64 -> u8^
 alloc = \size: malloc size;
@@ -716,7 +855,7 @@ type Server = struct {
 	i32 protocol;
 	i32 backlog;
 	i32 socket;
-	sockaddr_in^ address; 
+	sockaddr_in^ address;
 };
 
 i32 -> u16 -> i32 -> i32 -> i32 -> u32 -> u64
@@ -798,8 +937,6 @@ u64 main = {
 			SOCK_STREAM
 			0 10
 			INADDR_ANY;
-};
-
 ```
 
 # Example, SDL2
@@ -820,7 +957,6 @@ u64 main = {
 	SDL_Quit;
 	return 0;
 };
-
 ```
 
 # Example, Web Assembly
@@ -868,5 +1004,4 @@ u64 main = {
 	SDL_Quit;
 	return 0;
 };
-
 ```

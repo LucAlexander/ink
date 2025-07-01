@@ -2030,12 +2030,11 @@ show_expression(expr_ast* expr){
 		break;
 	case FOR_EXPR:
 		printf("for ");
-		string_print(&expr->data.for_statement.binding.data.name);
-		printf(" ");
 		show_expression(expr->data.for_statement.initial);
-		printf(" ");
+		printf(" ; ");
 		show_expression(expr->data.for_statement.limit);
-		printf(" ");
+		printf(" ; ");
+		show_expression(expr->data.for_statement.change);
 		show_expression(expr->data.for_statement.cons);
 		break;
 	case WHILE_EXPR:
@@ -2469,16 +2468,12 @@ parse_expr(parser* const parse, TOKEN end){
 			break;
 		case FOR_TOKEN:
 			expr->tag = FOR_EXPR;
-			t = &parse->tokens[parse->token_index];
-			parse->token_index += 1;
-			assert_local(t->tag == IDENTIFIER_TOKEN, NULL, "expected identifier to bind as for loop variable");
-			expr->data.for_statement.binding = *t;
-			expr->data.for_statement.initial = parse_expr(parse, BRACE_OPEN_TOKEN);
+			expr->data.for_statement.initial = parse_expr(parse, SEMI_TOKEN);
 			assert_prop(NULL);
-			assert_local(expr->data.for_statement.initial->tag == APPL_EXPR, NULL, "expected 2 expressions for for loop bounds");
-			expr->data.for_statement.limit = expr->data.for_statement.initial->data.appl.right;
-			expr_ast* left = expr->data.for_statement.initial->data.appl.left;
-			expr->data.for_statement.initial = left;
+			expr->data.for_statement.limit = parse_expr(parse, SEMI_TOKEN);
+			assert_prop(NULL);
+			expr->data.for_statement.change = parse_expr(parse, BRACE_OPEN_TOKEN);
+			assert_prop(NULL);
 			parse->token_index -= 1;
 			expr->data.for_statement.cons = parse_expr(parse, BRACE_CLOSE_TOKEN);
 			assert_prop(NULL);
@@ -3923,16 +3918,14 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 		return cons_type;
 	case FOR_EXPR:
 		walk_assert(expected_type == NULL, nearest_token(expr), "Iterative loops cannot be used as expressions");
-		type_ast* for_type = pool_request(walk->parse->mem, sizeof(type_ast));
-		for_type->tag = LIT_TYPE;
-		for_type->data.lit = INT_ANY;
-		type_ast* forinittype = walk_expr(walk, expr->data.for_statement.initial, for_type, for_type, 0);
+		walk_expr(walk, expr->data.for_statement.initial, NULL, NULL, 0);
 		walk_assert_prop();
-	   	walk_assert(forinittype != NULL, nearest_token(expr->data.for_statement.initial), "For loop range must be integral");
-		type_ast* forlimittype = walk_expr(walk, expr->data.for_statement.limit, for_type, for_type, 0);
+		type_ast* limit_type = mk_lit(walk->parse->mem, INT_ANY);
+		type_ast* forlimittype = walk_expr(walk, expr->data.for_statement.limit, limit_type, limit_type, 0);
 		walk_assert_prop();
-	   	walk_assert(forlimittype != NULL, nearest_token(expr->data.for_statement.limit), "For loop range must be integral");
-		push_binding(walk, walk->local_scope, &expr->data.for_statement.binding, for_type);
+	   	walk_assert(forlimittype != NULL, nearest_token(expr->data.for_statement.limit), "For loop limit must be truthy");
+		walk_expr(walk, expr->data.for_statement.change, NULL, NULL, 0);
+		walk_assert_prop();
 		walk_expr(walk, expr->data.for_statement.cons, NULL, outer_type, 0);
 		pop_binding(walk->local_scope, scope_pos);
 		token_stack_pop(walk->term_stack, token_pos);
@@ -4760,7 +4753,7 @@ nearest_token(expr_ast* const e){
 	case IF_EXPR:
 		return nearest_token(e->data.if_statement.pred);
 	case FOR_EXPR:
-		return e->data.for_statement.binding.index;
+		return nearest_token(e->data.for_statement.initial);
 	case WHILE_EXPR:
 		return nearest_token(e->data.while_statement.pred);
 	case MATCH_EXPR:
@@ -6090,6 +6083,7 @@ realias_type_expr(realias_walker* const walk, expr_ast* const expr){
 	case FOR_EXPR:
 		realias_type_expr(walk, expr->data.for_statement.initial);
 		realias_type_expr(walk, expr->data.for_statement.limit);
+		realias_type_expr(walk, expr->data.for_statement.change);
 		realias_type_expr(walk, expr->data.for_statement.cons);
 		return;
 	case WHILE_EXPR:
@@ -6784,7 +6778,9 @@ replace_recursive_reference(expr_ast* const expr, token t, token newname){
 		}
 		break;
 	case FOR_EXPR:
+		replace_recursive_reference(expr->data.for_statement.initial, t, newname);
 		replace_recursive_reference(expr->data.for_statement.limit, t, newname);
+		replace_recursive_reference(expr->data.for_statement.change, t, newname);
 		replace_recursive_reference(expr->data.for_statement.cons, t, newname);
 		return;
 	case WHILE_EXPR:
@@ -7431,12 +7427,48 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 	case FOR_EXPR:
 		expr->data.for_statement.initial = transform_expr(walk, expr->data.for_statement.initial, 0, newlines, 1, 1);
 		walk_assert_prop();
-		uint64_t for_scope_pos = push_binding(walk, walk->local_scope, &expr->data.for_statement.initial->data.binding, expr->data.for_statement.initial->type);
+		line_relay_node* for_prev_list = newlines->last;
+		uint64_t for_prev_len = newlines->len;
 		expr->data.for_statement.limit = transform_expr(walk, expr->data.for_statement.limit, 0, newlines, 1, 1);
 		walk_assert_prop();
+		expr->data.for_statement.change = transform_expr(walk, expr->data.for_statement.change, 0, newlines, 1, 1);
+		walk_assert_prop();
+		uint64_t for_diff_len = newlines->len - for_prev_len;
 		expr->data.for_statement.cons = transform_expr(walk, expr->data.for_statement.cons, 0, NULL, 1, 1);
 		walk_assert_prop();
-		pop_binding(walk->local_scope, for_scope_pos-1);
+		assert(expr->data.for_statement.cons->tag == BLOCK_EXPR);
+		if (for_diff_len > 0){
+			uint64_t newsize = for_diff_len + expr->data.for_statement.cons->data.block.line_count;
+			expr_ast* expanded = pool_request(walk->parse->mem, newsize*sizeof(expr_ast));
+			uint64_t i = 0;
+			for (;i<expr->data.for_statement.cons->data.block.line_count;++i){
+				expanded[i] = expr->data.for_statement.cons->data.block.lines[i];
+			}
+			line_relay_node* first_repred;
+			if (for_prev_list == NULL){
+				first_repred = newlines->first;
+			}
+			else{
+				first_repred = for_prev_list->next;
+			}
+			while (first_repred != NULL){
+				expr_ast* statement = first_repred->line;
+				if (statement->tag == TERM_EXPR){
+					expr_ast* remut = mk_mutation(walk->parse->mem,
+						mk_binding(walk->parse->mem, &statement->data.term->name),
+						statement->data.term->expression
+					);
+					expanded[i] = *remut;
+				}
+				else{
+					expanded[i] = *statement;
+				}
+				i += 1;
+				first_repred = first_repred->next;
+			}
+			expr->data.for_statement.cons->data.block.lines = expanded;
+			expr->data.for_statement.cons->data.block.line_count = newsize;
+		}
 		return expr;
 	case WHILE_EXPR:
 		line_relay_node* prev_list = newlines->last;
@@ -8874,17 +8906,9 @@ deep_copy_expr_type_replace_worker(walker* const walk, expr_ast* source, clash_r
 		}
 		return new;
 	case FOR_EXPR:
-		token new_binding = {
-			.content_tag = STRING_TOKEN_TYPE,
-			.tag = IDENTIFIER_TOKEN,
-			.index = 0,
-			.data.name = walk->next_lambda
-		};
-		generate_new_lambda(walk);
-		token_map_insert(realias, new->data.for_statement.binding.data.name, new_binding);
-		new->data.for_statement.binding = new_binding;
 		new->data.for_statement.initial = deep_copy_expr_type_replace_worker(walk, source->data.for_statement.initial, relation, realias, rec_name, rec_type);
 		new->data.for_statement.limit = deep_copy_expr_type_replace_worker(walk, source->data.for_statement.limit, relation, realias, rec_name, rec_type);
+		new->data.for_statement.change = deep_copy_expr_type_replace_worker(walk, source->data.for_statement.change, relation, realias, rec_name, rec_type);
 		new->data.for_statement.cons = deep_copy_expr_type_replace_worker(walk, source->data.for_statement.cons, relation, realias, rec_name, rec_type);
 		return new;
 	case WHILE_EXPR:
@@ -11206,7 +11230,11 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 	case FOR_EXPR:
 		ink_indent(fd, indent);
 		fprintf(fd, "for (");
-		fprintf(fd, ";;");//TODO uh oh
+		write_expression(generator, fd, expr->data.for_statement.initial, 0, 1, 0);
+		fprintf(fd, ";");
+		write_expression(generator, fd, expr->data.for_statement.limit, 0, 1, 0);
+		fprintf(fd, ";");
+		write_expression(generator, fd, expr->data.for_statement.change, 0, 1, 0);
 		fprintf(fd, ")");
 		write_expression(generator, fd, expr->data.for_statement.cons, indent, 1, 0);
 		break;
@@ -11488,7 +11516,10 @@ scrape_globals(genc* const generator, expr_ast* const expr, token_map* const cal
 		}
 		return;
 	case FOR_EXPR:
-		//TODO
+		scrape_globals(generator, expr->data.for_statement.initial, called);
+		scrape_globals(generator, expr->data.for_statement.limit, called);
+		scrape_globals(generator, expr->data.for_statement.change, called);
+		scrape_globals(generator, expr->data.for_statement.cons, called);
 		return;
 	case WHILE_EXPR:
 		scrape_globals(generator, expr->data.while_statement.pred, called);
@@ -11529,10 +11560,9 @@ scrape_globals(genc* const generator, expr_ast* const expr, token_map* const cal
  *  error reporting as logging rather than single report
 		 nearest type token function?
  * -CODE GENERATION-----------------------------------------
- * 	I dont know what to do with for
- * 		for ; ; {
- *			will require a whole rework
- * 		} but it doesnt have a way to generate efficient code the way it currently is, oops
+ * for
+ * 	inline initial closure
+ * 	loop handling in transform like while loop
  * -BUGS----------------------------------------------------
  * 	do typedefs for non structures even work? did I forget about them entirely?
  * 	extern struct binding and access is difficult, bindings need matched ink structures

@@ -336,9 +336,9 @@ typedef struct expr_ast {
 			expr_ast* alt;
 		} if_statement;
 		struct {
-			token binding;
 			expr_ast* initial;
 			expr_ast* limit;
+			expr_ast* change;
 			expr_ast* cons;
 		} for_statement;
 		struct {

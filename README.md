@@ -88,6 +88,17 @@ type pair = struct {
 
 ```
 
+you can also make packed structures with `pack`.
+```haskell
+
+type pair = pack{
+	u64 a;
+	u64 b;
+};
+
+```
+
+
 Instances of structs can be created and accessed like
 ```haskell
 

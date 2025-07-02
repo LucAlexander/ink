@@ -8851,6 +8851,15 @@ deep_copy_expr_type_replace_worker(walker* const walk, expr_ast* source, clash_r
 	*new = *source;
 	switch (source->tag){
 	case APPL_EXPR:
+		if (new->data.appl.left->tag == APPL_EXPR){
+			if (new->data.appl.left->data.appl.left->tag == BINDING_EXPR){
+				if (new->data.appl.left->data.appl.left->dot == 1){
+					new->data.appl.left = deep_copy_expr_type_replace_worker(walk, source->data.appl.left, relation, realias, rec_name, rec_type, 0);
+					new->data.appl.right = deep_copy_expr_type_replace_worker(walk, source->data.appl.right, relation, realias, rec_name, rec_type, 1);
+					return new;
+				}
+			}
+		}
 		new->data.appl.left = deep_copy_expr_type_replace_worker(walk, source->data.appl.left, relation, realias, rec_name, rec_type, 0);
 		new->data.appl.right = deep_copy_expr_type_replace_worker(walk, source->data.appl.right, relation, realias, rec_name, rec_type, 0);
 		return new;

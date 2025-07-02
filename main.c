@@ -4828,6 +4828,7 @@ deep_copy_type_replace(pool* const mem, clash_relation* crelation, type_ast* con
 	case NAMED_TYPE:
 		type_ast* replacement = type_ast_map_access(relation, source->data.named.name.data.name);
 		if (replacement == NULL){
+			dest->data.named.args = pool_request(mem, sizeof(type_ast)*dest->data.named.arg_count);
 			for (uint64_t i = 0;i<source->data.named.arg_count;++i){
 				dest->data.named.args[i] = *deep_copy_type_replace(mem, crelation, &source->data.named.args[i]);
 			}
@@ -5782,6 +5783,7 @@ deep_copy_type(walker* const walk, type_ast* const source){
 		new->data.structure = deep_copy_structure(walk, source->data.structure);
 		return new;
 	case NAMED_TYPE:
+		new->data.named.args = pool_request(walk->parse->mem, sizeof(type_ast)*new->data.named.arg_count);
 		for (uint64_t i = 0;i<source->data.named.arg_count;++i){
 			new->data.named.args[i] = *deep_copy_type(walk, &source->data.named.args[i]);
 		}

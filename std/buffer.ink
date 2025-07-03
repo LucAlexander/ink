@@ -92,3 +92,32 @@ Buffer implements Functor {
 	};
 }
 
+Buffer implements Sliceable {
+	(Buffer T)^ -> u64 -> u64 -> Buffer T
+	uslice = \buffer start end:{
+		if (end < start) || (buffer.size < end) {
+			return {
+				mem=buffer.mem,
+				size=0,
+				capacity=1
+			};
+		};
+		u64 size = end - start;
+		Buffer T new = {
+			mem = buffer.mem,
+			buffer = buffer.mem ## (size * sizeof T),
+			size = size,
+			capacity = size
+		};
+		for u64 var i = start ; i < end ; i = i + 1 {
+			new.buffer[i-start] = buffer.buffer[i];
+		};
+		return new;
+	};
+
+	(Buffer T)^ -> i64 -> i64 -> Buffer T
+	slice = \buffer start end:{
+		return *buffer;
+	};
+}
+

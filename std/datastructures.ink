@@ -24,3 +24,8 @@ typeclass Indexed I {
 typeclass Functor F {
 	(A -> B) -> (F A)^ -> F B map;
 }
+
+typeclass Sliceable S {
+	(S A)^ -> u64 -> u64 -> S A uslice;
+	(S A)^ -> i64 -> i64 -> S A slice;
+}

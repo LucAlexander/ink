@@ -3157,9 +3157,6 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 						walk_assert_prop();
 						walk_assert(inner->tag == STRUCT_TYPE, nearest_token(expr->data.appl.right), "Field access from pointer must be from pointer to structure");
 						type_ast* field = is_member(inner, expr->data.appl.right);
-						if (field == NULL){
-							printf("there\n"); // TODO remove
-						}
 						walk_assert(field != NULL, nearest_token(expr->data.appl.right), "Expected member of structure in field access");
 						expr->data.appl.right->type = field;
 						expr->tag = STRUCT_ACCESS_EXPR;

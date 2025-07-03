@@ -116,8 +116,10 @@ Buffer implements Sliceable {
 	};
 
 	(Buffer T)^ -> i64 -> i64 -> Buffer T
-	slice = \buffer start end:{
-		return *buffer;
+	slice = \buffer prestart preend:{
+		u64 start = if prestart < 0 { return buffer.size + prestart;} else {return prestart;};
+		u64 end = if preend < 0 { return buffer.size + preend;} else {return preend;};
+		return uslice buffer start end;
 	};
 }
 

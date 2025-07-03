@@ -123,3 +123,24 @@ Buffer implements Sliceable {
 	};
 }
 
+uword implements Orderable {
+	uword -> uword -> i8
+	compare = \a b: a > b;
+}
+
+word implements Orderable {
+	word -> word -> i8
+	compare = \a b: a > b;
+}
+
+Buffer implements Copyable {
+	(Buffer T)^ -> Buffer T
+	copy = \buffer: {
+		mem = buffer.mem,
+		buffer = (buffer.mem) ## (buffer.capacity * sizeof T),
+		size = buffer.size,
+		capacity = buffer.capacity
+	};
+}
+
+

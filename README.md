@@ -5,7 +5,11 @@
 # INK
 Ink is a heavily WIP language project. I am writing this entirely from my own head without consulting any theory on compilation strategies or literature on compiling specific features. This is largely a learning exercise, and a way for me to get much better at programming, so I dont want to know any solutions beforehand. I entirely intend to make this language my main personal project language, and to continuously improve it as I use it.
 
+Please note that this compiler, while working, does not have good error reporting. Its at the point where if the compilation process fails, its likely not the compiler, but the error reporting is so bad it might just segfault anyway. A lesson learned for my next language project, store and maintain metadata early.
+
 # Current tasks
+* Standard library implementation
+* Research paper on the novel way ink does closure compilation
 * Better error reporting system
 * Some bugs
 

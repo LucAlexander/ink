@@ -767,7 +767,7 @@ show_tokens(token* tokens, uint64_t token_count){
 		case BACKTICK_TOKEN:
 			printf("BACKTICK ` ");
 			break;
-case COMPOSE_TOKEN:
+		case COMPOSE_TOKEN:
 			printf("COMPOSE . ");
 			break;
 		case SHIFT_TOKEN:

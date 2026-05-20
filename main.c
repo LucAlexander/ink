@@ -11598,8 +11598,6 @@ scrape_globals(genc* const generator, expr_ast* const expr, token_map* const cal
  * 	polyfunc should check if types are aliased or typedefs
  * 	return match server { (Just s) : ...; (Nothing) : ...; };
  * 		generates incorrectly
- * -RESEARCH PAPER------------------------------------------
- *  rough draft
  */
 
 int

@@ -9,8 +9,9 @@ Please note that this compiler, while working, does not have good error reportin
 
 # Current tasks
 * Standard library implementation
-* Research paper on the novel way ink does closure compilation
+* (Maybe) Research paper on the novel way ink does closure compilation
 * Better error reporting system
+* Potentially rewrite parser for better precedence rules
 * Some bugs
 
 # Documentation

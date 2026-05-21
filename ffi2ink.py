@@ -114,7 +114,7 @@ def process(data):
                 return 'u8^'
             case other:
                 if other[0] == ':':
-                    return "UNHANDLED"
+                    return "u64"
                 if other[0] == '<':
                     return ''
                 return other

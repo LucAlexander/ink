@@ -100,18 +100,16 @@ def process(data):
                     enum_count += 1
                 for i, num in enumerate(type_map['fields']):
                     if i != 0:
-                        defintion += ", "
+                        definition += ", "
                     definition += f"{num['name']}={num['value']}"
                 definition += "}"
                 return definition
             case ":struct":
-                return 'struct {u8^ empty;}'
+                return type_map['name']
             case ":union":
-                return 'union {u8^ empty;}'
+                return type_map['name']
             case ":enum":
-                count = f"INK_ENUM_EXTERN{enum_count}"
-                enum_count += 1
-                return 'enum {'+count+'}'
+                return type_map['name']
             case '__builtin_va_list':
                 return 'u8^'
             case other:
@@ -142,31 +140,47 @@ def process(data):
         functions[item['name']] = True
         return f"{arg_type}{return_type} {item['name']};"
 
-    def convert_type(item):
-        if item['name'] in types:
-            return ''
+    def convert_typedef(item):
         rval = convert_unit_type(item['type'])
         if rval == '':
             return ''
-        types[item['name']] = True
         match item['type']['tag']:
             case "struct":
-                return f"type {item['name']} = {rval};"
+                return f"alias {item['name']} = {rval};"
             case ":struct":
-                return f"type {item['name']} = {rval};"
+                return f"alias {item['name']} = {rval};"
             case "union":
-                return f"type {item['name']} = {rval};"
+                return f"alias {item['name']} = {rval};"
             case ":union":
-                return f"type {item['name']} = {rval};"
+                return f"alias {item['name']} = {rval};"
             case "enum":
-                return f"type {item['name']} = {rval};"
+                return f"alias {item['name']} = {rval};"
             case ":enum":
-                return f"type {item['name']} = {rval};"
+                return f"alais{item['name']} = {rval};"
         return f"alias {item['name']} = {rval};"
             
+    def convert_struct_type(item):
+        if item['name'] in types:
+            return ''
+        rval = convert_unit_type(item)
+        if rval == '':
+            return ''
+        types[item['name']] = True
+        match item['tag']:
+            case 'struct':
+                return f"type {item['name']} = {rval};"
+            case 'enum':
+                return f"type {item['name']} = {rval};"
+            case 'union':
+                return f"type {item['name']} = {rval};"
+        return ''
+
     convert = {
         'function': convert_function,
-        'typedef' : convert_type
+        'typedef' : convert_typedef,
+        'struct' : convert_struct_type,
+        'enum' : convert_struct_type,
+        'union' : convert_struct_type
     }
 
     return [

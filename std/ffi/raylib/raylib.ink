@@ -11,8 +11,7 @@ external {
 	alias Quaternion = Vector4;
 	type Matrix = struct {f32 m0;f32 m4;f32 m8;f32 m12;f32 m1;f32 m5;f32 m9;f32 m13;f32 m2;f32 m6;f32 m10;f32 m14;f32 m3;f32 m7;f32 m11;f32 m15;};
 	alias Matrix = Matrix;
-	type Color = struct {u8 r;u8 g;u8 b;u8 a;};
-	alias Color = Color;
+	alias Color = struct {u8 r;u8 g;u8 b;u8 a;};
 	type Rectangle = struct {f32 x;f32 y;f32 width;f32 height;};
 	alias Rectangle = Rectangle;
 	type Image = struct {(u8)^ data;i32 width;i32 height;i32 mipmaps;i32 format;};

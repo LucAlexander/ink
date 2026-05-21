@@ -724,195 +724,200 @@ void
 show_tokens(token* tokens, uint64_t token_count){
 	for (uint64_t i = 0;i<token_count;++i){
 		token t = tokens[i];
-		switch (t.tag){
-		case PAREN_OPEN_TOKEN:
-			printf("PAREN_OPEN ( ");
-			break;
-		case PAREN_CLOSE_TOKEN:
-			printf("PAREN_CLOSE ) ");
-			break;
-		case BRACK_OPEN_TOKEN:
-			printf("BRACK_OPEN [ ");
-			break;
-		case BRACK_CLOSE_TOKEN:
-			printf("BRACK_CLOSE ] ");
-			break;
-		case BRACE_OPEN_TOKEN:
-			printf("BRACE_OPEN { ");
-			break;
-		case BRACE_CLOSE_TOKEN:
-			printf("BRACE CLOSED } ");
-			break;
-		case AT_TOKEN:
-			printf("AT @ ");
-			break;
-		case COMMA_TOKEN:
-			printf("COMMA , ");
-			break;
-		case SEMI_TOKEN:
-			printf("SEMI ; ");
-			break;
-		case COLON_TOKEN:
-			printf("COLON : ");
-			break;
-		case PIPE_TOKEN:
-			printf("PIPE | ");
-			break;
-		case LAMBDA_TOKEN:
-			printf("LAMBDA \\ ");
-			break;
-		case EQUAL_TOKEN:
-			printf("EQUAL = ");
-			break;
-		case BACKTICK_TOKEN:
-			printf("BACKTICK ` ");
-			break;
-		case COMPOSE_TOKEN:
-			printf("COMPOSE . ");
-			break;
-		case SHIFT_TOKEN:
-			printf("SHIFT $ ");
-			break;
-		case CARROT_TOKEN:
-			printf("CARROT ^ ");
-			break;
-		case AMPERSAND_TOKEN:
-			printf("AMPERSAND & ");
-			break;
-		case HOLE_TOKEN:
-			printf("HOLE _ ");
-			break;
-		case IDENTIFIER_TOKEN:
-			printf("IDENTIFIER ");
-			string_print(&t.data.name);
-			printf(" ");
-			break;
-		case SYMBOL_TOKEN:
-			printf("SYMBOL ");
-			string_print(&t.data.name);
-			printf(" ");
-			break;
-		case STRING_TOKEN:
-			printf("STRING ");
-			string_print(&t.data.name);
-			printf(" ");
-			break;
-		case CHAR_TOKEN:
-			char c = t.data.neg;
-			printf("CHAR %c ", c);
-			break;
-		case INTEGER_TOKEN:
-			printf("INTEGER %lu (%ld) ", t.data.pos, t.data.neg);
-			break;
-		case FLOAT_TOKEN:
-			printf("FLOAT %lf ", t.data.flt);
-			break;
-		case ARROW_TOKEN:
-			printf("ARROW -> ");
-			break;
-		case IF_TOKEN:
-			printf("IF ");
-			break;
-		case ELSE_TOKEN:
-			printf("ELSE ");
-			break;
-		case MATCH_TOKEN:
-			printf("MATCH ");
-			break;
-		case WHILE_TOKEN:
-			printf("WHILE ");
-			break;
-		case FOR_TOKEN:
-			printf("FOR ");
-			break;
-		case U8_TOKEN:
-			printf("U8 ");
-			break;
-		case U16_TOKEN:
-			printf("U16 ");
-			break;
-		case U32_TOKEN:
-			printf("U32 ");
-			break;
-		case U64_TOKEN:
-			printf("U64 ");
-			break;
-		case I8_TOKEN:
-			printf("I8 ");
-			break;
-		case I16_TOKEN:
-			printf("I16 ");
-			break;
-		case I32_TOKEN:
-			printf("I32 ");
-			break;
-		case I64_TOKEN:
-			printf("I64 ");
-			break;
-		case F32_TOKEN:
-			printf("F32 ");
-			break;
-		case F64_TOKEN:
-			printf("F64 ");
-			break;
-		case VAR_TOKEN:
-			printf("VAR ");
-			break;
-		case ALIAS_TOKEN:
-			printf("ALIAS ");
-			break;
-		case TYPE_TOKEN:
-			printf("TYPE ");
-			break;
-		case STRUCT_TOKEN:
-			printf("STRUCT ");
-			break;
-		case PACKED_TOKEN:
-			printf("PACKED STRUCT");
-			break;
-		case ENUM_TOKEN:
-			printf("ENUM ");
-			break;
-		case UNION_TOKEN:
-			printf("UNION ");
-			break;
-		case DOUBLE_ARROW_TOKEN:
-			printf("DOUBLE_ARROW => ");
-			break;
-		case TYPECLASS_TOKEN:
-			printf("TYPECLASS ");
-			break;
-		case IMPLEMENTS_TOKEN:
-			printf("IMPLEMENTS ");
-			break;
-		case RETURN_TOKEN:
-			printf("RETURN ");
-			break;
-		case IMPORT_TOKEN:
-			printf("IMPORT ");
-			break;
-		case SIZEOF_TOKEN:
-			printf("SIZEOF ");
-			break;
-		case BREAK_TOKEN:
-			printf("BREAK ");
-			break;
-		case CONTINUE_TOKEN:
-			printf("CONTINUE ");
-			break;
-		case CONSTANT_TOKEN:
-			printf("CONSTANT ");
-			break;
-		case AS_TOKEN:
-			printf("AS ");
-			break;
-		case EFFECT_TOKEN:
-			printf("EFFECT ~> ");
-			break;
-		default:
-			printf("UNKNOWN_TOKEN_TYPE ??? ");
-			break;
-		}
+		show_token(t);
+	}
+}
+
+void
+show_token(token t){
+	switch (t.tag){
+	case PAREN_OPEN_TOKEN:
+		printf("PAREN_OPEN ( ");
+		break;
+	case PAREN_CLOSE_TOKEN:
+		printf("PAREN_CLOSE ) ");
+		break;
+	case BRACK_OPEN_TOKEN:
+		printf("BRACK_OPEN [ ");
+		break;
+	case BRACK_CLOSE_TOKEN:
+		printf("BRACK_CLOSE ] ");
+		break;
+	case BRACE_OPEN_TOKEN:
+		printf("BRACE_OPEN { ");
+		break;
+	case BRACE_CLOSE_TOKEN:
+		printf("BRACE CLOSED } ");
+		break;
+	case AT_TOKEN:
+		printf("AT @ ");
+		break;
+	case COMMA_TOKEN:
+		printf("COMMA , ");
+		break;
+	case SEMI_TOKEN:
+		printf("SEMI ; ");
+		break;
+	case COLON_TOKEN:
+		printf("COLON : ");
+		break;
+	case PIPE_TOKEN:
+		printf("PIPE | ");
+		break;
+	case LAMBDA_TOKEN:
+		printf("LAMBDA \\ ");
+		break;
+	case EQUAL_TOKEN:
+		printf("EQUAL = ");
+		break;
+	case BACKTICK_TOKEN:
+		printf("BACKTICK ` ");
+		break;
+	case COMPOSE_TOKEN:
+		printf("COMPOSE . ");
+		break;
+	case SHIFT_TOKEN:
+		printf("SHIFT $ ");
+		break;
+	case CARROT_TOKEN:
+		printf("CARROT ^ ");
+		break;
+	case AMPERSAND_TOKEN:
+		printf("AMPERSAND & ");
+		break;
+	case HOLE_TOKEN:
+		printf("HOLE _ ");
+		break;
+	case IDENTIFIER_TOKEN:
+		printf("IDENTIFIER ");
+		string_print(&t.data.name);
+		printf(" ");
+		break;
+	case SYMBOL_TOKEN:
+		printf("SYMBOL ");
+		string_print(&t.data.name);
+		printf(" ");
+		break;
+	case STRING_TOKEN:
+		printf("STRING ");
+		string_print(&t.data.name);
+		printf(" ");
+		break;
+	case CHAR_TOKEN:
+		char c = t.data.neg;
+		printf("CHAR %c ", c);
+		break;
+	case INTEGER_TOKEN:
+		printf("INTEGER %lu (%ld) ", t.data.pos, t.data.neg);
+		break;
+	case FLOAT_TOKEN:
+		printf("FLOAT %lf ", t.data.flt);
+		break;
+	case ARROW_TOKEN:
+		printf("ARROW -> ");
+		break;
+	case IF_TOKEN:
+		printf("IF ");
+		break;
+	case ELSE_TOKEN:
+		printf("ELSE ");
+		break;
+	case MATCH_TOKEN:
+		printf("MATCH ");
+		break;
+	case WHILE_TOKEN:
+		printf("WHILE ");
+		break;
+	case FOR_TOKEN:
+		printf("FOR ");
+		break;
+	case U8_TOKEN:
+		printf("U8 ");
+		break;
+	case U16_TOKEN:
+		printf("U16 ");
+		break;
+	case U32_TOKEN:
+		printf("U32 ");
+		break;
+	case U64_TOKEN:
+		printf("U64 ");
+		break;
+	case I8_TOKEN:
+		printf("I8 ");
+		break;
+	case I16_TOKEN:
+		printf("I16 ");
+		break;
+	case I32_TOKEN:
+		printf("I32 ");
+		break;
+	case I64_TOKEN:
+		printf("I64 ");
+		break;
+	case F32_TOKEN:
+		printf("F32 ");
+		break;
+	case F64_TOKEN:
+		printf("F64 ");
+		break;
+	case VAR_TOKEN:
+		printf("VAR ");
+		break;
+	case ALIAS_TOKEN:
+		printf("ALIAS ");
+		break;
+	case TYPE_TOKEN:
+		printf("TYPE ");
+		break;
+	case STRUCT_TOKEN:
+		printf("STRUCT ");
+		break;
+	case PACKED_TOKEN:
+		printf("PACKED STRUCT");
+		break;
+	case ENUM_TOKEN:
+		printf("ENUM ");
+		break;
+	case UNION_TOKEN:
+		printf("UNION ");
+		break;
+	case DOUBLE_ARROW_TOKEN:
+		printf("DOUBLE_ARROW => ");
+		break;
+	case TYPECLASS_TOKEN:
+		printf("TYPECLASS ");
+		break;
+	case IMPLEMENTS_TOKEN:
+		printf("IMPLEMENTS ");
+		break;
+	case RETURN_TOKEN:
+		printf("RETURN ");
+		break;
+	case IMPORT_TOKEN:
+		printf("IMPORT ");
+		break;
+	case SIZEOF_TOKEN:
+		printf("SIZEOF ");
+		break;
+	case BREAK_TOKEN:
+		printf("BREAK ");
+		break;
+	case CONTINUE_TOKEN:
+		printf("CONTINUE ");
+		break;
+	case CONSTANT_TOKEN:
+		printf("CONSTANT ");
+		break;
+	case AS_TOKEN:
+		printf("AS ");
+		break;
+	case EFFECT_TOKEN:
+		printf("EFFECT ~> ");
+		break;
+	default:
+		printf("UNKNOWN_TOKEN_TYPE ??? ");
+		break;
 	}
 }
 
@@ -2305,7 +2310,17 @@ parse_expr(parser* const parse, TOKEN end){
 				access->data.appl.left->data.appl.left->dot = 1;
 				access->data.appl.left->data.appl.left->data.binding = *t;
 				if (outer->data.appl.left->tag == APPL_EXPR){
-					access->data.appl.left->data.appl.right = outer->data.appl.left->data.appl.right;
+					if (outer->data.appl.left->data.appl.left->tag == APPL_EXPR){
+						if (outer->data.appl.left->data.appl.left->data.appl.left->dot == 1){
+							access->data.appl.left->data.appl.right = outer->data.appl.left;
+						}
+						else{
+							access->data.appl.left->data.appl.right = outer->data.appl.left->data.appl.right;
+						}
+					}
+					else{
+						access->data.appl.left->data.appl.right = outer->data.appl.left->data.appl.right;
+					}
 				}
 				else{
 					access->data.appl.left->data.appl.right = outer->data.appl.left;
@@ -2325,7 +2340,17 @@ parse_expr(parser* const parse, TOKEN end){
 					assert_local(0, NULL, "expected identifier or symbol as second argument to .\n");
 				}
 				if (outer->data.appl.left->tag == APPL_EXPR){
-					outer->data.appl.left->data.appl.right = access;
+					if (outer->data.appl.left->data.appl.left->tag == APPL_EXPR){
+						if (outer->data.appl.left->data.appl.left->data.appl.left->dot == 1){
+							outer->data.appl.left = access;
+						}
+						else{
+							outer->data.appl.left->data.appl.right = access;
+						}
+					}
+					else{
+						outer->data.appl.left->data.appl.right = access;
+					}
 				}
 				else{
 					outer->data.appl.left = access;

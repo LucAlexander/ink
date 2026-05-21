@@ -9951,7 +9951,7 @@ destructure_pattern(walker* const walk, pattern_ast* const pat, type_ast* target
 			.content_tag = STRING_TOKEN_TYPE,
 			.tag = IDENTIFIER_TOKEN,
 			.index = 0,
-			.data.name = string_init(walk->parse->mem, "==")//TODO what do for this, builtin ord typeclass with ==? or just strncmp call here
+			.data.name = string_init(walk->parse->mem, "builtin_strcmp")
 		};
 		expr_ast* string_eq_binding = mk_binding(walk->parse->mem, &string_eq_token);
 		cond->tag = IF_EXPR;
@@ -11639,9 +11639,6 @@ scrape_globals(genc* const generator, expr_ast* const expr, token_map* const cal
 }
 
 /* TODO
- * -ERROR REPORTING-----------------------------------------
- *  error reporting as logging rather than single report
-		 nearest type token function?
  * -BUGS----------------------------------------------------
  * 	do typedefs for non structures even work? did I forget about them entirely?
  * 	extern struct binding and access is difficult, bindings need matched ink structures

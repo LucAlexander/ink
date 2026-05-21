@@ -35,3 +35,15 @@ alias ubyte = u8;
 alias byte = i8;
 alias cstr = i8^;
 
+[u8] -> [u8] -> u64
+builtin_strcmp = \x y: {
+	if (x.len) != (y.len) {
+		return 0;
+	}
+	for u64 var i = 0; i < (x.len); i = i + 1 {
+		if x[i] != (y[i]) {
+			return 0;
+		}
+	}
+	return 1;
+};

@@ -2296,7 +2296,53 @@ parse_expr(parser* const parse, TOKEN end){
 			parse->token_index += 1;
 			return outer;
 		case COMPOSE_TOKEN:
+			if (outer->tag == APPL_EXPR){
+				expr_ast* access = pool_request(parse->mem, sizeof(expr_ast));
+				access->tag = APPL_EXPR;
+				access->data.appl.left = pool_request(parse->mem, sizeof(expr_ast));
+				access->data.appl.left->data.appl.left = pool_request(parse->mem, sizeof(expr_ast));
+				access->data.appl.left->data.appl.left->tag = BINDING_EXPR;
+				access->data.appl.left->data.appl.left->dot = 1;
+				access->data.appl.left->data.appl.left->data.binding = *t;
+				if (outer->data.appl.left->tag == APPL_EXPR){
+					access->data.appl.left->data.appl.right = outer->data.appl.left->data.appl.right;
+				}
+				else{
+					access->data.appl.left->data.appl.right = outer->data.appl.left;
+				}
+				assert_local(parse->token_index < parse->token_count, NULL, "unexpected . at end of expression\n");
+				if (parse->tokens[parse->token_index].tag == IDENTIFIER_TOKEN){
+					access->data.appl.right = pool_request(parse->mem, sizeof(expr_ast));
+					access->data.appl.right->tag = BINDING_EXPR;
+					access->data.appl.right->data.binding = parse->tokens[parse->token_index];
+				}
+				else if (parse->tokens[parse->token_index].tag == SYMBOL_TOKEN){
+					access->data.appl.right = pool_request(parse->mem, sizeof(expr_ast));
+					access->data.appl.right->tag = BINDING_EXPR;
+					access->data.appl.right->data.binding = parse->tokens[parse->token_index];
+				}
+				else{
+					assert_local(0, NULL, "expected identifier or symbol as second argument to .\n");
+				}
+				if (outer->data.appl.left->tag == APPL_EXPR){
+					outer->data.appl.left->data.appl.right = access;
+				}
+				else{
+					outer->data.appl.left = access;
+				}
+				parse->token_index += 1;
+				t = &parse->tokens[parse->token_index];
+				if (t->tag == end ){
+					parse->token_index += 1;
+					return outer->data.appl.left;
+				}
+				parse->token_index += 1;
+				continue;
+			}
 			expr->dot = 1;
+			expr->tag = BINDING_EXPR;
+			expr->data.binding = *t;
+			break;
 		case SYMBOL_TOKEN:
 			expr->tag = BINDING_EXPR;
 			expr->data.binding = *t;

@@ -7679,6 +7679,10 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		};
 		generate_new_lambda(walk);
 		expr_ast* newterm = mk_term(walk->parse->mem, expr->data.cast.target, &termname, NULL);
+		if (expr->data.cast.source->tag == LIT_EXPR){
+			newterm->data.term->expression = expr->data.cast.source;
+			return expr->data.cast.source;
+		}
 		line_relay_append(newlines, newterm);
 		expr_ast* termbinding = mk_binding(walk->parse->mem, &termname);
 		token cast_mem_cpy = {

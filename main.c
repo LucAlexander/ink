@@ -5993,10 +5993,10 @@ type_depends(walker* const walk, type_ast* const depends, type_ast* const func, 
 			if (string_compare(&depends->data.dependency.dependency_typenames[i].data.name, &func->data.function.left->data.named.name.data.name) != 0){
 				continue;
 			}
-			walk_assert(arg->tag == NAMED_TYPE, 0, "Dependent argument must be a named type");
+			walk_assert(arg->tag == NAMED_TYPE, nearest_type_token(depends), "Dependent argument must be a named type");
 			implementation_ptr_map* implementations = implementation_ptr_map_map_access(walk->parse->implementations, arg->data.named.name.data.name);
 			if (implementations == NULL){
-				walk_assert(arg_outer != NULL, 0, "Generic argument did not have dependency to match function applied to it");
+				walk_assert(arg_outer != NULL, nearest_type_token(depends), "Generic argument did not have dependency to match function applied to it");
 				uint8_t found = 0;
 				for (uint64_t k = 0;k<arg_outer->data.dependency.dependency_count;++k){
 					if (string_compare(&depends->data.dependency.dependency_typenames[i].data.name, &arg->data.named.name.data.name) != 0){
@@ -6005,12 +6005,12 @@ type_depends(walker* const walk, type_ast* const depends, type_ast* const func, 
 					found = 1;
 					break;
 				}
-				walk_assert(found == 1, 0, "Generic argument did not match dependency of the function applied to it");
+				walk_assert(found == 1, nearest_type_token(depends), "Generic argument did not match dependency of the function applied to it");
 			}
 			else{
-				walk_assert(implementations != NULL, 0, "No implementations found for given argument type");
+				walk_assert(implementations != NULL, nearest_type_token(depends), "No implementations found for given argument type");
 				implementation_ast** impl = implementation_ptr_map_access(implementations, depends->data.dependency.typeclass_dependencies[i].data.name);
-				walk_assert(impl != NULL, 0, "No implementation of dependency found for given argument type");
+				walk_assert(impl != NULL, nearest_type_token(depends), "No implementation of dependency found for given argument type");
 				depends->data.dependency.dependency_count -= 1;
 				for (uint64_t k = i;k<depends->data.dependency.dependency_count;++k){
 					depends->data.dependency.dependency_typenames[k] = depends->data.dependency.dependency_typenames[k+1];

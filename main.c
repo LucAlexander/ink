@@ -7722,11 +7722,13 @@ void
 transform_term(walker* const walk, term_ast* const term, uint8_t is_outer){
 	uint64_t scope_pos = walk->local_scope->binding_count;
 	if (term->type->tag != FUNCTION_TYPE){
-		expr_ast* block = pool_request(walk->parse->mem, sizeof(expr_ast));
-		block->tag = BLOCK_EXPR;
-		block->data.block.line_count = 1;
-		block->data.block.lines = mk_return(walk->parse->mem, term->expression);
-		term->expression = block;
+		if (term->expression->tag != BLOCK_EXPR){
+			expr_ast* block = pool_request(walk->parse->mem, sizeof(expr_ast));
+			block->tag = BLOCK_EXPR;
+			block->data.block.line_count = 1;
+			block->data.block.lines = mk_return(walk->parse->mem, term->expression);
+			term->expression = block;
+		}
 	}
 	transform_expr(walk, term->expression, is_outer, NULL, 1, 1);
 	pop_binding(walk->local_scope, scope_pos);

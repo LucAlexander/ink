@@ -176,6 +176,6 @@ def process(data):
     ]
 
 if __name__=='__main__':
-    assert len(sys.argc) == 2, "provide json ffi stub name\n"
+    assert len(sys.argv) == 2, "provide json ffi stub name\n"
     stub = sys.argv[1]
     write(stub, process(load(stub)))

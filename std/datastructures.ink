@@ -37,8 +37,3 @@ typeclass Orderable C {
 typeclass Copyable C {
 	C^ -> C copy;
 }
-
-//typeclass Sortable S {
-	//(Orderable T) => (S T)^ -> (S T)^ sort_inplace;
-	//(Orderable T, Copyable S) => S T -> S T sort;
-//}

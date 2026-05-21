@@ -144,6 +144,8 @@ def process(data):
         rval = convert_unit_type(item['type'])
         if rval == '':
             return ''
+        if item['name'] == rval:
+            return ''
         match item['type']['tag']:
             case "struct":
                 return f"alias {item['name']} = {rval};"
@@ -168,11 +170,11 @@ def process(data):
         types[item['name']] = True
         match item['tag']:
             case 'struct':
-                return f"type {item['name']} = {rval};"
+                return f"alias {item['name']} = {rval};"
             case 'enum':
-                return f"type {item['name']} = {rval};"
+                return f"alias {item['name']} = {rval};"
             case 'union':
-                return f"type {item['name']} = {rval};"
+                return f"alias {item['name']} = {rval};"
         return ''
 
     convert = {

@@ -9,7 +9,7 @@
 #define TEMP_ARENA_SIZE 0x50000000
 #define ERROR_STRING_MAX 0x100
 
-//#define DEBUG
+#define DEBUG
 
 typedef enum TOKEN {
 	PAREN_OPEN_TOKEN='(',
@@ -96,6 +96,7 @@ typedef struct token {
 } token;
 
 void show_tokens(token* tokens, uint64_t token_count);
+void show_token(token t);
 
 typedef struct type_ast type_ast;
 typedef struct alias_ast alias_ast;

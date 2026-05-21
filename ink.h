@@ -661,6 +661,8 @@ uint8_t type_equal(parser* const parse, type_ast* const left, type_ast* const ri
 uint8_t type_equal_worker(parser* const parse, token_map* const generics, type_ast* const left, type_ast* const right);
 uint8_t structure_equal(parser* const parse, token_map* const generics, structure_ast* const left, structure_ast* const right);
 uint64_t nearest_token(expr_ast* const e);
+uint64_t nearest_type_token(type_ast* const e);
+uint64_t nearest_structure_token(structure_ast* const e);
 uint64_t nearest_pattern_token(pattern_ast* const pat);
 type_ast* is_member(type_ast* const obj, expr_ast* const field);
 

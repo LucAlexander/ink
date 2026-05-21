@@ -4952,6 +4952,56 @@ walk_pattern(walker* const walk, pattern_ast* const pat, type_ast* expected_type
 }
 
 uint64_t
+nearest_type_token(type_ast* const type){
+	switch (type->tag){
+	case DEPENDENCY_TYPE:
+		if (type->data.dependency.dependency_count > 0){
+			return type->data.dependency.dependency_typenames[0].index;
+		}	
+		return nearest_type_token(type->data.dependency.type);
+	case FUNCTION_TYPE:
+		if (nearest_type_token(type->data.function.left) == 0){
+			return nearest_type_token(type->data.function.right);
+		}
+		return 0;
+	case LIT_TYPE:
+		return 0;
+	case PTR_TYPE:
+		return nearest_type_token(type->data.ptr);
+	case FAT_PTR_TYPE:
+		return nearest_type_token(type->data.fat_ptr.ptr);
+	case STRUCT_TYPE:
+		return nearest_structure_token(type->data.structure);
+		break;
+	case NAMED_TYPE:
+		return type->data.named.name.index;
+	}
+	return 0;
+}
+
+uint64_t
+nearest_structure_token(structure_ast* const structure) {
+	switch(structure->tag){
+	case STRUCT_STRUCT:
+		if (structure->data.structure.count == 0){
+			return 0;
+		}
+		return structure->data.structure.names[0].index;
+	case UNION_STRUCT:
+		if (structure->data.union_structure.count == 0){
+			return 0;
+		}
+		return structure->data.union_structure.names[0].index;
+	case ENUM_STRUCT:
+		if (structure->data.enumeration.count == 0){
+			return 0;
+		}
+		return structure->data.enumeration.names[0].index;
+	}
+	return 0;
+}
+
+uint64_t
 nearest_pattern_token(pattern_ast* const pat){
 	switch (pat->tag){
 	case NAMED_PATTERN:

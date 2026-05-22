@@ -2,8 +2,7 @@ external {
 	import global "raylib.h"
 	alias __gnuc_va_list = u8^;
 	alias va_list = u8^;
-	type Vector2 = struct {f32 x;f32 y;};
-	alias Vector2 = Vector2;
+	alias Vector2 = struct {f32 x;f32 y;};
 	type Vector3 = struct {f32 x;f32 y;f32 z;};
 	alias Vector3 = Vector3;
 	type Vector4 = struct {f32 x;f32 y;f32 z;f32 w;};
@@ -12,16 +11,12 @@ external {
 	type Matrix = struct {f32 m0;f32 m4;f32 m8;f32 m12;f32 m1;f32 m5;f32 m9;f32 m13;f32 m2;f32 m6;f32 m10;f32 m14;f32 m3;f32 m7;f32 m11;f32 m15;};
 	alias Matrix = Matrix;
 	alias Color = struct {u8 r;u8 g;u8 b;u8 a;};
-	type Rectangle = struct {f32 x;f32 y;f32 width;f32 height;};
-	alias Rectangle = Rectangle;
-	type Image = struct {(u8)^ data;i32 width;i32 height;i32 mipmaps;i32 format;};
-	alias Image = Image;
-	type Texture = struct {u32 id;i32 width;i32 height;i32 mipmaps;i32 format;};
-	alias Texture = Texture;
+	alias Rectangle = struct {f32 x;f32 y;f32 width;f32 height;};
+	alias Image = struct {(u8)^ data;i32 width;i32 height;i32 mipmaps;i32 format;};
+	alias Texture = struct {u32 id;i32 width;i32 height;i32 mipmaps;i32 format;};
 	alias Texture2D = Texture;
 	alias TextureCubemap = Texture;
-	type RenderTexture = struct {u32 id;Texture texture;Texture depth;};
-	alias RenderTexture = RenderTexture;
+	alias RenderTexture = struct {u32 id;Texture texture;Texture depth;};
 	alias RenderTexture2D = RenderTexture;
 	type NPatchInfo = struct {Rectangle source;i32 left;i32 top;i32 right;i32 bottom;i32 layout;};
 	alias NPatchInfo = NPatchInfo;

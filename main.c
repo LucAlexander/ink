@@ -3772,6 +3772,49 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 			expr->type = struct_type;
 			return struct_type;
 		}
+		if (expected_type->tag == NAMED_TYPE){
+			type_ast* through_type = reduce_alias_and_type_through_extern(walk->parse, expected_type);
+			walk_assert(through_type->tag == STRUCT_TYPE, nearest_token(expr), "Structure was found where non structure was expected");
+			inner = through_type->data.structure;
+			inner_struct = through_type;
+			type_ast* old_expected = expected_type;
+			expected_type = through_type;
+			if (inner->tag == STRUCT_STRUCT){
+				uint64_t current_member = 0;
+				for (uint64_t i = 0;i<expr->data.constructor.member_count;++i){
+					if (expr->data.constructor.names[i].data.name.len != 0){ // not named constructor value
+						uint8_t found = 0;
+						for (uint64_t k = 0;k<inner->data.structure.count;++k){
+							if (string_compare(&inner->data.structure.names[k].data.name, &expr->data.constructor.names[i].data.name) == 0){
+								type_ast* inferred = walk_expr(walk, &expr->data.constructor.members[i], &inner->data.structure.members[k], &inner->data.structure.members[k], 0);
+								walk_assert_prop();
+								walk_assert(inferred != NULL, nearest_token(&expr->data.constructor.members[i]), "Unexpected type for structure member");
+								current_member = k+1;
+								found = 1;
+							}
+						}
+						walk_assert(found == 1, expr->data.constructor.names[i].index, "Unknown member of structure or union");
+						continue;
+					}
+					walk_assert(current_member < inner->data.structure.count, expr->data.constructor.names[i].index, "Extra member in constructor");
+					type_ast* inferred = walk_expr(walk, &expr->data.constructor.members[i], &inner->data.structure.members[current_member], &inner->data.structure.members[current_member], 0);
+					walk_assert_prop();
+					walk_assert(inferred != NULL, nearest_token(&expr->data.constructor.members[i]), "Unexpected type for structure member");
+					current_member += 1;
+				}
+				pop_binding(walk->local_scope, scope_pos);
+				token_stack_pop(walk->term_stack, token_pos);
+				expr->type = old_expected;
+				return old_expected;
+			}
+			walk_assert(inner->tag == ENUM_STRUCT, nearest_token(expr), "Expected enumerator value");
+			walk_assert(expr->data.constructor.member_count == 1, nearest_token(expr), "Constructed enumerator requires 1 and only 1 value");
+			walk_expr(walk, &expr->data.constructor.members[0], inner_struct, inner_struct, 0);
+			pop_binding(walk->local_scope, scope_pos);
+			token_stack_pop(walk->term_stack, token_pos);
+			expr->type = old_expected;
+			return old_expected;
+		}
 		walk_assert(expected_type->tag == STRUCT_TYPE, nearest_token(expr), "Structure was found where non structure was expected");
 		if (inner->tag == STRUCT_STRUCT){
 			uint64_t current_member = 0;
@@ -4379,6 +4422,28 @@ reduce_alias(parser* const parse, type_ast* start_type){
 	while (start_type->tag == NAMED_TYPE){
 		alias_ast** alias = alias_ptr_map_access(parse->aliases, start_type->data.named.name.data.name);
 		if (alias == NULL){
+			return start_type;
+		}
+		start_type = (*alias)->type;
+	}
+	if (outer_type != NULL){
+		outer_type->data.dependency.type = start_type;
+		return outer_type;
+	}
+	return start_type;
+}
+
+type_ast*
+reduce_alias_through_extern(parser* const parse, type_ast* start_type){
+	type_ast* outer_type = NULL;
+	if (start_type->tag == DEPENDENCY_TYPE){
+		outer_type = pool_request(parse->mem, sizeof(type_ast));
+		*outer_type = *start_type;
+		start_type = start_type->data.dependency.type;
+	}
+	while (start_type->tag == NAMED_TYPE){
+		alias_ast** alias = alias_ptr_map_access(parse->aliases, start_type->data.named.name.data.name);
+		if (alias == NULL){
 			alias = alias_ptr_map_access(parse->extern_aliases, start_type->data.named.name.data.name);
 			if (alias == NULL){
 				return start_type;
@@ -4395,6 +4460,52 @@ reduce_alias(parser* const parse, type_ast* start_type){
 
 type_ast*
 reduce_alias_and_type(parser* const parse, type_ast* start_type){
+	type_ast* outer_type = NULL;
+	if (start_type->tag == DEPENDENCY_TYPE){
+		outer_type = pool_request(parse->mem, sizeof(type_ast));
+		*outer_type = *start_type;
+		start_type = start_type->data.dependency.type;
+	}
+	while (start_type->tag == NAMED_TYPE){
+		alias_ast** alias = alias_ptr_map_access(parse->aliases, start_type->data.named.name.data.name);
+		if (alias != NULL){
+			start_type = (*alias)->type;
+			continue;
+		}
+		typedef_ast** type = typedef_ptr_map_access(parse->types, start_type->data.named.name.data.name);
+		if (type != NULL){
+			if (start_type->data.named.arg_count != 0){
+				type_ast_map relation = type_ast_map_init(parse->mem);
+				assert_local((*type)->param_count >= start_type->data.named.arg_count, NULL, "Too many arguments given for parametric type\n");
+				for (uint64_t i = 0;i<start_type->data.named.arg_count;++i){
+					type_ast_map_insert(&relation, (*type)->params[i].data.name, start_type->data.named.args[i]);
+				}
+				type_ast_map empty_ptr_only = type_ast_map_init(parse->mem);
+				clash_relation r = {
+					.relation = &relation,
+					.pointer_only = &empty_ptr_only
+				};
+				start_type = deep_copy_type_replace(parse->mem, &r, (*type)->type);
+				continue;
+			}
+			start_type = (*type)->type;
+			continue;
+		}
+		if (outer_type != NULL){
+			outer_type->data.dependency.type = start_type;
+			return outer_type;
+		}
+		return start_type;
+	}
+	if (outer_type != NULL){
+		outer_type->data.dependency.type = start_type;
+		return outer_type;
+	}
+	return start_type;
+}
+
+type_ast*
+reduce_alias_and_type_through_extern(parser* const parse, type_ast* start_type){
 	type_ast* outer_type = NULL;
 	if (start_type->tag == DEPENDENCY_TYPE){
 		outer_type = pool_request(parse->mem, sizeof(type_ast));
@@ -8894,6 +9005,12 @@ is_generic(parser* const parse, type_ast* const type){
 		}
 		type_ast* reduced = reduce_alias(parse, type);
 		if (reduced->tag == NAMED_TYPE){
+			if (alias_ptr_map_access(parse->extern_aliases, reduced->data.named.name.data.name) != NULL){
+				return 0;
+			}
+			if (typedef_ptr_map_access(parse->extern_types, reduced->data.named.name.data.name) != NULL){
+				return 0;
+			}
 			typedef_ast** istypedef = typedef_ptr_map_access(parse->types, reduced->data.named.name.data.name);
 			if (istypedef != NULL){
 				if (type->data.named.arg_count < (*istypedef)->param_count){
@@ -9478,6 +9595,9 @@ try_structure_monomorph(walker* const walk, type_ast* const type){
 		}
 		reduced = reduce_alias_and_type(walk->parse, type);
 		break;
+	}
+	if (reduced->tag == NAMED_TYPE){
+		return;
 	}
 	if (reduced->tag == FAT_PTR_TYPE){
 		try_fat_monomorph(walk, reduced); // TODO probably doesnt work / do anything
@@ -10896,7 +11016,6 @@ write_type(genc* const generator, FILE* fd, type_ast* const type, token* const s
 
 string
 ink_prefix(genc* const generator, string* const name){
-
 	string new;
 	if (name->str[0] == '#'){
 		new = string_init(generator->mem, "lam_ink_");

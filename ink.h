@@ -656,6 +656,8 @@ void scrape_deps(realias_walker* const walk, type_ast* const term_type);
 
 type_ast* reduce_alias(parser* const parse, type_ast* start);
 type_ast* reduce_alias_and_type(parser* const parse, type_ast* start);
+type_ast* reduce_alias_through_extern(parser* const parse, type_ast* start);
+type_ast* reduce_alias_and_type_through_extern(parser* const parse, type_ast* start);
 type_ast* in_scope(walker* const walk, token* const bind, type_ast* const expected_type, type_ast* const real_type);
 type_ast* is_builtin(walker* const walk, token* const bind, type_ast* const expected_type);
 uint8_t type_equal(parser* const parse, type_ast* const left, type_ast* const right);

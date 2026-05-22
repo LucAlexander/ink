@@ -5257,8 +5257,8 @@ clash_types(parser* const parse, type_ast* left, type_ast* const right){
 
 uint8_t
 clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* pointer_only, type_ast* left, type_ast* right){
-	left = reduce_alias(parse, left);
-	right = reduce_alias(parse, right);
+	left = reduce_alias_through_extern(parse, left);
+	right = reduce_alias_through_extern(parse, right);
 	if (left->tag != right->tag){
 		if (left->tag == FAT_PTR_TYPE && right->tag == PTR_TYPE){
 			return clash_types_worker(parse, relation, pointer_only, left->data.fat_ptr.ptr, right->data.ptr);
@@ -5315,7 +5315,7 @@ clash_types_worker(parser* const parse, type_ast_map* relation, type_ast_map* po
 		alias_ast** isalias = alias_ptr_map_access(parse->aliases, left->data.named.name.data.name);
 		alias_ast** isexternalias = alias_ptr_map_access(parse->extern_aliases, left->data.named.name.data.name);
 		if (isalias != NULL || isexternalias != NULL){
-			type_ast* aliased_left = reduce_alias(parse, left);
+			type_ast* aliased_left = reduce_alias_through_extern(parse, left);
 			return clash_types_worker(parse, relation, pointer_only, aliased_left, right);
 		}
 		typedef_ast** istypedef = typedef_ptr_map_access(parse->types, left->data.named.name.data.name);
@@ -8151,7 +8151,7 @@ sizeof_type(parser* const parse, type_ast* const type){
 	case STRUCT_TYPE:
 		return sizeof_struct(parse, type->data.structure);
 	case NAMED_TYPE:
-		return sizeof_type(parse, reduce_alias_and_type(parse, type));
+		return sizeof_type(parse, reduce_alias_and_type_through_extern(parse, type));
 	}
 	return 0;
 }

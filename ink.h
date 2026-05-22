@@ -622,6 +622,7 @@ void scrape_lower_binding(walker* const walk, binding* bind);
 void generate_new_lambda(walker* const walk);
 void lift_lambda(walker* const walk, expr_ast* const expr, type_ast* const type, token newname);
 void replace_recursive_reference(expr_ast* const, token t, token newname);
+uint8_t both_are_primitive(type_ast* right, type_ast* left);
 
 GROWABLE_BUFFER_DECL(token);
 MAP_DECL(token_buffer);

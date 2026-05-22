@@ -7851,6 +7851,9 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 				expr->data.cast.source = swrapper;
 			}
 		}
+		if (both_are_primitive(reduced, expr->data.cast.source->type)){
+			return expr;
+		}
 		expr->data.cast.source = transform_expr(walk, expr->data.cast.source, 0, newlines, 1, 1);
 		walk_assert_prop();
 		token termname = {
@@ -7898,6 +7901,14 @@ transform_expr(walker* const walk, expr_ast* const expr, uint8_t is_outer, line_
 		return expr;
 	}
 	return expr;
+}
+
+uint8_t
+both_are_primitive(type_ast* right, type_ast* left){
+	if (right->tag == LIT_TYPE && left->tag == LIT_TYPE){
+		return 1;
+	}
+	return 0;
 }
 
 void

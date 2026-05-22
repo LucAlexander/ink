@@ -3204,7 +3204,7 @@ walk_expr(walker* const walk, expr_ast* const expr, type_ast* expected_type, typ
 					type_ast* obj = walk_expr(walk, expr->data.appl.left->data.appl.right, NULL, outer_type, 0);
 					walk_assert_prop();
 					walk_assert(obj != NULL, nearest_token(expr->data.appl.left->data.appl.right), "Unable to determine left type of either composition or field access");
-					obj = reduce_alias_and_type(walk->parse, obj);
+					obj = reduce_alias_and_type_through_extern(walk->parse, obj);
 					walk_assert_prop();
 					if (obj->tag == STRUCT_TYPE){
 						walk_assert(expr->data.appl.right->tag == BINDING_EXPR, nearest_token(expr->data.appl.right), "Expected field for structure access");

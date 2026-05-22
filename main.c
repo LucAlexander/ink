@@ -10615,7 +10615,7 @@ write_constant(genc* const generator, FILE* fd, const_ast* const constant){
 		write_name(generator, fd, newname);
 	}
 	fprintf(fd, " = ");
-	write_expression(generator, fd, constant->value, 0, 0, 0);
+	write_expression(generator, fd, constant->value, 0, 0, 0, 0);
 	fprintf(fd, ";\n");
 }
 
@@ -11145,7 +11145,7 @@ write_term_impl(genc* const generator, FILE* fd, term_ast* const term){
 		write_name(generator, fd, newname);
 	}
 	write_type_args(generator, fd, term->type, term->expression);
-	write_expression(generator, fd, term->expression, 0, 1, 0);
+	write_expression(generator, fd, term->expression, 0, 1, 0, 0);
 	fprintf(fd, "\n");
 }
 
@@ -11160,18 +11160,18 @@ void
 write_call(genc* const generator, FILE* fd, expr_ast* const expr, expr_ast* const first){
 	if (expr->tag == APPL_EXPR){
 		write_call(generator, fd, expr->data.appl.left, first);
-		write_expression(generator, fd, expr->data.appl.right, 0, 1, 0);
+		write_expression(generator, fd, expr->data.appl.right, 0, 1, 0, 0);
 		if (expr != first){
 			fprintf(fd, ",");
 		}
 		return;
 	}
-	write_expression(generator, fd, expr, 0, 0, 0);
+	write_expression(generator, fd, expr, 0, 0, 0, 0);
 	fprintf(fd, "(");
 }
 
 void
-write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t indent, uint8_t free, uint8_t access){
+write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t indent, uint8_t free, uint8_t access, uint8_t extern_access){
 	switch (expr->tag){
 	case APPL_EXPR:
 		ink_indent(fd, indent);
@@ -11187,141 +11187,141 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 		if (first->tag == BINDING_EXPR){
 			if (cstring_compare(&first->data.binding.data.name, "~add") == 0){
 				fprintf(fd, "(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")+(");
-				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
 			else if (cstring_compare(&first->data.binding.data.name, "~sub") == 0){
 				fprintf(fd, "(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")-(");
-				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
 			else if (cstring_compare(&first->data.binding.data.name, "~mul") == 0){
 				fprintf(fd, "(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")*(");
-				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
 			else if (cstring_compare(&first->data.binding.data.name, "~div") == 0){
 				fprintf(fd, "(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")/(");
-				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
 			else if (cstring_compare(&first->data.binding.data.name, "~mod") == 0){
 				fprintf(fd, "(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")%%(");
-				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
 			else if (cstring_compare(&first->data.binding.data.name, "~and") == 0){
 				fprintf(fd, "(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")&&(");
-				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
 			else if (cstring_compare(&first->data.binding.data.name, "~or") == 0){
 				fprintf(fd, "(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")||(");
-				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
 			else if (cstring_compare(&first->data.binding.data.name, "~bitor") == 0){
 				fprintf(fd, "(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")|(");
-				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
 			else if (cstring_compare(&first->data.binding.data.name, "~bitand") == 0){
 				fprintf(fd, "(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")&(");
-				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
 			else if (cstring_compare(&first->data.binding.data.name, "~bitxor") == 0){
 				fprintf(fd, "(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")^(");
-				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
 			else if (cstring_compare(&first->data.binding.data.name, "~lt") == 0){
 				fprintf(fd, "(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")<(");
-				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
 			else if (cstring_compare(&first->data.binding.data.name, "~gt") == 0){
 				fprintf(fd, "(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")>(");
-				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
 			else if (cstring_compare(&first->data.binding.data.name, "~le") == 0){
 				fprintf(fd, "(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")<=(");
-				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
 			else if (cstring_compare(&first->data.binding.data.name, "~ge") == 0){
 				fprintf(fd, "(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")>=(");
-				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
 			else if (cstring_compare(&first->data.binding.data.name, "~eq") == 0){
 				fprintf(fd, "(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")==(");
-				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
 			else if (cstring_compare(&first->data.binding.data.name, "~neq") == 0){
 				fprintf(fd, "(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")!=(");
-				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_1->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
 			else if (cstring_compare(&first->data.binding.data.name, "~bitcomp") == 0){
 				fprintf(fd, "~(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
 			else if (cstring_compare(&first->data.binding.data.name, "~not") == 0){
 				fprintf(fd, "!(");
-				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0);
+				write_expression(generator, fd, prev_0->data.appl.right, 0, 1, 0, 0);
 				fprintf(fd, ")");
 				builtin = 1;
 			}
@@ -11332,13 +11332,13 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 		}
 		break;
 	case LAMBDA_EXPR:
-		write_expression(generator, fd, expr->data.lambda.expression, indent, 1, 0);
+		write_expression(generator, fd, expr->data.lambda.expression, indent, 1, 0, 0);
 		break;
 	case BLOCK_EXPR:
 		ink_indent(fd, indent);
 		fprintf(fd, "{\n");
 		for (uint64_t i = 0;i<expr->data.block.line_count;++i){
-			write_expression(generator, fd, &expr->data.block.lines[i], indent+1, 1, 0);
+			write_expression(generator, fd, &expr->data.block.lines[i], indent+1, 1, 0, 0);
 			fprintf(fd, ";\n");
 		}
 		ink_indent(fd, indent);
@@ -11374,7 +11374,7 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 		}
 		if (expr->data.term->expression != NULL){
 			fprintf(fd, " = ");
-			write_expression(generator, fd, expr->data.term->expression, 0, 1, 0);
+			write_expression(generator, fd, expr->data.term->expression, 0, 1, 0, 0);
 		}
 		break;
 	case STRING_EXPR:
@@ -11388,7 +11388,7 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 			if (i != 0){
 				fprintf(fd, ",");
 			}
-			write_expression(generator, fd, &expr->data.list.lines[i], 0, 1, 0);
+			write_expression(generator, fd, &expr->data.list.lines[i], 0, 1, 0, 0);
 		}
 		fprintf(fd, "}");
 		break;
@@ -11414,14 +11414,14 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 			if (expr->data.constructor.members[i].type != NULL){
 				type_ast* fun_reduced = reduce_alias_and_type(generator->parse, expr->data.constructor.members[i].type);
 			   	if (fun_reduced->tag == FUNCTION_TYPE){
-					write_expression(generator, fd, &expr->data.constructor.members[i], 0, 0, 0);
+					write_expression(generator, fd, &expr->data.constructor.members[i], 0, 0, 0, 0);
 				}
 				else{
-					write_expression(generator, fd, &expr->data.constructor.members[i], 0, 1, 0);
+					write_expression(generator, fd, &expr->data.constructor.members[i], 0, 1, 0, 0);
 				}
 			}
 			else{
-				write_expression(generator, fd, &expr->data.constructor.members[i], 0, 1, 0);
+				write_expression(generator, fd, &expr->data.constructor.members[i], 0, 1, 0, 0);
 			}
 		}
 		fprintf(fd, "\n}");
@@ -11446,19 +11446,24 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 				return;
 			}
 		}
-		token* memoized = token_map_access(generator->translated_names, expr->data.binding.data.name);
-		if (memoized != NULL){
-			write_name(generator, fd, *memoized);
+		if (extern_access){
+			write_name(generator, fd, expr->data.binding);
 		}
 		else{
-			token newname = {
-				.content_tag = STRING_TOKEN_TYPE,
-				.tag = IDENTIFIER_TOKEN,
-				.index = 0,
-				.data.name = ink_prefix(generator, &expr->data.binding.data.name)
-			};
-			token_map_insert(generator->translated_names, expr->data.binding.data.name, newname);
-			write_name(generator, fd, newname);
+			token* memoized = token_map_access(generator->translated_names, expr->data.binding.data.name);
+			if (memoized != NULL){
+				write_name(generator, fd, *memoized);
+			}
+			else{
+				token newname = {
+					.content_tag = STRING_TOKEN_TYPE,
+					.tag = IDENTIFIER_TOKEN,
+					.index = 0,
+					.data.name = ink_prefix(generator, &expr->data.binding.data.name)
+				};
+				token_map_insert(generator->translated_names, expr->data.binding.data.name, newname);
+				write_name(generator, fd, newname);
+			}
 		}
 		if (term_ptr_map_access(generator->parse->terms, expr->data.binding.data.name) != NULL){
 			if (free == 1){
@@ -11468,14 +11473,14 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 		break;
 	case MUTATION_EXPR:
 		ink_indent(fd, indent);
-		write_expression(generator, fd, expr->data.mutation.left, 0, 1, 0);
+		write_expression(generator, fd, expr->data.mutation.left, 0, 1, 0, 0);
 		fprintf(fd, " = ");
-		write_expression(generator, fd, expr->data.mutation.right, 0, 1, 0);
+		write_expression(generator, fd, expr->data.mutation.right, 0, 1, 0, 0);
 		break;
 	case RETURN_EXPR:
 		ink_indent(fd, indent);
 		fprintf(fd, "return ");
-		write_expression(generator, fd, expr->data.ret, 0, 1, 0);
+		write_expression(generator, fd, expr->data.ret, 0, 1, 0, 0);
 		break;
 	case SIZEOF_EXPR:
 		ink_indent(fd, indent);
@@ -11486,43 +11491,43 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 	case REF_EXPR:
 		ink_indent(fd, indent);
 		fprintf(fd, "&(");
-		write_expression(generator, fd, expr->data.ref, 0, 1, 0);
+		write_expression(generator, fd, expr->data.ref, 0, 1, 0, 0);
 		fprintf(fd, ")");
 		break;
 	case DEREF_EXPR:
 		ink_indent(fd, indent);
 		fprintf(fd, "*(");
-		write_expression(generator, fd, expr->data.deref, 0, 1, 0);
+		write_expression(generator, fd, expr->data.deref, 0, 1, 0, 0);
 		fprintf(fd, ")");
 		break;
 	case IF_EXPR:
 		ink_indent(fd, indent);
 		fprintf(fd, "if (");
-		write_expression(generator, fd, expr->data.if_statement.pred, 0, 1, 0);
+		write_expression(generator, fd, expr->data.if_statement.pred, 0, 1, 0, 0);
 		fprintf(fd, ")");
-		write_expression(generator, fd, expr->data.if_statement.cons, indent, 1, 0);
+		write_expression(generator, fd, expr->data.if_statement.cons, indent, 1, 0, 0);
 		if (expr->data.if_statement.alt != NULL){
 			fprintf(fd, "else\n");
-			write_expression(generator, fd, expr->data.if_statement.alt, indent, 1, 0);
+			write_expression(generator, fd, expr->data.if_statement.alt, indent, 1, 0, 0);
 		}
 		break;
 	case FOR_EXPR:
 		ink_indent(fd, indent);
 		fprintf(fd, "for (");
-		write_expression(generator, fd, expr->data.for_statement.initial, 0, 1, 0);
+		write_expression(generator, fd, expr->data.for_statement.initial, 0, 1, 0, 0);
 		fprintf(fd, ";");
-		write_expression(generator, fd, expr->data.for_statement.limit, 0, 1, 0);
+		write_expression(generator, fd, expr->data.for_statement.limit, 0, 1, 0, 0);
 		fprintf(fd, ";");
-		write_expression(generator, fd, expr->data.for_statement.change, 0, 1, 0);
+		write_expression(generator, fd, expr->data.for_statement.change, 0, 1, 0, 0);
 		fprintf(fd, ")");
-		write_expression(generator, fd, expr->data.for_statement.cons, indent, 1, 0);
+		write_expression(generator, fd, expr->data.for_statement.cons, indent, 1, 0, 0);
 		break;
 	case WHILE_EXPR:
 		ink_indent(fd, indent);
 		fprintf(fd, "while (");
-		write_expression(generator, fd, expr->data.if_statement.pred, 0, 1, 0);
+		write_expression(generator, fd, expr->data.if_statement.pred, 0, 1, 0, 0);
 		fprintf(fd, ")");
-		write_expression(generator, fd, expr->data.if_statement.cons, indent, 1, 0);
+		write_expression(generator, fd, expr->data.if_statement.cons, indent, 1, 0, 0);
 		break;
 	case MATCH_EXPR:
 		assert(0);
@@ -11532,7 +11537,7 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 		fprintf(fd, "(");
 		write_type(generator, fd, expr->data.cast.target, NULL);
 		fprintf(fd, ")(");
-		write_expression(generator, fd, expr->data.cast.source, 0, 1, 0);
+		write_expression(generator, fd, expr->data.cast.source, 0, 1, 0, 0);
 		fprintf(fd, ")");
 		break;
 	case BREAK_EXPR:
@@ -11547,11 +11552,11 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 		break;
 	case STRUCT_ACCESS_EXPR:
 		ink_indent(fd, indent);
-		write_expression(generator, fd, expr->data.access.left, 0, 1, 0);
+		write_expression(generator, fd, expr->data.access.left, 0, 1, 0, 0);
 		type_ast* reduced_left = reduce_alias_and_type(generator->parse, expr->data.access.left->type);
 		if (reduced_left->tag == PTR_TYPE){
 			fprintf(fd, "->");
-			write_expression(generator, fd, expr->data.access.right, 0, 0, 1);
+			write_expression(generator, fd, expr->data.access.right, 0, 0, 1, 0);
 		}
 		else if (reduced_left->tag == FAT_PTR_TYPE){
 			if (cstring_compare(&expr->data.access.right->data.binding.data.name, "ptr") == 0){
@@ -11562,22 +11567,27 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 			}
 			else{
 				fprintf(fd, ".ptr->");
-				write_expression(generator, fd, expr->data.access.right, 0, 0, 1);
+				write_expression(generator, fd, expr->data.access.right, 0, 0, 1, 0);
 			}
 		}
 		else{
 			fprintf(fd, ".");
-			write_expression(generator, fd, expr->data.access.right, 0, 0, 1);
+			if (reduced_left->tag == NAMED_TYPE){ // NOTE this is because reduce_alias_and_type stops at externs, so if its not a struct its an extern
+				write_expression(generator, fd, expr->data.access.right, 0, 0, 1, 1);
+			}
+			else{
+				write_expression(generator, fd, expr->data.access.right, 0, 0, 1, 0);
+			}
 		}
 		break;
 	case ARRAY_ACCESS_EXPR:
 		ink_indent(fd, indent);
-		write_expression(generator, fd, expr->data.access.left, indent, 1, 0);
+		write_expression(generator, fd, expr->data.access.left, indent, 1, 0, 0);
 		if (expr->data.access.left->type->tag == FAT_PTR_TYPE){
 			fprintf(fd, ".ptr");
 		}
 		fprintf(fd, "[");
-		write_expression(generator, fd, &expr->data.access.right->data.list.lines[0], 0, 1, 0);
+		write_expression(generator, fd, &expr->data.access.right->data.list.lines[0], 0, 1, 0, 0);
 		fprintf(fd, "]");
 		break;
 	case FAT_PTR_EXPR:
@@ -11585,11 +11595,11 @@ write_expression(genc* const generator, FILE* fd, expr_ast* const expr, uint64_t
 		fprintf(fd, "{\n");
 		ink_indent(fd, indent+1);
 		fprintf(fd, ".ptr=");
-		write_expression(generator, fd, expr->data.fat_ptr.left, 0, 1, 0);
+		write_expression(generator, fd, expr->data.fat_ptr.left, 0, 1, 0, 0);
 		fprintf(fd, ",\n");
 		ink_indent(fd, indent+1);
 		fprintf(fd, ".len=");
-		write_expression(generator, fd, expr->data.fat_ptr.right, 0, 1, 0);
+		write_expression(generator, fd, expr->data.fat_ptr.right, 0, 1, 0, 0);
 		ink_indent(fd, indent+1);
 		fprintf(fd, "\n}");
 		break;

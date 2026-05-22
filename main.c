@@ -11836,8 +11836,6 @@ scrape_globals(genc* const generator, expr_ast* const expr, token_map* const cal
 
 /* TODO
  * -BUGS----------------------------------------------------
- * 	do typedefs for non structures even work? did I forget about them entirely?
- * 	extern struct binding and access is difficult, bindings need matched ink structures
  * 	polyfunc should check if types are aliased or typedefs
  * 	return match server { (Just s) : ...; (Nothing) : ...; };
  * 		generates incorrectly

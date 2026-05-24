@@ -48,3 +48,26 @@ map_bucket_insert = \bucket key val hash: {
 	bucket.val = val;
 	return 1;
 }
+
+(MapBucket K V)^ -> K -> u64 -> Maybe V
+map_bucket_get = \bucket key hash: {
+	if hash < bucket.hash {
+		if bucket.left == null {
+			return {Nothing};
+		}
+		return map_bucket_get bucket.left key hash;
+	}
+	else if hash > bucket.hash {
+		if bucket.right == null {
+			return {Nothing};
+		}
+		return map_bucket_get bucket.right key hash;
+	}
+	return {Just, bucket.val};
+}
+
+Map K V -> K -> Maybe V
+get = \map key: {
+	u64 hash = map.hash key;
+	return map_bucket_get &(map.buckets[hash % MAP_BUCKET_COUNT]) key hash;
+};
